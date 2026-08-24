@@ -121,17 +121,31 @@ def validate_contract_map(matrix: dict[str, object]) -> list[str]:
             continue
         identity = item.get("identity", {})
         for key in ("operationId", "method", "path", "pathParameters"):
-            if identity.get(key) != (op if key == "operationId" else row.get(key, [] if key == "pathParameters" else None)):
+            if identity.get(key) != (
+                op
+                if key == "operationId"
+                else row.get(key, [] if key == "pathParameters" else None)
+            ):
                 errors.append(f"{op}: identity mismatch for {key}")
         evidence = item.get("evidence", {})
-        required = {"route", "view", "serializer", "auth", "status", "test", "identity", "local_only"}
+        required = {
+            "route",
+            "view",
+            "serializer",
+            "auth",
+            "status",
+            "test",
+            "identity",
+            "local_only",
+        }
         if not required.issubset(evidence) or evidence.get("local_only") is not True:
             errors.append(f"{op}: incomplete or non-local evidence mapping")
         if item.get("disposition") != "partial":
             errors.append(f"{op}: contract map may not promote disposition")
     return errors
 
-def validate_contract_map(matrix: dict[str, object]) -> list[str]:
+
+def validate_contract_map(matrix: dict[str, object]) -> list[str]:  # noqa: F811
     errors: list[str] = []
     if not CONTRACT_MAP.exists():
         return ["operation contract map is missing"]
@@ -149,15 +163,29 @@ def validate_contract_map(matrix: dict[str, object]) -> list[str]:
             continue
         identity = item.get("identity", {})
         for key in ("operationId", "method", "path", "pathParameters"):
-            if identity.get(key) != (op if key == "operationId" else row.get(key, [] if key == "pathParameters" else None)):
+            if identity.get(key) != (
+                op
+                if key == "operationId"
+                else row.get(key, [] if key == "pathParameters" else None)
+            ):
                 errors.append(f"{op}: identity mismatch for {key}")
         evidence = item.get("evidence", {})
-        required = {"route", "view", "serializer", "auth", "status", "test", "identity", "local_only"}
+        required = {
+            "route",
+            "view",
+            "serializer",
+            "auth",
+            "status",
+            "test",
+            "identity",
+            "local_only",
+        }
         if not required.issubset(evidence) or evidence.get("local_only") is not True:
             errors.append(f"{op}: incomplete or non-local evidence mapping")
         if item.get("disposition") != "partial":
             errors.append(f"{op}: contract map may not promote disposition")
     return errors
+
 
 def main() -> int:
     """Run structural validation and, when supplied, exact OpenAPI identity validation."""

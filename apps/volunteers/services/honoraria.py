@@ -27,6 +27,7 @@ Expense reimbursements (``PAYMENT_TYPE_EXPENSE``) are excluded.
 
 PIPEDA note: volunteers are referenced by profile PK only in log output.
 """
+
 import logging
 from decimal import Decimal
 
@@ -38,7 +39,7 @@ from django.db.models import Sum
 logger = logging.getLogger(__name__)
 
 
-def cumulative_ytd(volunteer_profile, *, year: int) -> Decimal:
+def cumulative_ytd(volunteer_profile, *, year: int) -> Decimal:  # noqa: ANN001
     """
     Return the sum of all honorarium (not expense reimbursement) payments
     for ``volunteer_profile`` in the given calendar ``year``.
@@ -56,26 +57,22 @@ def cumulative_ytd(volunteer_profile, *, year: int) -> Decimal:
     """
     from apps.volunteers.models import Honorarium
 
-    total = (
-        Honorarium.objects
-        .filter(
-            volunteer=volunteer_profile,
-            payment_type=Honorarium.PAYMENT_TYPE_HONORARIUM,
-            payment_date__year=year,
-        )
-        .aggregate(total=Sum("amount"))["total"]
-    )
+    total = Honorarium.objects.filter(
+        volunteer=volunteer_profile,
+        payment_type=Honorarium.PAYMENT_TYPE_HONORARIUM,
+        payment_date__year=year,
+    ).aggregate(total=Sum("amount"))["total"]
     return total or Decimal("0")
 
 
-def create_honorarium(
+def create_honorarium(  # noqa: ANN201
     *,
-    volunteer_profile,
+    volunteer_profile,  # noqa: ANN001
     payment_type: str,
     amount: Decimal,
     description: str,
-    payment_date,
-    created_by,
+    payment_date,  # noqa: ANN001
+    created_by,  # noqa: ANN001
 ):
     """
     Create an ``Honorarium`` record with full CRA threshold enforcement.
@@ -112,6 +109,7 @@ def create_honorarium(
         raise PermissionDenied(_("You do not have permission to create honoraria."))
 
     from apps.volunteers.models import Honorarium
+
     valid_types = {c[0] for c in Honorarium.PAYMENT_TYPE_CHOICES}
     if payment_type not in valid_types:
         raise ValueError(f"Invalid payment_type '{payment_type}'")
@@ -125,6 +123,7 @@ def create_honorarium(
         # redundant — VolunteerProfile is always present even for a volunteer's very
         # first honorarium (no phantom-read gap), so holding this lock is sufficient.
         from apps.volunteers.models import VolunteerProfile
+
         VolunteerProfile.objects.select_for_update().get(pk=volunteer_profile.pk)
 
         # H1: The previous version of this function computed existing_total via
@@ -159,13 +158,19 @@ def create_honorarium(
         # The try/except only handles unexpected import or model errors.
         # L-3: datetime is a stdlib module that cannot raise ImportError — move it
         # outside the try block so only the app import warrants lazy loading.
-        from datetime import datetime as _dt  # noqa: PLC0415
+        from datetime import datetime as _dt
+
         try:
             from django.utils import timezone as _tz
+
             from apps.payments.models import (
                 GATEWAY_MANUAL as _GATEWAY_MANUAL,
-                PaymentIntent as _PI,
-                Payment as _P,
+            )
+            from apps.payments.models import (
+                Payment as _P,  # noqa: N814
+            )
+            from apps.payments.models import (
+                PaymentIntent as _PI,  # noqa: N814
             )
 
             # Convert payment_date (date) to timezone-aware datetime at midnight Toronto
@@ -234,6 +239,7 @@ def create_honorarium(
             honorarium_created,
             t4a_threshold_reached,
         )
+
         _alert_threshold = Decimal(str(getattr(settings, "VOLUNTEER_CRA_ALERT_THRESHOLD", 450)))
         # H2: Capture the T4A threshold for post-commit signal routing.
         # Both thresholds are read from settings before the closure so the closure
@@ -241,15 +247,18 @@ def create_honorarium(
         # for the life of the process, but this makes the capture explicit).
         _t4a_threshold = Decimal(str(getattr(settings, "VOLUNTEER_CRA_T4A_THRESHOLD", 500)))
 
-        def _post_commit():
+        def _post_commit() -> None:
             # M1: Outer guard — any unexpected exception in the on_commit path is
             # caught and logged rather than silently discarded or bubbled up.
             # Django's on_commit queue swallows exceptions, so without this guard
             # a ReceiverError or DB hiccup would produce no log entry at all.
             try:
-                from apps.volunteers.models import Honorarium as _H
+                from apps.volunteers.models import Honorarium as _H  # noqa: N814
+
                 try:
-                    hon = _H.objects.select_related("volunteer", "created_by").get(pk=_honorarium_pk)
+                    hon = _H.objects.select_related("volunteer", "created_by").get(
+                        pk=_honorarium_pk
+                    )
                 except _H.DoesNotExist:
                     logger.warning(
                         "volunteers.services.honoraria: Honorarium #%s not found in "
@@ -260,12 +269,16 @@ def create_honorarium(
 
                 # M2: Use distinct variable names for each send_robust() result so
                 # the three call-sites are unambiguous under code review and debugger.
-                _created_results = honorarium_created.send_robust(sender=_H, instance=hon, created_by=hon.created_by)
+                _created_results = honorarium_created.send_robust(
+                    sender=_H, instance=hon, created_by=hon.created_by
+                )
                 for recv, exc in _created_results:
                     if isinstance(exc, Exception):
                         logger.error(
                             "honorarium_created receiver %s raised %s",
-                            recv, exc, exc_info=(type(exc), exc, exc.__traceback__),
+                            recv,
+                            exc,
+                            exc_info=(type(exc), exc, exc.__traceback__),
                         )
 
                 # M3: Use hon.payment_type (authoritative DB value committed by save())
@@ -304,7 +317,9 @@ def create_honorarium(
                             if isinstance(exc, Exception):
                                 logger.error(
                                     "t4a_threshold_reached receiver %s raised %s",
-                                    recv, exc, exc_info=(type(exc), exc, exc.__traceback__),
+                                    recv,
+                                    exc,
+                                    exc_info=(type(exc), exc, exc.__traceback__),
                                 )
                     elif _ytd_live >= _alert_threshold:
                         # H2: elif (not else/if) — _ytd_live < _t4a_threshold is implicit,
@@ -320,7 +335,9 @@ def create_honorarium(
                             if isinstance(exc, Exception):
                                 logger.error(
                                     "cra_alert_threshold_reached receiver %s raised %s",
-                                    recv, exc, exc_info=(type(exc), exc, exc.__traceback__),
+                                    recv,
+                                    exc,
+                                    exc_info=(type(exc), exc, exc.__traceback__),
                                 )
             except Exception:
                 logger.error(
@@ -338,8 +355,7 @@ def create_honorarium(
     # The full record is in the DB audit trail; operational logs need only the
     # financial record PK and the actor who created it.
     logger.info(
-        "volunteers.services.honoraria: Honorarium #%s created — "
-        "created_by user #%s",
+        "volunteers.services.honoraria: Honorarium #%s created — " "created_by user #%s",
         honorarium.pk,
         created_by.pk,
     )

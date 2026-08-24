@@ -26,6 +26,7 @@ SSRF note (Finding #6, fixed):
   applied to resource.alert_url since Wave F. See _validate_url()'s
   docstring for the full two-layer rationale.
 """
+
 from __future__ import annotations
 
 import itertools
@@ -97,10 +98,11 @@ def _validate_url(url: str, field_name: str) -> None:
         try:
             _https_validator(url)
         except DjangoValidationError:
-            raise ValueError(
+            raise ValueError(  # noqa: B904
                 f"{field_name} must be a valid HTTPS URL. "
                 f"Plain HTTP and malformed URLs are not permitted."
             )
+
 
 # ---------------------------------------------------------------------------
 # Category → resource_type mapping
@@ -138,6 +140,7 @@ def _map_category_to_resource_type(category: str) -> str:
 # GovStack System Location placeholder
 # ---------------------------------------------------------------------------
 
+
 def _get_or_create_govstack_location() -> Location:
     """
     Get or create the GovStack System Location used for resources created via the GovStack API.
@@ -171,6 +174,7 @@ def _get_or_create_govstack_location() -> Location:
 # ---------------------------------------------------------------------------
 # Public service functions
 # ---------------------------------------------------------------------------
+
 
 def resource_create(
     name: str = "",
@@ -606,7 +610,7 @@ def resource_get_availability(resource_filter: dict) -> list[dict]:
             raise ValueError(f"Invalid 'to' datetime: {to_str!r}") from exc
         if dt_to is not None and is_naive(dt_to):
             raise ValueError(
-                f"'to' datetime must include a timezone offset (e.g. '2026-08-02T17:00:00Z'): {to_str!r}"
+                f"'to' datetime must include a timezone offset (e.g. '2026-08-02T17:00:00Z'): {to_str!r}"  # noqa: E501
             )
         qs = qs.filter(end_datetime__lte=dt_to)
 

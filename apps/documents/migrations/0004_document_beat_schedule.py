@@ -23,7 +23,7 @@ from django.db import migrations
 logger = logging.getLogger(__name__)
 
 
-def _register_beat_schedule(apps, schema_editor):
+def _register_beat_schedule(apps, schema_editor) -> None:  # noqa: ANN001
     """
     Migration wrapper for create_beat_schedule().
 
@@ -39,6 +39,7 @@ def _register_beat_schedule(apps, schema_editor):
     """
     try:
         from apps.documents.tasks import create_beat_schedule
+
         create_beat_schedule()
     except Exception as exc:
         # Log but don't re-raise: the permission change (AlterModelOptions)
@@ -51,14 +52,13 @@ def _register_beat_schedule(apps, schema_editor):
         )
 
 
-def _noop(apps, schema_editor):
+def _noop(apps, schema_editor) -> None:  # noqa: ANN001
     """No-op reverse for beat schedule registration."""
     pass
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("documents", "0003_document_permissions"),
         # django_celery_beat must be migrated before we can write PeriodicTask rows.
         # This is a soft dependency — listed so the migration runner applies celery
@@ -67,7 +67,7 @@ class Migration(migrations.Migration):
         ("django_celery_beat", "0018_improve_crontab_helptext"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         # 1. Add manage_legal_hold to Document permissions.
         migrations.AlterModelOptions(
             name="document",

@@ -3,6 +3,7 @@
 This module is deliberately a decision primitive only. It does not call providers,
 write callbacks, or persist state.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -59,7 +60,9 @@ class Lease:
     expires_at: float
 
 
-def select_partial_retry(items: list[dict], *, owner: str, now: float, lease_seconds: int = 300) -> tuple[Lease, ...]:
+def select_partial_retry(
+    items: list[dict], *, owner: str, now: float, lease_seconds: int = 300
+) -> tuple[Lease, ...]:
     """Select retryable work once, with deterministic owner/expiry leases."""
     if not owner or lease_seconds <= 0:
         return ()

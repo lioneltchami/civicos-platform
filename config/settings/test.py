@@ -9,11 +9,11 @@ Optimized for speed and isolation:
 - Simplified password hashing
 """
 
-from .base import *  # noqa: F401, F403
-
 # Generate a fresh RSA key pair for test use only (never used in production)
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa as _rsa
+
+from .base import *  # noqa: F403
 
 _test_private_key = _rsa.generate_private_key(public_exponent=65537, key_size=2048)
 _JWT_PRIVATE_KEY = _test_private_key.private_bytes(
@@ -21,12 +21,16 @@ _JWT_PRIVATE_KEY = _test_private_key.private_bytes(
     format=serialization.PrivateFormat.TraditionalOpenSSL,
     encryption_algorithm=serialization.NoEncryption(),
 ).decode("utf-8")
-_JWT_PUBLIC_KEY = _test_private_key.public_key().public_bytes(
-    encoding=serialization.Encoding.PEM,
-    format=serialization.PublicFormat.SubjectPublicKeyInfo,
-).decode("utf-8")
+_JWT_PUBLIC_KEY = (
+    _test_private_key.public_key()
+    .public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    .decode("utf-8")
+)
 
-SECRET_KEY = "test-secret-key-not-for-production"
+SECRET_KEY = "test-secret-key-not-for-production"  # noqa: S105
 
 DEBUG = False
 
@@ -106,9 +110,9 @@ CSRF_COOKIE_SECURE = False
 # REST Framework — disable throttling so rate limits don't interfere with tests
 # ---------------------------------------------------------------------------
 
-SIMPLE_JWT["ALGORITHM"] = "RS256"
-SIMPLE_JWT["SIGNING_KEY"] = _JWT_PRIVATE_KEY
-SIMPLE_JWT["VERIFYING_KEY"] = _JWT_PUBLIC_KEY
+SIMPLE_JWT["ALGORITHM"] = "RS256"  # noqa: F405
+SIMPLE_JWT["SIGNING_KEY"] = _JWT_PRIVATE_KEY  # noqa: F405
+SIMPLE_JWT["VERIFYING_KEY"] = _JWT_PUBLIC_KEY  # noqa: F405
 
 REST_FRAMEWORK = {
     **REST_FRAMEWORK,  # inherit all base settings  # noqa: F405
@@ -135,7 +139,7 @@ REST_FRAMEWORK = {
 
 LOGGING = {
     "version": 1,
-    "disable_existing_loggers": False,   # Fix 26: keep app loggers active
+    "disable_existing_loggers": False,  # Fix 26: keep app loggers active
     "handlers": {
         "null": {"class": "logging.NullHandler"},
     },

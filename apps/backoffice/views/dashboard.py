@@ -5,7 +5,6 @@ import logging
 from django.contrib.auth import get_user_model
 from django.db.models import Count, Q
 from django.utils import timezone
-from django.utils.translation import gettext_lazy as _
 from django.views.generic import TemplateView
 
 from apps.audit.models import AuditLogEntry
@@ -27,7 +26,7 @@ class DashboardView(StaffRequiredMixin, TemplateView):
 
     template_name = "backoffice/dashboard.html"
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
 
         # ----------------------------------------------------------------
@@ -65,15 +64,11 @@ class DashboardView(StaffRequiredMixin, TemplateView):
         # ----------------------------------------------------------------
         # Citizen stats
         # ----------------------------------------------------------------
-        ctx["citizen_count"] = User.objects.filter(
-            is_staff=False, is_active=True
-        ).count()
+        ctx["citizen_count"] = User.objects.filter(is_staff=False, is_active=True).count()
 
         # ----------------------------------------------------------------
         # Recent audit log (10 entries, actor pre-fetched)
         # ----------------------------------------------------------------
-        ctx["recent_audit"] = (
-            AuditLogEntry.objects.order_by("-timestamp")[:10]
-        )
+        ctx["recent_audit"] = AuditLogEntry.objects.order_by("-timestamp")[:10]
 
         return ctx

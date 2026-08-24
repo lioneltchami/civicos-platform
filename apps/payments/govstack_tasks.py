@@ -51,18 +51,18 @@ Security invariants (MUST NEVER be violated)
   ``apps.consent.tasks._is_safe_outbound_url`` (HTTPS-only, same extra IP
   ranges rejected, same fail-closed behaviour).
 """
+
 from __future__ import annotations
 
 import ipaddress
 import logging
-from collections.abc import Callable
 import socket
+from collections.abc import Callable
 from decimal import Decimal
 from urllib.parse import urlsplit
 from uuid import uuid4
 
 import requests
-from celery import shared_task
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
@@ -77,10 +77,8 @@ from apps.payments.govstack_batch_lease import (
     BatchLeaseService,
 )
 from apps.payments.govstack_failure_services import PaymentLifecycleService
-from apps.payments.provider_runtime import enqueue_attempt
 from apps.payments.govstack_models import (
     BulkPaymentBatch,
-    CallbackDelivery,
     CreditInstruction,
     GovStackBatchDecision,
     GovStackBeneficiary,
@@ -88,6 +86,8 @@ from apps.payments.govstack_models import (
     PaymentOutcome,
     PrepaymentValidationRequest,
 )
+from apps.payments.provider_runtime import enqueue_attempt
+from celery import shared_task
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +104,7 @@ def _run_bulk_payment_batch_test_hook(lease_handle: BatchLeaseHandle) -> None:
         hook(lease_handle)
 
 
-def _record_bulk_instruction_lifecycle(
+def _record_bulk_instruction_lifecycle(  # noqa: ANN202
     batch: BulkPaymentBatch,
     instruction: CreditInstruction,
     *,
@@ -154,7 +154,7 @@ def _record_bulk_instruction_lifecycle(
                     "review",
                     code="SETTLEMENT_ADAPTER_UNCONFIGURED",
                     category="configuration",
-                    message="Local account validation completed; settlement verification is required.",
+                    message="Local account validation completed; settlement verification is required.",  # noqa: E501
                 ),
             )
     else:
@@ -197,6 +197,7 @@ _IETF_PROTOCOL_ASSIGNMENTS = ipaddress.ip_network("192.0.0.0/24")
 # process_bulk_payment_batch
 # ---------------------------------------------------------------------------
 
+
 @shared_task(
     bind=True,
     name="payments.process_bulk_payment_batch",
@@ -207,7 +208,7 @@ _IETF_PROTOCOL_ASSIGNMENTS = ipaddress.ip_network("192.0.0.0/24")
     reject_on_worker_lost=True,
     soft_time_limit=120,
 )
-def process_bulk_payment_batch(self, batch_pk: str) -> None:
+def process_bulk_payment_batch(self, batch_pk: str) -> None:  # noqa: ANN001
     """Materialize child finality, then persist one fenced live policy decision.
 
     RB-02.3 leaves RB-02.1 lease ownership and RB-02.2 evidence materialization
@@ -272,11 +273,10 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
                 BatchLeaseService.heartbeat(lease_handle)
                 BatchLeaseService.assert_current_owner(lease_handle)
 
-                if (
-                    instr.payment_attempt_id is None
-                    and instr.status
-                    in {CreditInstruction.STATUS_COMPLETED, CreditInstruction.STATUS_FAILED}
-                ):
+                if instr.payment_attempt_id is None and instr.status in {
+                    CreditInstruction.STATUS_COMPLETED,
+                    CreditInstruction.STATUS_FAILED,
+                }:
                     # A historic terminal-looking row without the RB-02.2
                     # binding remains non-final and cannot produce a terminal
                     # policy projection.
@@ -344,9 +344,7 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
                 batch=batch,
                 lease_handle=lease_handle,
                 items=child_items,
-                failure_threshold=float(
-                    getattr(settings, "GOVSTACK_BULK_FAILURE_THRESHOLD", 0.25)
-                ),
+                failure_threshold=float(getattr(settings, "GOVSTACK_BULK_FAILURE_THRESHOLD", 0.25)),
                 return_funds_enabled=bool(
                     getattr(settings, "GOVSTACK_BULK_RETURN_FUNDS_ENABLED", False)
                 ),
@@ -358,7 +356,9 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
                 GovStackBatchDecision.ACTION_RETURN_FUNDS,
             }:
                 if decision.non_final_count:
-                    raise BatchDecisionConflict("terminal projection with non-final child is forbidden")
+                    raise BatchDecisionConflict(
+                        "terminal projection with non-final child is forbidden"
+                    )
                 if decision.rejected_count == 0:
                     batch.status = BulkPaymentBatch.STATUS_COMPLETED
                 elif decision.settled_count == 0:
@@ -445,6 +445,7 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
 # validate_prepayment_async
 # ---------------------------------------------------------------------------
 
+
 @shared_task(
     bind=True,
     name="payments.validate_prepayment_async",
@@ -455,7 +456,7 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
     reject_on_worker_lost=True,
     soft_time_limit=60,
 )
-def validate_prepayment_async(self, pvr_pk: str) -> None:
+def validate_prepayment_async(self, pvr_pk: str) -> None:  # noqa: ANN001
     """
     Validate a PrepaymentValidationRequest against the Beneficiary registry.
 
@@ -566,11 +567,10 @@ def validate_prepayment_async(self, pvr_pk: str) -> None:
         )
 
 
-
-
 # ---------------------------------------------------------------------------
 # Item 02 failure-remediation sweeps
 # ---------------------------------------------------------------------------
+
 
 @shared_task(
     name="payments.replay_govstack_callbacks",
@@ -734,7 +734,7 @@ def _is_safe_callback_url(url: str) -> bool:
                 return False
 
         return True
-    except Exception:  # noqa: BLE001 — fail closed on ANY parse/DNS error.
+    except Exception:
         return False
 
 
@@ -816,7 +816,7 @@ def _post_callback(url: str, payload: dict) -> tuple[bool, int | None, str]:
             response.status_code,
         )
         return True, response.status_code, ""
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         # Non-fatal: log the exception class name (not the message, which may
         # contain the URL parameters or response body) and return normally.
         logger.warning(

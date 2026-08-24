@@ -37,6 +37,7 @@ Wave F additional invariant — SSRF:
   (TOCTOU), so re-validating at call time is mandatory. See
   _is_safe_outbound_url()'s docstring for the full threat model.
 """
+
 from __future__ import annotations
 
 import ipaddress
@@ -46,11 +47,12 @@ from datetime import timedelta
 from urllib.parse import urlparse
 
 import requests
-from celery import shared_task
-from celery.exceptions import SoftTimeLimitExceeded
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
+
+from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +60,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Wave 2: generate_slots_for_period
 # ---------------------------------------------------------------------------
+
 
 @shared_task(
     bind=True,
@@ -67,9 +70,9 @@ logger = logging.getLogger(__name__)
     acks_late=True,
     reject_on_worker_lost=True,
     soft_time_limit=3300,  # 55 min — catch overruns and log cleanly before hard kill
-    time_limit=3600,       # 60 min hard kill
+    time_limit=3600,  # 60 min hard kill
 )
-def generate_slots_for_period(self, horizon_days: int | None = None) -> dict:
+def generate_slots_for_period(self, horizon_days: int | None = None) -> dict:  # noqa: ANN001
     """
     Generate Slot records for all active staff × active appointment_type
     combinations over the upcoming horizon window.
@@ -85,8 +88,7 @@ def generate_slots_for_period(self, horizon_days: int | None = None) -> dict:
 
     Returns:
         {"slots_created": N, "combinations_processed": M}
-    """
-    from django.conf import settings
+    """  # noqa: RUF002
 
     from apps.appointments.models import AppointmentType, StaffProfile
     from apps.appointments.services.slots import generate_slots_for_range
@@ -99,9 +101,7 @@ def generate_slots_for_period(self, horizon_days: int | None = None) -> dict:
     date_to = today + timedelta(days=horizon_days)
 
     # Fetch active appointment types
-    active_appt_types = list(
-        AppointmentType.objects.filter(is_active=True)
-    )
+    active_appt_types = list(AppointmentType.objects.filter(is_active=True))
     active_appt_type_pks = {at.pk for at in active_appt_types}
     appt_type_by_pk = {at.pk: at for at in active_appt_types}
 
@@ -127,7 +127,7 @@ def generate_slots_for_period(self, horizon_days: int | None = None) -> dict:
             "generate_slots_for_period: failed to fetch staff queryset: %s",
             type(exc).__name__,
         )
-        raise self.retry(exc=exc)
+        raise self.retry(exc=exc)  # noqa: B904
 
     total_created = 0
     combinations = 0
@@ -136,9 +136,7 @@ def generate_slots_for_period(self, horizon_days: int | None = None) -> dict:
     # the run or retry the whole task.
     try:
         for staff_member in staff_list:
-            staff_appt_type_pks = set(
-                staff_member.appointment_types.values_list("pk", flat=True)
-            )
+            staff_appt_type_pks = set(staff_member.appointment_types.values_list("pk", flat=True))
             eligible_pks = staff_appt_type_pks & active_appt_type_pks
 
             for appt_type_pk in eligible_pks:
@@ -171,7 +169,7 @@ def generate_slots_for_period(self, horizon_days: int | None = None) -> dict:
         # The next nightly run will cover any missed staff members.
 
     logger.info(
-        "generate_slots_for_period: %d slots created across %d staff×type combinations "
+        "generate_slots_for_period: %d slots created across %d staff×type combinations "  # noqa: RUF001
         "(horizon=%d days)",
         total_created,
         combinations,
@@ -184,6 +182,7 @@ def generate_slots_for_period(self, horizon_days: int | None = None) -> dict:
 # Wave 2: mark_past_slots_completed
 # ---------------------------------------------------------------------------
 
+
 @shared_task(
     bind=True,
     name="appointments.mark_past_slots_completed",
@@ -192,9 +191,9 @@ def generate_slots_for_period(self, horizon_days: int | None = None) -> dict:
     acks_late=True,
     reject_on_worker_lost=True,
     soft_time_limit=270,  # catch overruns before the hard kill
-    time_limit=300,       # hard kill — explicit, self-documenting
+    time_limit=300,  # hard kill — explicit, self-documenting
 )
-def mark_past_slots_completed(self) -> dict:
+def mark_past_slots_completed(self) -> dict:  # noqa: ANN001
     """
     Transition all past Slot records in non-terminal statuses to 'completed'.
 
@@ -234,12 +233,13 @@ def mark_past_slots_completed(self) -> dict:
             "mark_past_slots_completed: error — retrying. error_type=%s",
             type(exc).__name__,
         )
-        raise self.retry(exc=exc)
+        raise self.retry(exc=exc)  # noqa: B904
 
 
 # ---------------------------------------------------------------------------
 # Wave 3: cleanup_expired_pending_bookings
 # ---------------------------------------------------------------------------
+
 
 @shared_task(
     bind=True,
@@ -251,7 +251,7 @@ def mark_past_slots_completed(self) -> dict:
     soft_time_limit=270,
     time_limit=300,
 )
-def cleanup_expired_pending_bookings(self) -> dict:
+def cleanup_expired_pending_bookings(self) -> dict:  # noqa: ANN001
     """
     Cancel PENDING bookings that have exceeded the pending timeout window.
 
@@ -262,7 +262,6 @@ def cleanup_expired_pending_bookings(self) -> dict:
     Returns:
         {"bookings_cancelled": N}
     """
-    from django.conf import settings
 
     from apps.appointments.models import Booking
     from apps.appointments.services.booking import cancel_booking
@@ -292,12 +291,14 @@ def cleanup_expired_pending_bookings(self) -> dict:
             except Exception as exc:
                 logger.error(
                     "cleanup_expired_pending_bookings: error booking_id=%s: %s",
-                    pk, type(exc).__name__,
+                    pk,
+                    type(exc).__name__,
                 )
 
         logger.info(
             "cleanup_expired_pending_bookings: %d/%d expired pending bookings cancelled",
-            cancelled, len(expired_pks),
+            cancelled,
+            len(expired_pks),
         )
         return {"bookings_cancelled": cancelled}
 
@@ -306,7 +307,7 @@ def cleanup_expired_pending_bookings(self) -> dict:
             "cleanup_expired_pending_bookings: unhandled error — retrying. error_type=%s",
             type(exc).__name__,
         )
-        raise self.retry(exc=exc)
+        raise self.retry(exc=exc)  # noqa: B904
 
 
 # ---------------------------------------------------------------------------
@@ -403,7 +404,7 @@ def _is_safe_outbound_url(url: str) -> bool:
                 return False
 
         return True
-    except Exception:  # noqa: BLE001 — fail closed on ANY parse/DNS error.
+    except Exception:
         return False
 
 
@@ -441,9 +442,7 @@ def _attempt_alert_delivery(url: str, payload: dict, log_ctx: str) -> bool:
     logged, since it may describe appointment-specific details.
     """
     if not _is_safe_outbound_url(url):
-        logger.warning(
-            "dispatch_alert_schedule.unsafe_url_skipped url=%s %s", url, log_ctx
-        )
+        logger.warning("dispatch_alert_schedule.unsafe_url_skipped url=%s %s", url, log_ctx)
         return False
 
     try:
@@ -465,12 +464,16 @@ def _attempt_alert_delivery(url: str, payload: dict, log_ctx: str) -> bool:
         response.raise_for_status()
         logger.info(
             "dispatch_alert_schedule.delivered url=%s status=%s %s",
-            url, response.status_code, log_ctx,
+            url,
+            response.status_code,
+            log_ctx,
         )
-    except Exception as exc:  # noqa: BLE001 — non-fatal, matches _post_callback.
+    except Exception as exc:
         logger.warning(
             "dispatch_alert_schedule.delivery_failed url=%s exc_type=%s %s",
-            url, type(exc).__name__, log_ctx,
+            url,
+            type(exc).__name__,
+            log_ctx,
         )
 
     return True
@@ -486,7 +489,7 @@ def _attempt_alert_delivery(url: str, payload: dict, log_ctx: str) -> bool:
     soft_time_limit=90,
     time_limit=120,
 )
-def dispatch_alert_schedule(self, alert_schedule_pk: str) -> dict:
+def dispatch_alert_schedule(self, alert_schedule_pk: str) -> dict:  # noqa: ANN001
     """Durably admit one alert generation before any wake-up or transport I/O.
 
     ``delivery_generation``, ``delivery_admittable`` and the durable admission
@@ -524,14 +527,22 @@ def dispatch_alert_schedule(self, alert_schedule_pk: str) -> dict:
                 ).select_related("citizen__govstack_subscriber_profile")
                 for booking in bookings:
                     profile = getattr(booking.citizen, "govstack_subscriber_profile", None)
-                    if profile is not None and profile.alert_preference == "push" and profile.alert_url:
+                    if (
+                        profile is not None
+                        and profile.alert_preference == "push"
+                        and profile.alert_url
+                    ):
                         recipients.append(("subscriber", str(profile.pk)))
             if schedule.target_category in ("", "resource"):
                 staff = schedule.slot.staff
                 if staff is not None and staff.gs_alert_preference == "push" and staff.gs_alert_url:
                     recipients.append(("staff", str(staff.pk)))
                 resource = schedule.slot.resource
-                if resource is not None and resource.alert_preference == "push" and resource.alert_url:
+                if (
+                    resource is not None
+                    and resource.alert_preference == "push"
+                    and resource.alert_url
+                ):
                     recipients.append(("resource", str(resource.pk)))
 
             admission = scheduler_runtime.admit_schedule_generation(
@@ -542,7 +553,10 @@ def dispatch_alert_schedule(self, alert_schedule_pk: str) -> dict:
                 correlation_id=f"scheduler:{schedule.pk}:{schedule.delivery_generation}",
                 payload={},
             )
-            if admission["outcome"] == GovStackAlertSchedule.ADMISSION_CREATED and admission["created"]:
+            if (
+                admission["outcome"] == GovStackAlertSchedule.ADMISSION_CREATED
+                and admission["created"]
+            ):
                 transaction.on_commit(wake_outbox_after_commit)
                 wakeup_registered = True
     except GovStackAlertSchedule.DoesNotExist:

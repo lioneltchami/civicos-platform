@@ -61,7 +61,6 @@ from apps.api.documents import views
 
 urlpatterns = [
     # ── Literal paths first (U1, U2, U4) ─────────────────────────────────────
-
     # POST  /api/v1/documents/request-upload/
     # Initiate upload: validate metadata, return presigned S3 POST URL.
     path(
@@ -69,7 +68,6 @@ urlpatterns = [
         views.DocumentRequestUploadView.as_view(),
         name="document-request-upload",
     ),
-
     # GET   /api/v1/documents/dl/<token>/
     # Redeem a single-use download token — stream or redirect to S3.
     # MUST appear before <uuid:doc_id>/ (U2: <str:> converter matches anything).
@@ -78,7 +76,6 @@ urlpatterns = [
         views.DocumentTokenRedeemView.as_view(),
         name="api-token-redeem",  # referenced by reverse("api-v1:api-token-redeem")
     ),
-
     # GET   /api/v1/documents/quarantined/
     # Staff: list all QUARANTINED documents.  Requires view_quarantined perm.
     # (U4: literal path — must appear before <uuid:doc_id>/)
@@ -87,7 +84,6 @@ urlpatterns = [
         views.DocumentQuarantinedListView.as_view(),
         name="document-quarantined-list",
     ),
-
     # GET   /api/v1/documents/attachments/?attached_to=app_label.model&object_id=…
     # Staff coordinator: list DocumentAttachments for a given content object.
     # Moved from "" to "attachments/" so root "" can serve the general list.
@@ -96,7 +92,6 @@ urlpatterns = [
         views.DocumentAttachedListView.as_view(),
         name="document-attached-list",
     ),
-
     # GET   /api/v1/documents/
     # General document list: citizen → own docs; staff coordinator → all docs.
     # Optional query params: ?scan_status=<status>&category=<slug>
@@ -105,9 +100,7 @@ urlpatterns = [
         views.DocumentListView.as_view(),
         name="document-list",
     ),
-
     # ── UUID-parameterised paths (must follow literal paths) ──────────────────
-
     # GET    /api/v1/documents/<doc_id>/
     # DELETE /api/v1/documents/<doc_id>/
     # Combined into DocumentDetailDeleteView (U3: single path, dispatch by method).
@@ -116,7 +109,6 @@ urlpatterns = [
         views.DocumentDetailDeleteView.as_view(),
         name="document-detail",
     ),
-
     # POST  /api/v1/documents/<doc_id>/confirm-upload/
     # Signal that the browser-direct S3 upload has finished; triggers ClamAV.
     path(
@@ -124,7 +116,6 @@ urlpatterns = [
         views.DocumentConfirmUploadView.as_view(),
         name="document-confirm-upload",
     ),
-
     # POST  /api/v1/documents/<doc_id>/request-download/
     # Issue a single-use DocumentAccessToken; return download_url + expires_at.
     # Changed from GET /download/ → POST /request-download/ per GovStack spec §18.
@@ -133,7 +124,6 @@ urlpatterns = [
         views.DocumentDownloadInitView.as_view(),
         name="document-request-download",
     ),
-
     # POST  /api/v1/documents/<doc_id>/attach/
     # Staff: link an existing document to any CivicOS content object.
     path(
@@ -141,7 +131,6 @@ urlpatterns = [
         views.DocumentAttachView.as_view(),
         name="document-attach",
     ),
-
     # GET   /api/v1/documents/<doc_id>/versions/
     # Return the full version chain for a document in version_number order.
     path(
@@ -149,7 +138,6 @@ urlpatterns = [
         views.DocumentVersionsView.as_view(),
         name="document-versions",
     ),
-
     # POST  /api/v1/documents/<doc_id>/new-version/
     # Initiate a new version upload for an existing document chain.
     # Returns presigned S3 POST URL (same flow as request-upload).

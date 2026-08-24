@@ -19,15 +19,15 @@ PIPEDA invariants verified throughout:
   - actor_pk stores the user's integer pk — no email, name, or address
   - No PII in log messages (only pk, amounts, counts)
 """
+
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timezone as dt_timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
-from io import StringIO
 
 from django.contrib.auth import get_user_model
-from django.test import RequestFactory, TestCase
+from django.test import TestCase
 from django.urls import reverse
 
 from apps.payments.models import (
@@ -36,12 +36,11 @@ from apps.payments.models import (
     Refund,
     ServiceFeePayment,
 )
-from apps.reports.forms import DateRangeForm, MAX_RANGE_DAYS
+from apps.reports.forms import MAX_RANGE_DAYS, DateRangeForm
 from apps.reports.models import ExportRecord, ReportSnapshot
 from apps.reports.services.financial import (
     _month_utc_range,
     compute_financial_snapshot,
-    get_failed_payments,
     get_monthly_revenue,
     get_reconciliation_queryset,
     get_refund_summary,
@@ -54,6 +53,7 @@ User = get_user_model()
 # Helpers / factories
 # ---------------------------------------------------------------------------
 
+
 def _make_user(*, is_staff=True, perms=None):
     """Create a staff user with optional permissions.
 
@@ -61,7 +61,7 @@ def _make_user(*, is_staff=True, perms=None):
     payments.PaymentIntent content type (see migration 0010).
     """
     from django.contrib.auth.models import Permission
-    from django.contrib.contenttypes.models import ContentType
+
     user = User.objects.create_user(
         email=f"staff-{uuid.uuid4().hex[:8]}@example.com",
         password="testpass123",
@@ -142,7 +142,7 @@ def _make_payment(
 ):
     """Create a Payment (captured) for the given intent."""
     if paid_at is None:
-        paid_at = datetime(2025, 6, 15, 12, 0, 0, tzinfo=dt_timezone.utc)
+        paid_at = datetime(2025, 6, 15, 12, 0, 0, tzinfo=UTC)
     payment = Payment.objects.create(
         intent=intent,
         amount_paid=amount,
@@ -158,7 +158,7 @@ def _make_payment(
 def _make_refund(payment, *, amount=Decimal("10.00"), refunded_at=None, status=None):
     """Create a Refund against the given Payment."""
     if refunded_at is None:
-        refunded_at = datetime(2025, 6, 20, 10, 0, 0, tzinfo=dt_timezone.utc)
+        refunded_at = datetime(2025, 6, 20, 10, 0, 0, tzinfo=UTC)
     if status is None:
         status = Refund.GATEWAY_STATUS_SUCCEEDED
     authorized_by = User.objects.create_user(
@@ -180,6 +180,7 @@ def _make_refund(payment, *, amount=Decimal("10.00"), refunded_at=None, status=N
 # DateRangeForm
 # ---------------------------------------------------------------------------
 
+
 class DateRangeFormTest(TestCase):
     """Unit tests for the DateRangeForm validation logic."""
 
@@ -193,6 +194,7 @@ class DateRangeFormTest(TestCase):
 
     def test_exact_max_days_valid(self):
         from datetime import timedelta
+
         start = date(2025, 1, 1)
         end = start + timedelta(days=MAX_RANGE_DAYS - 1)
         form = DateRangeForm(data={"start": start.isoformat(), "end": end.isoformat()})
@@ -206,6 +208,7 @@ class DateRangeFormTest(TestCase):
 
     def test_range_too_large_invalid(self):
         from datetime import timedelta
+
         start = date(2025, 1, 1)
         end = start + timedelta(days=MAX_RANGE_DAYS)  # one day over
         form = DateRangeForm(data={"start": start.isoformat(), "end": end.isoformat()})
@@ -240,31 +243,33 @@ class DateRangeFormTest(TestCase):
 # _month_utc_range helper
 # ---------------------------------------------------------------------------
 
+
 class MonthUtcRangeTest(TestCase):
     def test_february(self):
         start, end = _month_utc_range(2025, 2)
-        self.assertEqual(start, datetime(2025, 2, 1, tzinfo=dt_timezone.utc))
-        self.assertEqual(end, datetime(2025, 3, 1, tzinfo=dt_timezone.utc))
+        self.assertEqual(start, datetime(2025, 2, 1, tzinfo=UTC))
+        self.assertEqual(end, datetime(2025, 3, 1, tzinfo=UTC))
 
     def test_december_wraps_year(self):
         start, end = _month_utc_range(2025, 12)
-        self.assertEqual(start, datetime(2025, 12, 1, tzinfo=dt_timezone.utc))
-        self.assertEqual(end, datetime(2026, 1, 1, tzinfo=dt_timezone.utc))
+        self.assertEqual(start, datetime(2025, 12, 1, tzinfo=UTC))
+        self.assertEqual(end, datetime(2026, 1, 1, tzinfo=UTC))
 
     def test_january(self):
         start, end = _month_utc_range(2026, 1)
-        self.assertEqual(start, datetime(2026, 1, 1, tzinfo=dt_timezone.utc))
-        self.assertEqual(end, datetime(2026, 2, 1, tzinfo=dt_timezone.utc))
+        self.assertEqual(start, datetime(2026, 1, 1, tzinfo=UTC))
+        self.assertEqual(end, datetime(2026, 2, 1, tzinfo=UTC))
 
     def test_start_utc_aware(self):
         start, end = _month_utc_range(2025, 6)
-        self.assertEqual(start.tzinfo, dt_timezone.utc)
-        self.assertEqual(end.tzinfo, dt_timezone.utc)
+        self.assertEqual(start.tzinfo, UTC)
+        self.assertEqual(end.tzinfo, UTC)
 
 
 # ---------------------------------------------------------------------------
 # get_monthly_revenue
 # ---------------------------------------------------------------------------
+
 
 class GetMonthlyRevenueTest(TestCase):
     def setUp(self):
@@ -274,14 +279,14 @@ class GetMonthlyRevenueTest(TestCase):
             intent1,
             amount=Decimal("200.00"),
             processor_fee=Decimal("5.00"),
-            paid_at=datetime(2025, 6, 10, 8, 0, tzinfo=dt_timezone.utc),
+            paid_at=datetime(2025, 6, 10, 8, 0, tzinfo=UTC),
         )
         intent2 = _make_intent(fee_code="PERMIT-A", tax_amount=Decimal("5.00"))
         self.p2 = _make_payment(
             intent2,
             amount=Decimal("100.00"),
             processor_fee=Decimal("2.50"),
-            paid_at=datetime(2025, 6, 25, 14, 0, tzinfo=dt_timezone.utc),
+            paid_at=datetime(2025, 6, 25, 14, 0, tzinfo=UTC),
         )
         # One payment in July 2025 (should NOT be included)
         intent3 = _make_intent(fee_code="OTHER")
@@ -289,7 +294,7 @@ class GetMonthlyRevenueTest(TestCase):
             intent3,
             amount=Decimal("50.00"),
             processor_fee=Decimal("1.00"),
-            paid_at=datetime(2025, 7, 1, 0, 0, tzinfo=dt_timezone.utc),
+            paid_at=datetime(2025, 7, 1, 0, 0, tzinfo=UTC),
         )
 
     def test_total_gross(self):
@@ -339,6 +344,7 @@ class GetMonthlyRevenueTest(TestCase):
 # get_refund_summary
 # ---------------------------------------------------------------------------
 
+
 class GetRefundSummaryTest(TestCase):
     def setUp(self):
         intent = _make_intent()
@@ -347,21 +353,21 @@ class GetRefundSummaryTest(TestCase):
         self.r1 = _make_refund(
             payment,
             amount=Decimal("20.00"),
-            refunded_at=datetime(2025, 6, 15, tzinfo=dt_timezone.utc),
+            refunded_at=datetime(2025, 6, 15, tzinfo=UTC),
             status=Refund.GATEWAY_STATUS_SUCCEEDED,
         )
         # Failed refund in June — must NOT be counted
         self.r2 = _make_refund(
             payment,
             amount=Decimal("15.00"),
-            refunded_at=datetime(2025, 6, 20, tzinfo=dt_timezone.utc),
+            refunded_at=datetime(2025, 6, 20, tzinfo=UTC),
             status=Refund.GATEWAY_STATUS_FAILED,
         )
         # Succeeded refund in July — must NOT be counted
         self.r3 = _make_refund(
             payment,
             amount=Decimal("10.00"),
-            refunded_at=datetime(2025, 7, 5, tzinfo=dt_timezone.utc),
+            refunded_at=datetime(2025, 7, 5, tzinfo=UTC),
             status=Refund.GATEWAY_STATUS_SUCCEEDED,
         )
 
@@ -387,27 +393,28 @@ class GetRefundSummaryTest(TestCase):
 # get_reconciliation_queryset
 # ---------------------------------------------------------------------------
 
+
 class GetReconciliationQuerysetTest(TestCase):
     def setUp(self):
         intent = _make_intent(fee_code="LIC-1")
-        # Payment on 2025-06-15 (UTC noon) — well within June 1–30
+        # Payment on 2025-06-15 (UTC noon) — well within June 1–30  # noqa: RUF003
         self.p1 = _make_payment(
             intent,
             amount=Decimal("100.00"),
-            paid_at=datetime(2025, 6, 15, 16, 0, tzinfo=dt_timezone.utc),
+            paid_at=datetime(2025, 6, 15, 16, 0, tzinfo=UTC),
         )
         # Refund against p1
         self.r1 = _make_refund(
             self.p1,
             amount=Decimal("25.00"),
-            refunded_at=datetime(2025, 6, 20, tzinfo=dt_timezone.utc),
+            refunded_at=datetime(2025, 6, 20, tzinfo=UTC),
         )
         # Payment on 2025-07-01 — outside June range
         intent2 = _make_intent()
         self.p2 = _make_payment(
             intent2,
             amount=Decimal("50.00"),
-            paid_at=datetime(2025, 7, 1, 6, 0, tzinfo=dt_timezone.utc),
+            paid_at=datetime(2025, 7, 1, 6, 0, tzinfo=UTC),
         )
 
     def test_includes_payment_in_range(self):
@@ -439,7 +446,7 @@ class GetReconciliationQuerysetTest(TestCase):
         p = _make_payment(
             intent_no_fee,
             amount=Decimal("30.00"),
-            paid_at=datetime(2025, 6, 10, tzinfo=dt_timezone.utc),
+            paid_at=datetime(2025, 6, 10, tzinfo=UTC),
         )
         qs = get_reconciliation_queryset(date(2025, 6, 1), date(2025, 6, 30))
         row = qs.get(pk=p.pk)
@@ -450,7 +457,7 @@ class GetReconciliationQuerysetTest(TestCase):
         _make_refund(
             self.p1,
             amount=Decimal("99.00"),
-            refunded_at=datetime(2025, 6, 21, tzinfo=dt_timezone.utc),
+            refunded_at=datetime(2025, 6, 21, tzinfo=UTC),
             status=Refund.GATEWAY_STATUS_FAILED,
         )
         qs = get_reconciliation_queryset(date(2025, 6, 1), date(2025, 6, 30))
@@ -463,6 +470,7 @@ class GetReconciliationQuerysetTest(TestCase):
 # compute_financial_snapshot
 # ---------------------------------------------------------------------------
 
+
 class ComputeFinancialSnapshotTest(TestCase):
     def setUp(self):
         intent = _make_intent(fee_code="SNAP-FEE", tax_amount=Decimal("12.00"))
@@ -470,7 +478,7 @@ class ComputeFinancialSnapshotTest(TestCase):
             intent,
             amount=Decimal("120.00"),
             processor_fee=Decimal("4.00"),
-            paid_at=datetime(2025, 4, 10, tzinfo=dt_timezone.utc),
+            paid_at=datetime(2025, 4, 10, tzinfo=UTC),
         )
 
     def test_snapshot_structure(self):
@@ -512,6 +520,7 @@ class ComputeFinancialSnapshotTest(TestCase):
 # FinancialDashboardView
 # ---------------------------------------------------------------------------
 
+
 class FinancialDashboardViewTest(TestCase):
     def setUp(self):
         self.url = reverse("reports:financial-dashboard")
@@ -545,7 +554,6 @@ class FinancialDashboardViewTest(TestCase):
         self.assertIn("refunds", resp.context)
 
     def test_context_is_current_month_default(self):
-        from django.utils import timezone
         user = _make_user(perms=["view_financialreport"])
         self.client.force_login(user)
         resp = self.client.get(self.url)
@@ -554,7 +562,8 @@ class FinancialDashboardViewTest(TestCase):
     def test_prior_month_uses_snapshot_if_present(self):
         """When a ReportSnapshot exists for a prior month, data_source=snapshot."""
         snap_data = {
-            "year": 2025, "month": 3,
+            "year": 2025,
+            "month": 3,
             "revenue": {
                 "total_gross": "500.00",
                 "total_net": "490.00",
@@ -568,8 +577,10 @@ class FinancialDashboardViewTest(TestCase):
         }
         ReportSnapshot.objects.create(
             report_type=ReportSnapshot.REPORT_TYPE_FINANCIAL,
-            period_year=2025, period_month=3,
-            data=snap_data, row_count=5,
+            period_year=2025,
+            period_month=3,
+            data=snap_data,
+            row_count=5,
         )
         user = _make_user(perms=["view_financialreport"])
         self.client.force_login(user)
@@ -610,6 +621,7 @@ class FinancialDashboardViewTest(TestCase):
 # ReconciliationView
 # ---------------------------------------------------------------------------
 
+
 class ReconciliationViewTest(TestCase):
     def setUp(self):
         self.url = reverse("reports:reconciliation")
@@ -620,11 +632,12 @@ class ReconciliationViewTest(TestCase):
             intent,
             amount=Decimal("150.00"),
             processor_fee=Decimal("4.50"),
-            paid_at=datetime(2025, 6, 15, 12, 0, tzinfo=dt_timezone.utc),
+            paid_at=datetime(2025, 6, 15, 12, 0, tzinfo=UTC),
         )
         self.refund = _make_refund(
-            self.payment, amount=Decimal("30.00"),
-            refunded_at=datetime(2025, 6, 20, tzinfo=dt_timezone.utc),
+            self.payment,
+            amount=Decimal("30.00"),
+            refunded_at=datetime(2025, 6, 20, tzinfo=UTC),
         )
 
     def test_redirects_anonymous(self):
@@ -695,13 +708,22 @@ class ReconciliationViewTest(TestCase):
         resp = self.client.get(self.url, {"start": "2025-06-01", "end": "2025-06-30"})
         row = resp.context["payments"][0]
         # Only these keys should be present — no name/email/address
-        allowed = {"reference", "status", "fee_code", "amount_paid", "refund_total", "net", "paid_at"}
+        allowed = {
+            "reference",
+            "status",
+            "fee_code",
+            "amount_paid",
+            "refund_total",
+            "net",
+            "paid_at",
+        }
         self.assertEqual(set(row.keys()), allowed)
 
 
 # ---------------------------------------------------------------------------
 # ReconciliationExportView
 # ---------------------------------------------------------------------------
+
 
 class ReconciliationExportViewTest(TestCase):
     def setUp(self):
@@ -711,7 +733,7 @@ class ReconciliationExportViewTest(TestCase):
         self.payment = _make_payment(
             intent,
             amount=Decimal("200.00"),
-            paid_at=datetime(2025, 6, 15, 10, 0, tzinfo=dt_timezone.utc),
+            paid_at=datetime(2025, 6, 15, 10, 0, tzinfo=UTC),
         )
 
     def test_redirects_anonymous(self):
@@ -796,6 +818,7 @@ class ReconciliationExportViewTest(TestCase):
 # RevenueExportView
 # ---------------------------------------------------------------------------
 
+
 class RevenueExportViewTest(TestCase):
     def setUp(self):
         self.url = reverse("reports:revenue-export")
@@ -867,23 +890,27 @@ class RevenueExportViewTest(TestCase):
 # export_reconciliation_csv (direct function test)
 # ---------------------------------------------------------------------------
 
+
 class ExportReconciliationCsvTest(TestCase):
     def setUp(self):
         from apps.reports.exports.csv_export import export_reconciliation_csv
+
         self.export_fn = export_reconciliation_csv
         intent = _make_intent(fee_code="CSV-TEST")
         self.payment = _make_payment(
             intent,
             amount=Decimal("250.00"),
-            paid_at=datetime(2025, 6, 10, 8, 0, tzinfo=dt_timezone.utc),
+            paid_at=datetime(2025, 6, 10, 8, 0, tzinfo=UTC),
         )
         _make_refund(
-            self.payment, amount=Decimal("50.00"),
-            refunded_at=datetime(2025, 6, 12, tzinfo=dt_timezone.utc),
+            self.payment,
+            amount=Decimal("50.00"),
+            refunded_at=datetime(2025, 6, 12, tzinfo=UTC),
         )
 
     def test_returns_streaming_response(self):
         from django.http import StreamingHttpResponse
+
         resp = self.export_fn(date(2025, 6, 1), date(2025, 6, 30))
         self.assertIsInstance(resp, StreamingHttpResponse)
 
@@ -905,7 +932,15 @@ class ExportReconciliationCsvTest(TestCase):
     def test_header_columns(self):
         resp = self.export_fn(date(2025, 6, 1), date(2025, 6, 30))
         content = b"".join(resp.streaming_content).decode("utf-8-sig")
-        for col in ["reference", "status", "fee_code", "amount_paid", "refund_total", "net", "paid_at"]:
+        for col in [
+            "reference",
+            "status",
+            "fee_code",
+            "amount_paid",
+            "refund_total",
+            "net",
+            "paid_at",
+        ]:
             self.assertIn(col, content)
 
     def test_no_pii_in_output(self):
@@ -931,20 +966,23 @@ class ExportReconciliationCsvTest(TestCase):
 # export_revenue_csv (direct function test)
 # ---------------------------------------------------------------------------
 
+
 class ExportRevenueCsvTest(TestCase):
     def setUp(self):
         from apps.reports.exports.csv_export import export_revenue_csv
+
         self.export_fn = export_revenue_csv
         intent = _make_intent(fee_code="REV-TEST", tax_amount=Decimal("8.00"))
         _make_payment(
             intent,
             amount=Decimal("80.00"),
             processor_fee=Decimal("2.40"),
-            paid_at=datetime(2025, 5, 20, tzinfo=dt_timezone.utc),
+            paid_at=datetime(2025, 5, 20, tzinfo=UTC),
         )
 
     def test_returns_streaming_response(self):
         from django.http import StreamingHttpResponse
+
         resp = self.export_fn(2025, 5)
         self.assertIsInstance(resp, StreamingHttpResponse)
 
@@ -960,7 +998,14 @@ class ExportRevenueCsvTest(TestCase):
     def test_header_columns(self):
         resp = self.export_fn(2025, 5)
         content = b"".join(resp.streaming_content).decode("utf-8-sig")
-        for col in ["fee_code", "gross_revenue", "processor_fees", "net_revenue", "tax_collected", "count"]:
+        for col in [
+            "fee_code",
+            "gross_revenue",
+            "processor_fees",
+            "net_revenue",
+            "tax_collected",
+            "count",
+        ]:
             self.assertIn(col, content)
 
     def test_data_row_present(self):
@@ -972,7 +1017,7 @@ class ExportRevenueCsvTest(TestCase):
     def test_empty_month_no_data_rows(self):
         resp = self.export_fn(2020, 1)
         content = b"".join(resp.streaming_content).decode("utf-8-sig")
-        lines = [l for l in content.splitlines() if l.strip()]
+        lines = [l for l in content.splitlines() if l.strip()]  # noqa: E741
         # Only the header row should be present
         self.assertEqual(len(lines), 1)
 
@@ -985,6 +1030,7 @@ class ExportRevenueCsvTest(TestCase):
 # H-10: Honorarium payment field tests
 # ---------------------------------------------------------------------------
 
+
 class HonorariumModelFieldTests(TestCase):
     """
     H-10: Tests for Honorarium model fields — required-field enforcement,
@@ -996,6 +1042,7 @@ class HonorariumModelFieldTests(TestCase):
 
     def _make_volunteer_profile(self):
         from apps.volunteers.models import VolunteerProfile
+
         user = _make_user(is_staff=False)
         return VolunteerProfile.objects.create(user=user)
 
@@ -1004,18 +1051,20 @@ class HonorariumModelFieldTests(TestCase):
 
     def _make_honorarium(self, **overrides):
         """Create a minimal valid Honorarium using skip_clean=True to bypass CRA thresholds."""
-        from apps.volunteers.models import Honorarium
         from datetime import date
+
+        from apps.volunteers.models import Honorarium
+
         profile = self._make_volunteer_profile()
         creator = self._make_creator()
-        defaults = dict(
-            volunteer=profile,
-            payment_type=Honorarium.PAYMENT_TYPE_HONORARIUM,
-            amount=Decimal("100.00"),
-            description="Test honorarium",
-            payment_date=date(2025, 6, 15),
-            created_by=creator,
-        )
+        defaults = {
+            "volunteer": profile,
+            "payment_type": Honorarium.PAYMENT_TYPE_HONORARIUM,
+            "amount": Decimal("100.00"),
+            "description": "Test honorarium",
+            "payment_date": date(2025, 6, 15),
+            "created_by": creator,
+        }
         defaults.update(overrides)
         h = Honorarium(**defaults)
         h.save(skip_clean=True)
@@ -1026,9 +1075,11 @@ class HonorariumModelFieldTests(TestCase):
         H-10: amount field has MinValueValidator(0.01) — a zero amount must
         raise ValidationError when full_clean() is called.
         """
-        from apps.volunteers.models import Honorarium
         from datetime import date
+
         from django.core.exceptions import ValidationError
+
+        from apps.volunteers.models import Honorarium
 
         profile = self._make_volunteer_profile()
         creator = self._make_creator()
@@ -1049,9 +1100,11 @@ class HonorariumModelFieldTests(TestCase):
         """
         H-10: amount must be positive — a negative value must raise ValidationError.
         """
-        from apps.volunteers.models import Honorarium
         from datetime import date
+
         from django.core.exceptions import ValidationError
+
+        from apps.volunteers.models import Honorarium
 
         profile = self._make_volunteer_profile()
         creator = self._make_creator()
@@ -1068,9 +1121,9 @@ class HonorariumModelFieldTests(TestCase):
 
     def test_amount_min_validator_accepts_minimum_positive(self):
         """H-10: The minimum valid amount (0.01) must pass validation."""
-        from apps.volunteers.models import Honorarium
         from datetime import date
-        from django.core.exceptions import ValidationError
+
+        from apps.volunteers.models import Honorarium
 
         profile = self._make_volunteer_profile()
         creator = self._make_creator()
@@ -1087,7 +1140,8 @@ class HonorariumModelFieldTests(TestCase):
         try:
             hon.full_clean()
         except Exception as e:
-            from django.core.exceptions import ValidationError as VE
+            from django.core.exceptions import ValidationError as VE  # noqa: N817
+
             if isinstance(e, VE) and "amount" in e.message_dict:
                 self.fail(f"amount=0.01 should be valid but raised: {e.message_dict['amount']}")
 
@@ -1096,9 +1150,11 @@ class HonorariumModelFieldTests(TestCase):
         H-10: description is a required CharField (blank=False by default).
         An empty description must fail validation.
         """
-        from apps.volunteers.models import Honorarium
         from datetime import date
+
         from django.core.exceptions import ValidationError
+
+        from apps.volunteers.models import Honorarium
 
         profile = self._make_volunteer_profile()
         creator = self._make_creator()
@@ -1106,7 +1162,7 @@ class HonorariumModelFieldTests(TestCase):
             volunteer=profile,
             payment_type=Honorarium.PAYMENT_TYPE_HONORARIUM,
             amount=Decimal("100.00"),
-            description="",   # blank=False — must fail
+            description="",  # blank=False — must fail
             payment_date=date(2025, 6, 15),
             created_by=creator,
         )
@@ -1145,6 +1201,7 @@ class HonorariumModelFieldTests(TestCase):
     def test_payment_type_choices_include_required_types(self):
         """H-10: payment_type must be one of EXPENSE or HONORARIUM."""
         from apps.volunteers.models import Honorarium
+
         valid_types = {c[0] for c in Honorarium.PAYMENT_TYPE_CHOICES}
         self.assertIn(Honorarium.PAYMENT_TYPE_HONORARIUM, valid_types)
         self.assertIn(Honorarium.PAYMENT_TYPE_EXPENSE, valid_types)
@@ -1161,9 +1218,9 @@ class HonorariumModelFieldTests(TestCase):
         H-10: When cumulative honoraria meet/exceed the T4A threshold ($500 default),
         clean() auto-sets t4a_required = True.
         """
-        from apps.volunteers.models import Honorarium
         from datetime import date
-        from django.core.exceptions import ValidationError
+
+        from apps.volunteers.models import Honorarium
 
         profile = self._make_volunteer_profile()
         creator = self._make_creator()
@@ -1188,7 +1245,7 @@ class HonorariumModelFieldTests(TestCase):
             payment_date=date(2025, 6, 20),
             created_by=creator,
         )
-        hon2.clean()   # Call clean() directly to check threshold enforcement
+        hon2.clean()  # Call clean() directly to check threshold enforcement
         self.assertTrue(
             hon2.t4a_required,
             "t4a_required must be True when cumulative total reaches $500 T4A threshold",
@@ -1199,9 +1256,11 @@ class HonorariumModelFieldTests(TestCase):
         H-10: When projected cumulative total meets/exceeds the hard block ($1000 default),
         clean() raises ValidationError — the honorarium is rejected.
         """
-        from apps.volunteers.models import Honorarium
         from datetime import date
+
         from django.core.exceptions import ValidationError
+
+        from apps.volunteers.models import Honorarium
 
         profile = self._make_volunteer_profile()
         creator = self._make_creator()
@@ -1228,8 +1287,11 @@ class HonorariumModelFieldTests(TestCase):
         )
         with self.assertRaises(ValidationError) as ctx:
             hon2.clean()
-        self.assertIn("amount", ctx.exception.message_dict,
-                      "Hard-block ValidationError must reference the 'amount' field")
+        self.assertIn(
+            "amount",
+            ctx.exception.message_dict,
+            "Hard-block ValidationError must reference the 'amount' field",
+        )
 
 
 class ComputeAllSnapshotsTest(TestCase):
@@ -1238,14 +1300,16 @@ class ComputeAllSnapshotsTest(TestCase):
         _make_payment(
             intent,
             amount=Decimal("60.00"),
-            paid_at=datetime(2025, 8, 5, tzinfo=dt_timezone.utc),
+            paid_at=datetime(2025, 8, 5, tzinfo=UTC),
         )
 
     def test_creates_snapshot(self):
         from apps.reports.tasks import _compute_all_snapshots
+
         before = ReportSnapshot.objects.filter(
             report_type=ReportSnapshot.REPORT_TYPE_FINANCIAL,
-            period_year=2025, period_month=8,
+            period_year=2025,
+            period_month=8,
         ).count()
         self.assertEqual(before, 0)
         written = _compute_all_snapshots(2025, 8)
@@ -1253,32 +1317,38 @@ class ComputeAllSnapshotsTest(TestCase):
         self.assertGreaterEqual(written, 1)
         snap = ReportSnapshot.objects.get(
             report_type=ReportSnapshot.REPORT_TYPE_FINANCIAL,
-            period_year=2025, period_month=8,
+            period_year=2025,
+            period_month=8,
         )
         self.assertIsNotNone(snap)
 
     def test_idempotent_update(self):
         from apps.reports.tasks import _compute_all_snapshots
+
         _compute_all_snapshots(2025, 8)
         _compute_all_snapshots(2025, 8)  # second run — update, not create
         count = ReportSnapshot.objects.filter(
             report_type=ReportSnapshot.REPORT_TYPE_FINANCIAL,
-            period_year=2025, period_month=8,
+            period_year=2025,
+            period_month=8,
         ).count()
         self.assertEqual(count, 1)
 
     def test_snapshot_data_structure(self):
         from apps.reports.tasks import _compute_all_snapshots
+
         _compute_all_snapshots(2025, 8)
         snap = ReportSnapshot.objects.get(
             report_type=ReportSnapshot.REPORT_TYPE_FINANCIAL,
-            period_year=2025, period_month=8,
+            period_year=2025,
+            period_month=8,
         )
         self.assertIn("revenue", snap.data)
         self.assertIn("refunds", snap.data)
 
     def test_returns_zero_for_empty_month(self):
         from apps.reports.tasks import _compute_all_snapshots
+
         # 1900-01 has no data but should still write zeroed snapshots for each
         # report type (financial + donations since Wave 3).
         written = _compute_all_snapshots(1900, 1)
@@ -1286,9 +1356,11 @@ class ComputeAllSnapshotsTest(TestCase):
 
     def test_row_count_populated(self):
         from apps.reports.tasks import _compute_all_snapshots
+
         _compute_all_snapshots(2025, 8)
         snap = ReportSnapshot.objects.get(
             report_type=ReportSnapshot.REPORT_TYPE_FINANCIAL,
-            period_year=2025, period_month=8,
+            period_year=2025,
+            period_month=8,
         )
         self.assertEqual(snap.row_count, 1)

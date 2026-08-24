@@ -111,7 +111,7 @@ class DocumentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Document
         # IMPORTANT: 'storage_key' and '_storage_key' must NEVER appear here.
-        fields = [
+        fields = [  # noqa: RUF012
             "doc_id",
             "category_slug",
             "category_name",
@@ -220,8 +220,7 @@ class DocumentUploadRequestSerializer(serializers.Serializer):
         allow_blank=True,
         default="",
         help_text=(
-            "Optional description for this version "
-            "(used by POST /{doc_id}/new-version/ only)."
+            "Optional description for this version " "(used by POST /{doc_id}/new-version/ only)."
         ),
     )
 
@@ -230,9 +229,7 @@ class DocumentUploadRequestSerializer(serializers.Serializer):
         from apps.documents.models import DocumentCategory
 
         if not DocumentCategory.objects.filter(slug=value).exists():
-            raise serializers.ValidationError(
-                f"Unknown document category: '{value}'."
-            )
+            raise serializers.ValidationError(f"Unknown document category: '{value}'.")
         return value
 
     def validate_size_bytes(self, value: int) -> int:
@@ -273,8 +270,7 @@ class DocumentUploadRequestSerializer(serializers.Serializer):
             )
         if value > max_bytes:
             raise serializers.ValidationError(
-                f"File size {value:,} bytes exceeds the maximum of "
-                f"{max_bytes:,} bytes."
+                f"File size {value:,} bytes exceeds the maximum of " f"{max_bytes:,} bytes."
             )
         return value
 
@@ -331,7 +327,7 @@ class DocumentAttachmentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DocumentAttachment
-        fields = [
+        fields = [  # noqa: RUF012
             "attachment_id",
             "document",
             "attached_to_type",

@@ -6,34 +6,77 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('consent', '0002_alter_consentcategory_is_required_and_more'),
+    dependencies = [  # noqa: RUF012
+        ("consent", "0002_alter_consentcategory_is_required_and_more"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterField(
-            model_name='consentauditentry',
-            name='action',
-            field=models.CharField(choices=[('granted', 'Granted'), ('withdrawn', 'Withdrawn'), ('export_requested', 'Export Requested'), ('export_ready', 'Export Ready'), ('export_delivered', 'Export Delivered'), ('export_expired', 'Export Expired'), ('export_failed', 'Export Failed'), ('export_downloaded', 'Export Downloaded by Citizen'), ('export_marked_delivered', 'Marked Delivered by Staff')], db_index=True, max_length=30),
+            model_name="consentauditentry",
+            name="action",
+            field=models.CharField(
+                choices=[
+                    ("granted", "Granted"),
+                    ("withdrawn", "Withdrawn"),
+                    ("export_requested", "Export Requested"),
+                    ("export_ready", "Export Ready"),
+                    ("export_delivered", "Export Delivered"),
+                    ("export_expired", "Export Expired"),
+                    ("export_failed", "Export Failed"),
+                    ("export_downloaded", "Export Downloaded by Citizen"),
+                    ("export_marked_delivered", "Marked Delivered by Staff"),
+                ],
+                db_index=True,
+                max_length=30,
+            ),
         ),
         migrations.AlterField(
-            model_name='consentrecord',
-            name='citizen',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='consent_records', to=settings.AUTH_USER_MODEL),
+            model_name="consentrecord",
+            name="citizen",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.PROTECT,
+                related_name="consent_records",
+                to=settings.AUTH_USER_MODEL,
+            ),
         ),
         migrations.AlterField(
-            model_name='dataexportrequest',
-            name='citizen',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='export_requests', to=settings.AUTH_USER_MODEL),
+            model_name="dataexportrequest",
+            name="citizen",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.PROTECT,
+                related_name="export_requests",
+                to=settings.AUTH_USER_MODEL,
+            ),
         ),
         migrations.AddConstraint(
-            model_name='consentauditentry',
-            constraint=models.CheckConstraint(condition=models.Q(('action__in', ['granted', 'withdrawn', 'export_requested', 'export_ready', 'export_delivered', 'export_expired', 'export_failed', 'export_downloaded', 'export_marked_delivered'])), name='consent_audit_valid_action'),
+            model_name="consentauditentry",
+            constraint=models.CheckConstraint(
+                condition=models.Q(
+                    (
+                        "action__in",
+                        [
+                            "granted",
+                            "withdrawn",
+                            "export_requested",
+                            "export_ready",
+                            "export_delivered",
+                            "export_expired",
+                            "export_failed",
+                            "export_downloaded",
+                            "export_marked_delivered",
+                        ],
+                    )
+                ),
+                name="consent_audit_valid_action",
+            ),
         ),
         migrations.AddConstraint(
-            model_name='dataexportrequest',
-            constraint=models.UniqueConstraint(condition=models.Q(('status__in', ['pending', 'processing'])), fields=('citizen',), name='unique_active_export_per_citizen'),
+            model_name="dataexportrequest",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(("status__in", ["pending", "processing"])),
+                fields=("citizen",),
+                name="unique_active_export_per_citizen",
+            ),
         ),
     ]

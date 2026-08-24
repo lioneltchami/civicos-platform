@@ -5,11 +5,12 @@ Django/Celery adapter can persist the records and call the pure transitions
 inside ``transaction.atomic``.  Correlation and idempotency keys are opaque;
 logs never contain recipient addresses or message bodies.
 """
+
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable, Iterable
 
 
 class DeliveryStatus(str, Enum):
@@ -22,8 +23,14 @@ class DeliveryStatus(str, Enum):
     DEAD_LETTER = "dead_letter"
 
 
-TERMINAL = frozenset({DeliveryStatus.DELIVERED, DeliveryStatus.ACKNOWLEDGED,
-                      DeliveryStatus.CANCELLED, DeliveryStatus.DEAD_LETTER})
+TERMINAL = frozenset(
+    {
+        DeliveryStatus.DELIVERED,
+        DeliveryStatus.ACKNOWLEDGED,
+        DeliveryStatus.CANCELLED,
+        DeliveryStatus.DEAD_LETTER,
+    }
+)
 
 
 @dataclass
@@ -59,7 +66,9 @@ class RecipientDelivery:
         self.history.append(("success", self.status))
         return True
 
-    def fail(self, *, lease_token: str, error: str, now: float, backoff: Callable[[int], float]) -> bool:
+    def fail(
+        self, *, lease_token: str, error: str, now: float, backoff: Callable[[int], float]
+    ) -> bool:
         if self.status != DeliveryStatus.IN_FLIGHT or self.lease_token != lease_token:
             return False
         self.lease_token = None
@@ -100,11 +109,18 @@ class RecipientDelivery:
 
 class DeliveryStore:
     """In-memory deterministic stand-in for a unique-keyed durable table."""
+
     def __init__(self) -> None:
         self._rows: dict[str, RecipientDelivery] = {}
 
-    def create(self, *, correlation_id: str, idempotency_key: str, recipient_ref: str,
-               max_attempts: int = 3) -> RecipientDelivery:
+    def create(
+        self,
+        *,
+        correlation_id: str,
+        idempotency_key: str,
+        recipient_ref: str,
+        max_attempts: int = 3,
+    ) -> RecipientDelivery:
         if idempotency_key in self._rows:
             return self._rows[idempotency_key]
         if max_attempts < 1:
@@ -127,5 +143,12 @@ class DeliveryStore:
         if not authorized:
             raise PermissionError("operational delivery status requires authorization")
         # owner is an authorization boundary, not a logged or returned PII field.
-        return [{"idempotency_key": row.idempotency_key, "status": row.status.value,
-                 "attempts": row.attempts, "owner": owner} for row in self._rows.values()]
+        return [
+            {
+                "idempotency_key": row.idempotency_key,
+                "status": row.status.value,
+                "attempts": row.attempts,
+                "owner": owner,
+            }
+            for row in self._rows.values()
+        ]

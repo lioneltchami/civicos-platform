@@ -11,7 +11,7 @@ Extends base.py with developer-friendly defaults:
 
 import sys
 
-from .base import *  # noqa: F401, F403
+from .base import *  # noqa: F403
 from .base import INSTALLED_APPS, MIDDLEWARE, env
 
 DEBUG = True
@@ -22,7 +22,7 @@ SECRET_KEY = env("DJANGO_SECRET_KEY")
 # to add the exact hostname used by an official local GovStack test harness.
 ALLOWED_HOSTS = env.list(
     "DJANGO_ALLOWED_HOSTS",
-    default=["localhost", "127.0.0.1", "0.0.0.0", "[::1]"],
+    default=["localhost", "127.0.0.1", "0.0.0.0", "[::1]"],  # noqa: S104
 )
 
 SITE_URL = env("SITE_URL", default="http://localhost:8000")
@@ -41,9 +41,7 @@ INSTALLED_APPS += [
     "django_extensions",
 ] + ([] if _TESTING else ["debug_toolbar"])
 
-MIDDLEWARE = (
-    [] if _TESTING else ["debug_toolbar.middleware.DebugToolbarMiddleware"]
-) + MIDDLEWARE
+MIDDLEWARE = ([] if _TESTING else ["debug_toolbar.middleware.DebugToolbarMiddleware"]) + MIDDLEWARE
 
 INTERNAL_IPS = ["127.0.0.1", "::1"]
 
@@ -119,10 +117,14 @@ if not SIMPLE_JWT.get("SIGNING_KEY"):  # type: ignore[name-defined]  # noqa: F40
             format=_s.PrivateFormat.TraditionalOpenSSL,
             encryption_algorithm=_s.NoEncryption(),
         ).decode("utf-8")
-        SIMPLE_JWT["VERIFYING_KEY"] = _dev_key.public_key().public_bytes(  # type: ignore[name-defined]  # noqa: F405
-            encoding=_s.Encoding.PEM,
-            format=_s.PublicFormat.SubjectPublicKeyInfo,
-        ).decode("utf-8")
+        SIMPLE_JWT["VERIFYING_KEY"] = (  # noqa: F405
+            _dev_key.public_key()
+            .public_bytes(  # type: ignore[name-defined]
+                encoding=_s.Encoding.PEM,
+                format=_s.PublicFormat.SubjectPublicKeyInfo,
+            )
+            .decode("utf-8")
+        )
     except ImportError:
         pass  # cryptography not installed — JWT will fail; developer must install deps
 

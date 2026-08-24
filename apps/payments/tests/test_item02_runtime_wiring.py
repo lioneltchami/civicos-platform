@@ -1,11 +1,11 @@
-from decimal import Decimal
 import json
+from decimal import Decimal
 
 from django.test import TestCase
 
+from apps.payments.execution_intent import record_provider_correlation, reserve_execution_intent
 from apps.payments.govstack_failure_services import PaymentLifecycleService
 from apps.payments.govstack_models import PaymentAttempt
-from apps.payments.execution_intent import record_provider_correlation, reserve_execution_intent
 from apps.payments.govstack_provider import ProviderOutcome, ProviderResult
 from apps.payments.platform_scope import IdempotencyService
 from apps.payments.provider_runtime import ProviderRuntime, orchestrate_attempt
@@ -166,7 +166,9 @@ class DurableHttpIdempotencyTests(TestCase):
         self.assertFalse(first_writer)
         replay = IdempotencyService.replay(replay_row)
         self.assertEqual(replay.status_code, 202)
-        self.assertEqual(json.loads(replay.content), {"responseCode": "00", "requestID": "request-1"})
+        self.assertEqual(
+            json.loads(replay.content), {"responseCode": "00", "requestID": "request-1"}
+        )
 
         with self.assertRaises(ValueError):
             IdempotencyService.reserve(

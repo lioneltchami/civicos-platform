@@ -21,6 +21,7 @@ P2G note:
   P2G endpoints (Wave 5) are registered here in Wave 1 as stubs.
   They return HTTP 501 until Wave 5 is implemented.
 """
+
 from django.urls import path
 
 from apps.payments import govstack_views as gv
@@ -41,7 +42,6 @@ urlpatterns = [
         gv.UpdateBeneficiaryView.as_view(),
         name="update_beneficiary",
     ),
-
     # ── G2P Bulk Payment (Wave 3) ─────────────────────────────────────────
     path(
         "bulk-payment",
@@ -58,7 +58,6 @@ urlpatterns = [
         gv.PrepaymentValidationResponseView.as_view(),
         name="prepayment_validation_response",
     ),
-
     # ── Voucher Engine (Wave 4) ───────────────────────────────────────────
     # IMPORTANT: voucher_preactivation and voucher_activation use exact
     # underscore-joined names as specified in the harness @endpoint annotations.
@@ -84,7 +83,6 @@ urlpatterns = [
         gv.VoucherStatusCheckView.as_view(),
         name="voucher_status_check",
     ),
-
     # ── P2G — Bill Payments (Wave 5) ──────────────────────────────────────
     # ORDERING NOTE: bills/<str:bill_id>/mark-paid MUST appear before
     # bills/<str:bill_id> so Django's URL router tries the more specific

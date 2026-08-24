@@ -23,6 +23,7 @@ Receivers under test:
   notify_volunteer_on_application_approved     (application_approved signal)
   notify_volunteer_on_application_rejected     (application_rejected signal)
 """
+
 from __future__ import annotations
 
 from unittest import mock
@@ -54,6 +55,7 @@ _SEND_NOTIFICATION_PATH = "apps.notifications.services.send_email_notification"
 # Shared factories
 # ---------------------------------------------------------------------------
 
+
 def _make_user(email=None, **kwargs):
     _counter[0] += 1
     email = email or f"recv{_counter[0]}@example.gc.ca"
@@ -76,15 +78,15 @@ def _make_program(slug=None, coordinator=None):
 
 def _make_opportunity(program, *, slug=None, status="published", **kwargs):
     _counter[0] += 1
-    defaults = dict(
-        title_en="Receiver Opportunity",
-        title_fr="Opportunité récepteur",
-        slug=slug or f"recv-opp-{_counter[0]}",
-        description_en="Test opportunity for receiver tests.",
-        description_fr="Opportunité test pour tests récepteurs.",
-        program=program,
-        status=status,
-    )
+    defaults = {
+        "title_en": "Receiver Opportunity",
+        "title_fr": "Opportunité récepteur",
+        "slug": slug or f"recv-opp-{_counter[0]}",
+        "description_en": "Test opportunity for receiver tests.",
+        "description_fr": "Opportunité test pour tests récepteurs.",
+        "program": program,
+        "status": status,
+    }
     defaults.update(kwargs)
     return Opportunity.objects.create(**defaults)
 
@@ -116,15 +118,16 @@ def _extract_context_from_mock(mock_send):
     """
     assert mock_send.called, "send_email_notification was not called."
     call_kwargs = mock_send.call_args[1]  # keyword arguments
-    assert "context" in call_kwargs, (
-        f"'context' not found in call kwargs. Got: {list(call_kwargs.keys())}"
-    )
+    assert (
+        "context" in call_kwargs
+    ), f"'context' not found in call kwargs. Got: {list(call_kwargs.keys())}"
     return call_kwargs["context"]
 
 
 # ---------------------------------------------------------------------------
 # Base test case
 # ---------------------------------------------------------------------------
+
 
 class BaseReceiverTestCase(TestCase):
     """
@@ -160,6 +163,7 @@ class BaseReceiverTestCase(TestCase):
 # ApplicationSubmittedReceiverTests
 # ===========================================================================
 
+
 @override_settings(SITE_URL="https://civicos.example.gc.ca")
 class ApplicationSubmittedReceiverTests(BaseReceiverTestCase):
     """Tests for notify_coordinator_on_application_submitted receiver."""
@@ -188,7 +192,7 @@ class ApplicationSubmittedReceiverTests(BaseReceiverTestCase):
         self.assertEqual(call_kwargs["recipient"], self.coordinator)
 
     def test_coordinator_email_context_excludes_rejection_reason(self):
-        """PIPEDA: rejection_reason must NEVER appear as a key in coordinator notification context."""
+        """PIPEDA: rejection_reason must NEVER appear as a key in coordinator notification context."""  # noqa: E501
         mock_send = self._fire()
         context = _extract_context_from_mock(mock_send)
         self.assertNotIn(
@@ -268,6 +272,7 @@ class ApplicationSubmittedReceiverTests(BaseReceiverTestCase):
 # ===========================================================================
 # ApplicationApprovedReceiverTests
 # ===========================================================================
+
 
 @override_settings(SITE_URL="https://civicos.example.gc.ca")
 class ApplicationApprovedReceiverTests(BaseReceiverTestCase):
@@ -366,6 +371,7 @@ class ApplicationApprovedReceiverTests(BaseReceiverTestCase):
 # ===========================================================================
 # ApplicationRejectedReceiverTests
 # ===========================================================================
+
 
 @override_settings(SITE_URL="https://civicos.example.gc.ca")
 class ApplicationRejectedReceiverTests(BaseReceiverTestCase):
@@ -505,7 +511,7 @@ class ApplicationRejectedReceiverTests(BaseReceiverTestCase):
                 )
 
     def test_rejected_email_context_contains_opportunity_title(self):
-        """The rejection context includes the opportunity title (generic context for the volunteer)."""
+        """The rejection context includes the opportunity title (generic context for the volunteer)."""  # noqa: E501
         mock_send = self._fire()
         context = _extract_context_from_mock(mock_send)
         self.assertIn("opportunity_title", context)
@@ -547,15 +553,18 @@ class ApplicationRejectedReceiverTests(BaseReceiverTestCase):
 # T5 — HoursLog and ShiftBooking receiver tests
 # ===========================================================================
 
+
 @override_settings(SITE_URL="https://civicos.example.gc.ca")
 class HoursApprovedReceiverTests(BaseReceiverTestCase):
     """Tests for notify_volunteer_on_hours_approved receiver."""
 
     def setUp(self):
         super().setUp()
-        from apps.volunteers.models import HoursLog
         import datetime
         from decimal import Decimal
+
+        from apps.volunteers.models import HoursLog
+
         self.hours_log = HoursLog.objects.create(
             volunteer=self.profile,
             opportunity=self.opportunity,
@@ -566,6 +575,7 @@ class HoursApprovedReceiverTests(BaseReceiverTestCase):
 
     def _fire(self):
         from apps.volunteers.models import HoursLog
+
         with mock.patch(_SEND_NOTIFICATION_PATH) as mock_send:
             hours_approved.send(
                 sender=HoursLog,
@@ -575,7 +585,7 @@ class HoursApprovedReceiverTests(BaseReceiverTestCase):
         return mock_send
 
     def test_notify_on_hours_approved_sends_to_volunteer(self):
-        """Fire hours_approved signal; assert send_email_notification called with recipient=volunteer_user."""
+        """Fire hours_approved signal; assert send_email_notification called with recipient=volunteer_user."""  # noqa: E501
         mock_send = self._fire()
         mock_send.assert_called_once()
         call_kwargs = mock_send.call_args[1]
@@ -592,9 +602,11 @@ class HoursRejectedReceiverTests(BaseReceiverTestCase):
 
     def setUp(self):
         super().setUp()
-        from apps.volunteers.models import HoursLog
         import datetime
         from decimal import Decimal
+
+        from apps.volunteers.models import HoursLog
+
         self.hours_log = HoursLog.objects.create(
             volunteer=self.profile,
             opportunity=self.opportunity,
@@ -606,6 +618,7 @@ class HoursRejectedReceiverTests(BaseReceiverTestCase):
 
     def _fire(self):
         from apps.volunteers.models import HoursLog
+
         with mock.patch(_SEND_NOTIFICATION_PATH) as mock_send:
             hours_rejected.send(
                 sender=HoursLog,
@@ -637,9 +650,11 @@ class BookingCancelledReceiverTests(BaseReceiverTestCase):
 
     def setUp(self):
         super().setUp()
-        from apps.volunteers.models import Shift, ShiftBooking, VolunteerApplication
         import datetime
+
         from django.utils import timezone as tz
+
+        from apps.volunteers.models import Shift, ShiftBooking, VolunteerApplication
 
         # The base class already created a pending application for this
         # volunteer+opportunity.  Promote it to approved so the shift-booking
@@ -663,6 +678,7 @@ class BookingCancelledReceiverTests(BaseReceiverTestCase):
 
     def _fire(self):
         from apps.volunteers.models import ShiftBooking
+
         with mock.patch(_SEND_NOTIFICATION_PATH) as mock_send:
             shift_booking_cancelled.send(
                 sender=ShiftBooking,

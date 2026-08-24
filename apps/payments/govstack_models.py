@@ -21,11 +21,13 @@ Architecture:
 - Namespace:  govstack_payments
 - These models are NOT related to any existing payments model.
 """
+
 from __future__ import annotations
 
 import secrets
 import uuid
 from decimal import Decimal
+from typing import Never
 
 from django.core.validators import RegexValidator
 from django.db import models
@@ -33,7 +35,6 @@ from django.utils.translation import gettext_lazy as _
 
 from apps.core.fields import EncryptedCharField
 from apps.core.models import TimestampedModel
-
 
 # ---------------------------------------------------------------------------
 # Validators
@@ -46,7 +47,7 @@ _ISO4217_VALIDATOR = RegexValidator(
 
 _BB_ID_VALIDATOR = RegexValidator(
     regex=r"^[a-zA-Z0-9\-]{1,20}$",
-    message="BB ID must be 1–20 alphanumeric or hyphen characters.",
+    message="BB ID must be 1–20 alphanumeric or hyphen characters.",  # noqa: RUF001
 )
 
 # G2P-specific validator: lowercase hex + hyphens only, matching the serializer's
@@ -63,7 +64,7 @@ _BB_ID_VALIDATOR = RegexValidator(
 _G2P_UUID_VALIDATOR = RegexValidator(
     regex=r"^[0-9a-f\-]{1,20}$",
     message=(
-        "Payee Functional ID must be 1–20 lowercase hex characters and hyphens "
+        "Payee Functional ID must be 1–20 lowercase hex characters and hyphens "  # noqa: RUF001
         "(e.g. '2ba5ed20-0f42-4eff-8'). Uppercase letters are not permitted."
     ),
 )
@@ -107,6 +108,7 @@ def _generate_voucher_serial() -> str:
 # GovStackBeneficiary  (G2P ID Mapper)
 # ---------------------------------------------------------------------------
 
+
 class GovStackBeneficiary(TimestampedModel):
     """
     ID Mapper entry for a G2P beneficiary.
@@ -135,7 +137,7 @@ class GovStackBeneficiary(TimestampedModel):
         verbose_name=_("Payee Functional ID"),
         help_text=_(
             "Government-assigned functional identity for this beneficiary. "
-            "Must be 1–20 lowercase hex chars and hyphens per GovStack G2P spec. "
+            "Must be 1–20 lowercase hex chars and hyphens per GovStack G2P spec. "  # noqa: RUF001
             "NEVER write to logs."
         ),
     )
@@ -144,8 +146,7 @@ class GovStackBeneficiary(TimestampedModel):
         blank=True,
         verbose_name=_("Payment Modality"),
         help_text=_(
-            "Two-digit code: 01=bank account, 02=mobile money, "
-            "03=voucher, 04=proxy. Optional."
+            "Two-digit code: 01=bank account, 02=mobile money, " "03=voucher, 04=proxy. Optional."
         ),
     )
     financial_address = EncryptedCharField(
@@ -166,7 +167,9 @@ class GovStackBeneficiary(TimestampedModel):
         # source_bb_id fields because those serializers accept uppercase SourceBBIDs.
         validators=[_G2P_UUID_VALIDATOR],
         verbose_name=_("Source BB ID"),
-        help_text=_("SourceBBID of the registering Building Block. Must be lowercase hex + hyphens."),
+        help_text=_(
+            "SourceBBID of the registering Building Block. Must be lowercase hex + hyphens."
+        ),
     )
     registering_institution_id = models.CharField(
         max_length=20,
@@ -182,7 +185,7 @@ class GovStackBeneficiary(TimestampedModel):
     class Meta:
         verbose_name = _("GovStack Beneficiary")
         verbose_name_plural = _("GovStack Beneficiaries")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(
                 fields=["source_bb_id", "payee_functional_id"],
                 name="gs_ben_sourcebb_payee_idx",
@@ -198,6 +201,7 @@ class GovStackBeneficiary(TimestampedModel):
 # ---------------------------------------------------------------------------
 # BulkPaymentBatch  (G2P Bulk Disbursement)
 # ---------------------------------------------------------------------------
+
 
 class BulkPaymentBatch(TimestampedModel):
     """
@@ -217,7 +221,7 @@ class BulkPaymentBatch(TimestampedModel):
     STATUS_PARTIAL = "partial"
     STATUS_FAILED = "failed"
 
-    STATUS_CHOICES = [
+    STATUS_CHOICES = [  # noqa: RUF012
         (STATUS_RECEIVED, _("Received")),
         (STATUS_VALIDATING, _("Validating")),
         (STATUS_PROCESSING, _("Processing")),
@@ -237,7 +241,9 @@ class BulkPaymentBatch(TimestampedModel):
         db_index=True,
         validators=[_REQUEST_ID_VALIDATOR],
         verbose_name=_("Request ID"),
-        help_text=_("RequestID from Source BB. Exactly 12 alphanumeric/hyphen chars per the live GovStack spec."),
+        help_text=_(
+            "RequestID from Source BB. Exactly 12 alphanumeric/hyphen chars per the live GovStack spec."  # noqa: E501
+        ),
     )
     source_bb_id = models.CharField(
         max_length=20,
@@ -309,7 +315,7 @@ class BulkPaymentBatch(TimestampedModel):
     class Meta:
         verbose_name = _("Bulk Payment Batch")
         verbose_name_plural = _("Bulk Payment Batches")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(fields=["status", "created_at"], name="gs_batch_status_created_idx"),
         ]
 
@@ -320,6 +326,7 @@ class BulkPaymentBatch(TimestampedModel):
 # ---------------------------------------------------------------------------
 # CreditInstruction  (one line item in a BulkPaymentBatch)
 # ---------------------------------------------------------------------------
+
 
 class CreditInstruction(TimestampedModel):
     """
@@ -335,7 +342,7 @@ class CreditInstruction(TimestampedModel):
     STATUS_COMPLETED = "completed"
     STATUS_FAILED = "failed"
 
-    STATUS_CHOICES = [
+    STATUS_CHOICES = [  # noqa: RUF012
         (STATUS_PENDING, _("Pending")),
         (STATUS_VALIDATED, _("Validated")),
         (STATUS_COMPLETED, _("Completed")),
@@ -364,8 +371,7 @@ class CreditInstruction(TimestampedModel):
         max_length=20,
         verbose_name=_("Payee Functional ID"),
         help_text=_(
-            "Maps to GovStackBeneficiary.payee_functional_id. "
-            "NEVER write to any log line."
+            "Maps to GovStackBeneficiary.payee_functional_id. " "NEVER write to any log line."
         ),
     )
     amount = models.DecimalField(
@@ -410,8 +416,8 @@ class CreditInstruction(TimestampedModel):
     class Meta:
         verbose_name = _("Credit Instruction")
         verbose_name_plural = _("Credit Instructions")
-        unique_together = [("batch", "instruction_id")]
-        indexes = [
+        unique_together = [("batch", "instruction_id")]  # noqa: RUF012
+        indexes = [  # noqa: RUF012
             models.Index(fields=["batch", "status"], name="gs_instr_batch_status_idx"),
         ]
 
@@ -424,6 +430,7 @@ class CreditInstruction(TimestampedModel):
 # ---------------------------------------------------------------------------
 # PrepaymentValidationRequest
 # ---------------------------------------------------------------------------
+
 
 class PrepaymentValidationRequest(TimestampedModel):
     """
@@ -442,7 +449,7 @@ class PrepaymentValidationRequest(TimestampedModel):
     STATUS_COMPLETED = "completed"
     STATUS_FAILED = "failed"
 
-    STATUS_CHOICES = [
+    STATUS_CHOICES = [  # noqa: RUF012
         (STATUS_PENDING, _("Pending")),
         (STATUS_COMPLETED, _("Completed")),
         (STATUS_FAILED, _("Failed")),
@@ -520,7 +527,7 @@ class PrepaymentValidationRequest(TimestampedModel):
     class Meta:
         verbose_name = _("Prepayment Validation Request")
         verbose_name_plural = _("Prepayment Validation Requests")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(fields=["batch_id", "status"], name="gs_prepay_batch_status_idx"),
         ]
 
@@ -551,6 +558,7 @@ class PrepaymentExecution(models.Model):
 # ---------------------------------------------------------------------------
 # GovStackVoucher
 # ---------------------------------------------------------------------------
+
 
 class GovStackVoucher(TimestampedModel):
     """
@@ -589,7 +597,7 @@ class GovStackVoucher(TimestampedModel):
     STATUS_CANCELLED = "cancelled"
     STATUS_PURGED = "purged"
 
-    STATUS_CHOICES = [
+    STATUS_CHOICES = [  # noqa: RUF012
         (STATUS_NOT_PREACTIVATED, _("Not Preactivated")),
         (STATUS_PREACTIVATED, _("Preactivated")),
         (STATUS_ACTIVATED, _("Activated")),
@@ -602,7 +610,7 @@ class GovStackVoucher(TimestampedModel):
 
     # ── Integer status codes for the GET /voucherstatuscheck response ────────
     # Used in: GET /vouchers/voucherstatuscheck/{serial} → {"status": <int>}
-    STATUS_INT_MAP: dict[str, int] = {
+    STATUS_INT_MAP: dict[str, int] = {  # noqa: RUF012
         STATUS_NOT_PREACTIVATED: 0,
         STATUS_PREACTIVATED: 1,
         STATUS_ACTIVATED: 2,
@@ -615,7 +623,7 @@ class GovStackVoucher(TimestampedModel):
     STATUS_ERROR_INT: int = 9  # Returned when status lookup fails
 
     # ── Valid state machine transitions ─────────────────────────────────────
-    ALLOWED_TRANSITIONS: dict[str, list[str]] = {
+    ALLOWED_TRANSITIONS: dict[str, list[str]] = {  # noqa: RUF012
         # ── GovStack spec artifact ────────────────────────────────────────────
         # STATUS_NOT_PREACTIVATED → PREACTIVATED is defined by the GovStack
         # Voucher spec as the "initial issuance" transition.
@@ -627,13 +635,11 @@ class GovStackVoucher(TimestampedModel):
         # (it would raise ValueError for any unmapped from-state, so every
         # spec-defined state must appear as a key here).
         STATUS_NOT_PREACTIVATED: [STATUS_PREACTIVATED],
-
         # ── Active lifecycle ──────────────────────────────────────────────────
         STATUS_PREACTIVATED: [STATUS_ACTIVATED, STATUS_CANCELLED],
         STATUS_ACTIVATED: [STATUS_CONSUMED, STATUS_BLOCKED, STATUS_SUSPENDED, STATUS_CANCELLED],
         STATUS_BLOCKED: [STATUS_ACTIVATED, STATUS_CANCELLED],
         STATUS_SUSPENDED: [STATUS_ACTIVATED, STATUS_CANCELLED],
-
         # ── Terminal states (no outbound transitions) ─────────────────────────
         STATUS_CONSUMED: [],
         STATUS_CANCELLED: [],
@@ -760,7 +766,7 @@ class GovStackVoucher(TimestampedModel):
     class Meta:
         verbose_name = _("GovStack Voucher")
         verbose_name_plural = _("GovStack Vouchers")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(fields=["status", "group_code"], name="gs_voucher_status_group_idx"),
             models.Index(fields=["issuing_bb", "status"], name="gs_voucher_bb_status_idx"),
         ]
@@ -812,6 +818,7 @@ class GovStackVoucher(TimestampedModel):
 # GovStackPaymentAuditEntry  (append-only)
 # ---------------------------------------------------------------------------
 
+
 class _AuditEntryQuerySet(models.QuerySet):
     """
     Custom QuerySet for GovStackPaymentAuditEntry.
@@ -824,12 +831,12 @@ class _AuditEntryQuerySet(models.QuerySet):
     `.as_manager()` and still be patchable in tests.
     """
 
-    def delete(self):
+    def delete(self) -> Never:
         raise PermissionError(
             "GovStackPaymentAuditEntry records are permanent and cannot be deleted."
         )
 
-    def update(self, **kwargs):
+    def update(self, **kwargs) -> Never:  # noqa: ANN003
         """
         Block bulk update to enforce append-only semantics.
 
@@ -893,7 +900,7 @@ class GovStackPaymentAuditEntry(TimestampedModel):
     ACTION_PAYMENT_REVIEW_REQUIRED = "payment_review_required"
     ACTION_BATCH_DECISION_RECORDED = "batch_decision_recorded"
 
-    ACTION_CHOICES = [
+    ACTION_CHOICES = [  # noqa: RUF012
         (ACTION_BENEFICIARY_REGISTERED, _("Beneficiary Registered")),
         (ACTION_BENEFICIARY_UPDATED, _("Beneficiary Updated")),
         (ACTION_BATCH_RECEIVED, _("Batch Received")),
@@ -979,18 +986,18 @@ class GovStackPaymentAuditEntry(TimestampedModel):
     class Meta:
         verbose_name = _("GovStack Payment Audit Entry")
         verbose_name_plural = _("GovStack Payment Audit Entries")
-        ordering = ["-timestamp"]
-        indexes = [
+        ordering = ["-timestamp"]  # noqa: RUF012
+        indexes = [  # noqa: RUF012
             models.Index(fields=["action", "timestamp"], name="gs_audit_action_ts_idx"),
             models.Index(fields=["object_type", "object_pk"], name="gs_audit_obj_idx"),
         ]
 
     def __str__(self) -> str:
-        return f"{self.action} / {self.object_type}:{self.object_pk} @ {self.timestamp:%Y-%m-%d %H:%M:%S}"
+        return f"{self.action} / {self.object_type}:{self.object_pk} @ {self.timestamp:%Y-%m-%d %H:%M:%S}"  # noqa: E501
 
     # ── Append-only enforcement ──────────────────────────────────────────────
 
-    def save(self, *args, **kwargs) -> None:  # type: ignore[override]
+    def save(self, *args, **kwargs) -> None:  # type: ignore[override]  # noqa: ANN002, ANN003
         """Block updates. GovStackPaymentAuditEntry is append-only."""
         if self.pk and GovStackPaymentAuditEntry.objects.filter(pk=self.pk).exists():
             raise PermissionError(
@@ -998,7 +1005,7 @@ class GovStackPaymentAuditEntry(TimestampedModel):
             )
         super().save(*args, **kwargs)
 
-    def delete(self, *args, **kwargs):  # type: ignore[override]
+    def delete(self, *args, **kwargs) -> Never:  # type: ignore[override]  # noqa: ANN002, ANN003
         """Block deletion. GovStackPaymentAuditEntry records are permanent."""
         raise PermissionError(
             "GovStackPaymentAuditEntry records are permanent and cannot be deleted."
@@ -1008,6 +1015,7 @@ class GovStackPaymentAuditEntry(TimestampedModel):
 # ---------------------------------------------------------------------------
 # GovStackBill  (P2G — Person to Government)
 # ---------------------------------------------------------------------------
+
 
 class GovStackBill(TimestampedModel):
     """
@@ -1044,7 +1052,7 @@ class GovStackBill(TimestampedModel):
     # other.
     STATUS_CANCELLED = "cancelled"
 
-    STATUS_CHOICES = [
+    STATUS_CHOICES = [  # noqa: RUF012
         (STATUS_UNPAID, _("Unpaid")),
         (STATUS_PAID, _("Paid")),
         (STATUS_OVERDUE, _("Overdue")),
@@ -1121,10 +1129,10 @@ class GovStackBill(TimestampedModel):
     class Meta:
         verbose_name = _("GovStack Bill")
         verbose_name_plural = _("GovStack Bills")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(fields=["status", "due_date"], name="gs_bill_status_due_idx"),
         ]
-        constraints = [
+        constraints = [  # noqa: RUF012
             models.CheckConstraint(
                 check=models.Q(amount__gt=0),
                 name="gs_bill_amount_positive",
@@ -1154,6 +1162,7 @@ class GovStackBill(TimestampedModel):
 # GovStackBillPayment  (P2G Transfer Request)
 # ---------------------------------------------------------------------------
 
+
 class GovStackBillPayment(TimestampedModel):
     """
     A P2G bill payment record — the result of a POST /billTransferRequests call.
@@ -1180,7 +1189,7 @@ class GovStackBillPayment(TimestampedModel):
     STATUS_COMPLETED = "completed"
     STATUS_FAILED = "failed"
 
-    STATUS_CHOICES = [
+    STATUS_CHOICES = [  # noqa: RUF012
         (STATUS_PENDING, _("Pending")),
         (STATUS_COMPLETED, _("Completed")),
         (STATUS_FAILED, _("Failed")),
@@ -1264,11 +1273,11 @@ class GovStackBillPayment(TimestampedModel):
     class Meta:
         verbose_name = _("GovStack Bill Payment")
         verbose_name_plural = _("GovStack Bill Payments")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(fields=["bill", "status"], name="gs_billpay_bill_status_idx"),
             models.Index(fields=["status", "created_at"], name="gs_billpay_status_created_idx"),
         ]
-        constraints = [
+        constraints = [  # noqa: RUF012
             models.CheckConstraint(
                 check=models.Q(amount__gt=0),
                 name="gs_billpay_amount_positive",
@@ -1292,6 +1301,7 @@ class GovStackBillPayment(TimestampedModel):
 # ---------------------------------------------------------------------------
 # GovStackRegisteredBB  (BB Whitelist — GAP-4)
 # ---------------------------------------------------------------------------
+
 
 class GovStackRegisteredBB(TimestampedModel):
     """
@@ -1317,7 +1327,7 @@ class GovStackRegisteredBB(TimestampedModel):
       bb_id is validated against _BB_ID_VALIDATOR (1–20 alphanumeric/hyphen chars)
       at both the model and DB layer (unique constraint).
       No PII is stored here — bb_id is an infrastructure identifier, not a citizen ID.
-    """
+    """  # noqa: RUF002
 
     bb_id = models.CharField(
         max_length=20,
@@ -1326,7 +1336,7 @@ class GovStackRegisteredBB(TimestampedModel):
         verbose_name=_("BB Identifier"),
         help_text=_(
             "Must match the X-Registering-Institution-ID header value sent by the BB. "
-            "1–20 alphanumeric or hyphen characters. Case-sensitive."
+            "1–20 alphanumeric or hyphen characters. Case-sensitive."  # noqa: RUF001
         ),
     )
     description = models.TextField(
@@ -1393,7 +1403,7 @@ class GovStackRegisteredBB(TimestampedModel):
     class Meta:
         verbose_name = _("GovStack Registered BB")
         verbose_name_plural = _("GovStack Registered BBs")
-        ordering = ["bb_id"]
+        ordering = ["bb_id"]  # noqa: RUF012
 
     def __str__(self) -> str:
         status = "active" if self.is_active else "inactive"
@@ -1405,6 +1415,7 @@ class GovStackRegisteredBB(TimestampedModel):
 # ---------------------------------------------------------------------------
 class ProviderRegistration(TimestampedModel):
     """Durable, redacted provider configuration selected by tenant and operation."""
+
     tenant_id = models.CharField(max_length=100, db_index=True)
     operation = models.CharField(max_length=30)
     provider_name = models.CharField(max_length=80)
@@ -1418,13 +1429,23 @@ class ProviderRegistration(TimestampedModel):
     active_until = models.DateTimeField(null=True, blank=True)
     audit_metadata = models.JSONField(default=dict)
     active = models.BooleanField(default=True, db_index=True)
+
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["tenant_id", "operation"], name="gs_provider_registration_scope_uniq")]
-        indexes = [models.Index(fields=["tenant_id", "operation", "active"], name="gs_provider_reg_lookup_idx")]
+        constraints = [  # noqa: RUF012
+            models.UniqueConstraint(
+                fields=["tenant_id", "operation"], name="gs_provider_registration_scope_uniq"
+            )
+        ]
+        indexes = [  # noqa: RUF012
+            models.Index(
+                fields=["tenant_id", "operation", "active"], name="gs_provider_reg_lookup_idx"
+            )
+        ]
 
 
 class PaymentAttempt(TimestampedModel):
     """Provider-neutral, durable execution record; local validation is not settlement."""
+
     STATUS_PENDING = "pending"
     STATUS_RETRYABLE = "retryable"
     STATUS_UNCERTAIN = "uncertain"
@@ -1432,12 +1453,27 @@ class PaymentAttempt(TimestampedModel):
     STATUS_REJECTED = "rejected"
     STATUS_REVIEW = "review"
     STATUS_DEAD_LETTER = "dead_letter"
-    STATUS_CHOICES = [(s, s.replace('_', ' ').title()) for s in (
-        STATUS_PENDING, STATUS_RETRYABLE, STATUS_UNCERTAIN, STATUS_SETTLED,
-        STATUS_REJECTED, STATUS_REVIEW, STATUS_DEAD_LETTER)]
+    STATUS_CHOICES = [  # noqa: RUF012
+        (s, s.replace("_", " ").title())
+        for s in (
+            STATUS_PENDING,
+            STATUS_RETRYABLE,
+            STATUS_UNCERTAIN,
+            STATUS_SETTLED,
+            STATUS_REJECTED,
+            STATUS_REVIEW,
+            STATUS_DEAD_LETTER,
+        )
+    ]
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     tenant_id = models.CharField(max_length=100, blank=False, db_index=True)
-    provider_registration = models.ForeignKey("ProviderRegistration", on_delete=models.PROTECT, null=True, blank=True, related_name="attempts")
+    provider_registration = models.ForeignKey(
+        "ProviderRegistration",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="attempts",
+    )
     claim_token = models.CharField(max_length=128, blank=True)
     claim_expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
     claim_generation = models.PositiveIntegerField(default=0)
@@ -1455,7 +1491,9 @@ class PaymentAttempt(TimestampedModel):
     external_transaction_id = models.CharField(max_length=100, blank=True, db_index=True)
     amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
     currency = models.CharField(max_length=3, blank=True)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True
+    )
     failure_code = models.CharField(max_length=50, blank=True)
     failure_category = models.CharField(max_length=30, blank=True)
     retryable = models.BooleanField(default=False)
@@ -1464,16 +1502,23 @@ class PaymentAttempt(TimestampedModel):
     last_error = models.CharField(max_length=255, blank=True)
     payload_fingerprint = models.CharField(max_length=64)
     version = models.PositiveIntegerField(default=1)
+
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["tenant_id", "operation", "request_id"], name="gs_attempt_scope_request_uniq")]
-        indexes = [models.Index(fields=["status", "next_retry_at"], name="gs_attempt_due_idx")]
+        constraints = [  # noqa: RUF012
+            models.UniqueConstraint(
+                fields=["tenant_id", "operation", "request_id"],
+                name="gs_attempt_scope_request_uniq",
+            )
+        ]
+        indexes = [models.Index(fields=["status", "next_retry_at"], name="gs_attempt_due_idx")]  # noqa: RUF012
+
 
 class PaymentExecutionIntent(TimestampedModel):
     """Append-only provider execution identity reserved before external I/O."""
 
     STATE_RESERVED = "reserved"
     STATE_CORRELATED = "correlated"
-    STATE_CHOICES = [
+    STATE_CHOICES = [  # noqa: RUF012
         (STATE_RESERVED, "Reserved"),
         (STATE_CORRELATED, "Correlated"),
     ]
@@ -1493,23 +1538,25 @@ class PaymentExecutionIntent(TimestampedModel):
     # than initiate another external submission when this marker is present.
     submit_started_at = models.DateTimeField(null=True, blank=True)
     submit_admission_generation = models.PositiveIntegerField(null=True, blank=True)
-    state = models.CharField(max_length=20, choices=STATE_CHOICES, default=STATE_RESERVED, db_index=True)
+    state = models.CharField(
+        max_length=20, choices=STATE_CHOICES, default=STATE_RESERVED, db_index=True
+    )
 
     class Meta:
-        constraints = [
+        constraints = [  # noqa: RUF012
             models.UniqueConstraint(
                 fields=["scope", "operation", "request_identity"],
                 name="gs_exec_intent_identity_uniq",
             )
         ]
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(
                 fields=["scope", "operation", "created_at"],
                 name="gs_exec_intent_scope_idx",
             )
         ]
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN201
         if not self._state.adding:
             original = type(self).objects.get(pk=self.pk)
             immutable = (
@@ -1521,17 +1568,24 @@ class PaymentExecutionIntent(TimestampedModel):
             )
             if any(getattr(original, field) != getattr(self, field) for field in immutable):
                 raise ValueError("PaymentExecutionIntent canonical identity is immutable")
-            if original.provider_correlation and self.provider_correlation != original.provider_correlation:
+            if (
+                original.provider_correlation
+                and self.provider_correlation != original.provider_correlation
+            ):
                 raise ValueError("PaymentExecutionIntent provider correlation is immutable")
         return super().save(*args, **kwargs)
 
-    def delete(self, *args, **kwargs):
+    def delete(self, *args, **kwargs) -> Never:  # noqa: ANN002, ANN003
         raise ValueError("PaymentExecutionIntent is append-only")
 
 
 class CallbackDelivery(TimestampedModel):
     """Idempotent callback outbox ledger with bounded retry/dead-letter state."""
-    STATUS_PENDING = "pending"; STATUS_DELIVERED = "delivered"; STATUS_RETRY = "retry"; STATUS_DEAD = "dead"
+
+    STATUS_PENDING = "pending"
+    STATUS_DELIVERED = "delivered"
+    STATUS_RETRY = "retry"
+    STATUS_DEAD = "dead"
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     attempt = models.ForeignKey(PaymentAttempt, on_delete=models.PROTECT, related_name="callbacks")
     callback_url = models.URLField(max_length=500)
@@ -1544,14 +1598,26 @@ class CallbackDelivery(TimestampedModel):
     next_attempt_at = models.DateTimeField(null=True, blank=True)
     last_http_status = models.PositiveIntegerField(null=True, blank=True)
     last_error = models.CharField(max_length=255, blank=True)
+
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["attempt", "payload_hash"], name="gs_callback_attempt_payload_uniq")]
+        constraints = [  # noqa: RUF012
+            models.UniqueConstraint(
+                fields=["attempt", "payload_hash"], name="gs_callback_attempt_payload_uniq"
+            )
+        ]
+
 
 class PaymentReconciliation(TimestampedModel):
     """Comparison of internal and provider/source-BB outcomes."""
-    STATUS_MATCHED = "matched"; STATUS_MISMATCH = "mismatch"; STATUS_UNKNOWN = "unknown"; STATUS_RESOLVED = "resolved"
+
+    STATUS_MATCHED = "matched"
+    STATUS_MISMATCH = "mismatch"
+    STATUS_UNKNOWN = "unknown"
+    STATUS_RESOLVED = "resolved"
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    attempt = models.ForeignKey(PaymentAttempt, on_delete=models.PROTECT, related_name="reconciliations")
+    attempt = models.ForeignKey(
+        PaymentAttempt, on_delete=models.PROTECT, related_name="reconciliations"
+    )
     provider_status = models.CharField(max_length=30, blank=True)
     internal_status = models.CharField(max_length=30)
     source_bb_status = models.CharField(max_length=30, blank=True)
@@ -1559,11 +1625,16 @@ class PaymentReconciliation(TimestampedModel):
     external_transaction_id = models.CharField(max_length=100, blank=True)
     resolution_note = models.CharField(max_length=255, blank=True)
     resolved_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
-        indexes = [models.Index(fields=["status", "created_at"], name="gs_recon_status_created_idx")]
+        indexes = [  # noqa: RUF012
+            models.Index(fields=["status", "created_at"], name="gs_recon_status_created_idx")
+        ]
+
 
 class ProviderObservation(TimestampedModel):
     """Immutable exact-binding provider/source evidence; never local finality."""
+
     KIND_PROVIDER = "provider"
     KIND_SOURCE = "source"
     OUTCOME_SETTLED = "settled"
@@ -1571,7 +1642,9 @@ class ProviderObservation(TimestampedModel):
     OUTCOME_UNCERTAIN = "uncertain"
     OUTCOME_REVIEW = "manual_review"
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    attempt = models.ForeignKey(PaymentAttempt, on_delete=models.PROTECT, related_name="observations")
+    attempt = models.ForeignKey(
+        PaymentAttempt, on_delete=models.PROTECT, related_name="observations"
+    )
     tenant_id = models.CharField(max_length=100, db_index=True)
     observation_kind = models.CharField(max_length=20)
     observation_id = models.CharField(max_length=160)
@@ -1585,48 +1658,113 @@ class ProviderObservation(TimestampedModel):
     binding_hash = models.CharField(max_length=64)
     accepted_finality = models.BooleanField(default=False, db_index=True)
     metadata = models.JSONField(default=dict)
+
     class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["observation_kind", "observation_id"], name="gs_observation_kind_id_uniq"),
-            models.UniqueConstraint(fields=["attempt", "accepted_finality"], condition=models.Q(accepted_finality=True), name="gs_one_accepted_finality"),
+        constraints = [  # noqa: RUF012
+            models.UniqueConstraint(
+                fields=["observation_kind", "observation_id"], name="gs_observation_kind_id_uniq"
+            ),
+            models.UniqueConstraint(
+                fields=["attempt", "accepted_finality"],
+                condition=models.Q(accepted_finality=True),
+                name="gs_one_accepted_finality",
+            ),
         ]
-        indexes = [models.Index(fields=["tenant_id", "attempt", "created_at"], name="gs_obs_tenant_attempt_idx")]
-    def save(self, *args, **kwargs):
+        indexes = [  # noqa: RUF012
+            models.Index(
+                fields=["tenant_id", "attempt", "created_at"], name="gs_obs_tenant_attempt_idx"
+            )
+        ]
+
+    def save(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN201
         if self.pk and type(self).objects.filter(pk=self.pk).exists():
             raise ValueError("ProviderObservation is immutable")
         return super().save(*args, **kwargs)
-    def delete(self, *args, **kwargs):
+
+    def delete(self, *args, **kwargs) -> Never:  # noqa: ANN002, ANN003
         raise ValueError("ProviderObservation is append-only")
 
-class IdempotencyConflict(Exception):
+
+class IdempotencyConflict(Exception):  # noqa: N818
     pass
 
-class InvalidPaymentTransition(Exception):
+
+class InvalidPaymentTransition(Exception):  # noqa: N818
     pass
+
 
 class PaymentOutcome:
     """Stable adapter-neutral outcome vocabulary."""
-    def __init__(self, status, code="", category="", retryable=False, provider_attempt_id="", external_transaction_id="", message=""):
+
+    def __init__(
+        self,
+        status,  # noqa: ANN001
+        code="",  # noqa: ANN001
+        category="",  # noqa: ANN001
+        retryable=False,  # noqa: ANN001
+        provider_attempt_id="",  # noqa: ANN001
+        external_transaction_id="",  # noqa: ANN001
+        message="",  # noqa: ANN001
+    ) -> None:
         self.status, self.code, self.category, self.retryable = status, code, category, retryable
-        self.provider_attempt_id, self.external_transaction_id, self.message = provider_attempt_id, external_transaction_id, message
+        self.provider_attempt_id, self.external_transaction_id, self.message = (
+            provider_attempt_id,
+            external_transaction_id,
+            message,
+        )
 
 
 PaymentAttempt.ALLOWED_TRANSITIONS = {
-    PaymentAttempt.STATUS_PENDING: {PaymentAttempt.STATUS_RETRYABLE, PaymentAttempt.STATUS_UNCERTAIN, PaymentAttempt.STATUS_SETTLED, PaymentAttempt.STATUS_REJECTED, PaymentAttempt.STATUS_REVIEW},
-    PaymentAttempt.STATUS_RETRYABLE: {PaymentAttempt.STATUS_PENDING, PaymentAttempt.STATUS_UNCERTAIN, PaymentAttempt.STATUS_SETTLED, PaymentAttempt.STATUS_REJECTED, PaymentAttempt.STATUS_REVIEW, PaymentAttempt.STATUS_DEAD_LETTER},
-    PaymentAttempt.STATUS_UNCERTAIN: {PaymentAttempt.STATUS_UNCERTAIN, PaymentAttempt.STATUS_SETTLED, PaymentAttempt.STATUS_REJECTED, PaymentAttempt.STATUS_REVIEW, PaymentAttempt.STATUS_DEAD_LETTER},
-    PaymentAttempt.STATUS_REVIEW: {PaymentAttempt.STATUS_PENDING, PaymentAttempt.STATUS_DEAD_LETTER},
-    PaymentAttempt.STATUS_SETTLED: set(), PaymentAttempt.STATUS_REJECTED: set(), PaymentAttempt.STATUS_DEAD_LETTER: set(),
+    PaymentAttempt.STATUS_PENDING: {
+        PaymentAttempt.STATUS_RETRYABLE,
+        PaymentAttempt.STATUS_UNCERTAIN,
+        PaymentAttempt.STATUS_SETTLED,
+        PaymentAttempt.STATUS_REJECTED,
+        PaymentAttempt.STATUS_REVIEW,
+    },
+    PaymentAttempt.STATUS_RETRYABLE: {
+        PaymentAttempt.STATUS_PENDING,
+        PaymentAttempt.STATUS_UNCERTAIN,
+        PaymentAttempt.STATUS_SETTLED,
+        PaymentAttempt.STATUS_REJECTED,
+        PaymentAttempt.STATUS_REVIEW,
+        PaymentAttempt.STATUS_DEAD_LETTER,
+    },
+    PaymentAttempt.STATUS_UNCERTAIN: {
+        PaymentAttempt.STATUS_UNCERTAIN,
+        PaymentAttempt.STATUS_SETTLED,
+        PaymentAttempt.STATUS_REJECTED,
+        PaymentAttempt.STATUS_REVIEW,
+        PaymentAttempt.STATUS_DEAD_LETTER,
+    },
+    PaymentAttempt.STATUS_REVIEW: {
+        PaymentAttempt.STATUS_PENDING,
+        PaymentAttempt.STATUS_DEAD_LETTER,
+    },
+    PaymentAttempt.STATUS_SETTLED: set(),
+    PaymentAttempt.STATUS_REJECTED: set(),
+    PaymentAttempt.STATUS_DEAD_LETTER: set(),
 }
 
-PaymentAttempt.is_terminal = property(lambda self: self.status in {PaymentAttempt.STATUS_SETTLED, PaymentAttempt.STATUS_REJECTED, PaymentAttempt.STATUS_DEAD_LETTER})
+PaymentAttempt.is_terminal = property(
+    lambda self: self.status
+    in {
+        PaymentAttempt.STATUS_SETTLED,
+        PaymentAttempt.STATUS_REJECTED,
+        PaymentAttempt.STATUS_DEAD_LETTER,
+    }
+)
 
-def _attempt_transition(self, new_status, **fields):
+
+def _attempt_transition(self, new_status, **fields) -> None:  # noqa: ANN001, ANN003
     if new_status not in PaymentAttempt.ALLOWED_TRANSITIONS.get(self.status, set()):
         raise InvalidPaymentTransition(f"invalid payment transition {self.status} -> {new_status}")
     self.status = new_status
-    for key, value in fields.items(): setattr(self, key, value)
+    for key, value in fields.items():
+        setattr(self, key, value)
     self.version += 1
+
+
 PaymentAttempt.transition_to = _attempt_transition
 PaymentAttempt.__str__ = lambda self: f"PaymentAttempt {self.pk} [{self.status}]"
 
@@ -1637,9 +1775,10 @@ PaymentReconciliation._meta.verbose_name = "Payment Reconciliation"
 
 class IdempotencyLedger(TimestampedModel):
     """Durable endpoint reservation and exact response replay record."""
+
     STATE_IN_PROGRESS = "in_progress"
     STATE_COMPLETE = "complete"
-    STATE_CHOICES = [(STATE_IN_PROGRESS, "In progress"), (STATE_COMPLETE, "Complete")]
+    STATE_CHOICES = [(STATE_IN_PROGRESS, "In progress"), (STATE_COMPLETE, "Complete")]  # noqa: RUF012
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     tenant_id = models.CharField(max_length=100)
     method = models.CharField(max_length=10)
@@ -1651,9 +1790,16 @@ class IdempotencyLedger(TimestampedModel):
     body = models.JSONField(default=dict)
     headers = models.JSONField(default=dict)
     completed_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["tenant_id", "method", "path", "key"], name="gs_idem_tenant_method_path_key")]
-        indexes = [models.Index(fields=["tenant_id", "created_at"], name="gs_idem_tenant_created_idx")]
+        constraints = [  # noqa: RUF012
+            models.UniqueConstraint(
+                fields=["tenant_id", "method", "path", "key"], name="gs_idem_tenant_method_path_key"
+            )
+        ]
+        indexes = [  # noqa: RUF012
+            models.Index(fields=["tenant_id", "created_at"], name="gs_idem_tenant_created_idx")
+        ]
 
 
 class GovStackBatchDecision(TimestampedModel):
@@ -1665,7 +1811,7 @@ class GovStackBatchDecision(TimestampedModel):
     ACTION_REVIEW = "review"
     ACTION_TERMINAL = "terminal"
     ACTION_RETURN_FUNDS = "return_funds"
-    ACTION_CHOICES = [
+    ACTION_CHOICES = [  # noqa: RUF012
         (ACTION_EMPTY, "Empty"),
         (ACTION_PAUSE, "Pause"),
         (ACTION_RETRY, "Retry"),
@@ -1695,40 +1841,45 @@ class GovStackBatchDecision(TimestampedModel):
     details = models.JSONField(default=dict)
 
     class Meta:
-        constraints = [
+        constraints = [  # noqa: RUF012
             models.UniqueConstraint(
                 fields=["batch", "fingerprint"],
                 name="gs_batch_decision_fingerprint_uniq",
             ),
         ]
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(
                 fields=["batch", "lease_generation"],
                 name="gs_batch_decision_gen_idx",
             ),
         ]
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN201
         if not self._state.adding:
             raise ValueError("GovStackBatchDecision records are append-only")
         return super().save(*args, **kwargs)
 
-    def delete(self, *args, **kwargs):
+    def delete(self, *args, **kwargs) -> Never:  # noqa: ANN002, ANN003
         raise ValueError("GovStackBatchDecision records are append-only")
 
 
 class BatchLease(TimestampedModel):
     """Durable ownership token for batch workers; stale owners cannot renew or commit."""
+
     # Matches the UUID primary key established by migration 0032. Keeping this
     # explicit prevents DEFAULT_AUTO_FIELD from reintroducing schema drift.
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    batch = models.OneToOneField(BulkPaymentBatch, on_delete=models.PROTECT, related_name="runtime_lease")
+    batch = models.OneToOneField(
+        BulkPaymentBatch, on_delete=models.PROTECT, related_name="runtime_lease"
+    )
     owner_token = models.CharField(max_length=128)
     generation = models.PositiveIntegerField(default=1)
     expires_at = models.DateTimeField(db_index=True)
-    class Meta:
-        indexes = [models.Index(fields=["expires_at", "generation"], name="gs_batch_lease_due_idx")]
 
-    def is_expired(self):
+    class Meta:
+        indexes = [models.Index(fields=["expires_at", "generation"], name="gs_batch_lease_due_idx")]  # noqa: RUF012
+
+    def is_expired(self):  # noqa: ANN201
         from django.utils import timezone
+
         return self.expires_at <= timezone.now()

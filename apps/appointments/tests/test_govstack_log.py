@@ -10,6 +10,7 @@ Covers 4 endpoints:
 Test numbering: LOG1-LOGxx, following the AS/MSG numbering convention used
 in test_govstack_alert_schedule.py / test_govstack_message.py.
 """
+
 from __future__ import annotations
 
 import json
@@ -41,6 +42,7 @@ _AUTH = {"requestor_id": "test-bb", "request_token": "test-token"}
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _qs(**extra):
     params = {**_AUTH, **extra}
     return "?" + urlencode(params)
@@ -54,7 +56,11 @@ def _qry_qs(qry_dict, **extra):
 def _create_org(name="Test Org"):
     slug = f"test-org-{uuid.uuid4().hex[:10]}"
     return Organization.objects.create(
-        slug=slug, name_en=name, name_fr=name, organization_type="other", is_active=True,
+        slug=slug,
+        name_en=name,
+        name_fr=name,
+        organization_type="other",
+        is_active=True,
     )
 
 
@@ -80,7 +86,7 @@ def _create_event_slot(host_entity_id="", **kwargs):
 
 
 def _create_citizen(email=None):
-    User = get_user_model()
+    User = get_user_model()  # noqa: N806
     email = email or f"log-citizen-{uuid.uuid4().hex[:10]}@example.com"
     user = User.objects.create(email=email, is_staff=False, is_active=True)
     user.set_unusable_password()
@@ -102,6 +108,7 @@ def _log_data_for(slot, citizen, **extra_pairs):
 # ===========================================================================
 # Base test case
 # ===========================================================================
+
 
 class LogBaseTestCase(TestCase):
     """Shared HTTP helpers for all log endpoint tests."""
@@ -132,19 +139,22 @@ class LogBaseTestCase(TestCase):
 # LOG1-LOG14: POST /log/new
 # ===========================================================================
 
+
 class LogNewTests(LogBaseTestCase):
     """LOG1-LOG14: POST /log/new"""
 
     def test_log1_happy_path_creates_audit_log_entry(self):
         booking, slot, citizen, org = self._make_booking()
         log_data = _log_data_for(slot, citizen, token="abc", status="attended")
-        qry = {"log_details": {
-            "logger_role": "organizer",
-            "logger_id": "42",
-            "log_category": "attendance",
-            "datetime": "2020-01-01T00:00:00Z",
-            "log_data": log_data,
-        }}
+        qry = {
+            "log_details": {
+                "logger_role": "organizer",
+                "logger_id": "42",
+                "log_category": "attendance",
+                "datetime": "2020-01-01T00:00:00Z",
+                "log_data": log_data,
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
@@ -177,7 +187,7 @@ class LogNewTests(LogBaseTestCase):
                 "logger_id": "1",
                 "log_category": "attendance",
                 "datetime": "2026-07-25T09:00:00Z",
-                "log_data": f"event_id:{slot.pk},subscriber_id:{citizen.pk},token:a2s3x2fer,status:attended",
+                "log_data": f"event_id:{slot.pk},subscriber_id:{citizen.pk},token:a2s3x2fer,status:attended",  # noqa: E501
             }
         }
         resp = self._post(spec_literal_qry)
@@ -187,86 +197,114 @@ class LogNewTests(LogBaseTestCase):
         self.assertTrue(BookingAuditLog.objects.filter(pk=data["log_id"]).exists())
 
     def test_log3_blank_log_data_returns_400(self):
-        qry = {"log_details": {
-            "logger_role": "admin", "log_category": "attendance", "log_data": "",
-        }}
+        qry = {
+            "log_details": {
+                "logger_role": "admin",
+                "log_category": "attendance",
+                "log_data": "",
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()["code"], "LOG_DATA_INVALID")
 
     def test_log4_log_data_missing_subscriber_id_returns_400(self):
         booking, slot, citizen, org = self._make_booking()
-        qry = {"log_details": {
-            "logger_role": "admin", "log_category": "attendance",
-            "log_data": f"event_id:{slot.pk},token:abc",
-        }}
+        qry = {
+            "log_details": {
+                "logger_role": "admin",
+                "log_category": "attendance",
+                "log_data": f"event_id:{slot.pk},token:abc",
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()["code"], "LOG_DATA_INVALID")
 
     def test_log5_log_data_missing_event_id_returns_400(self):
         booking, slot, citizen, org = self._make_booking()
-        qry = {"log_details": {
-            "logger_role": "admin", "log_category": "attendance",
-            "log_data": f"subscriber_id:{citizen.pk},token:abc",
-        }}
+        qry = {
+            "log_details": {
+                "logger_role": "admin",
+                "log_category": "attendance",
+                "log_data": f"subscriber_id:{citizen.pk},token:abc",
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()["code"], "LOG_DATA_INVALID")
 
     def test_log6_unparseable_log_data_returns_400(self):
-        qry = {"log_details": {
-            "logger_role": "admin", "log_category": "attendance",
-            "log_data": "not a key value string at all",
-        }}
+        qry = {
+            "log_details": {
+                "logger_role": "admin",
+                "log_category": "attendance",
+                "log_data": "not a key value string at all",
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()["code"], "LOG_DATA_INVALID")
 
     def test_log7_nonexistent_booking_returns_404(self):
-        qry = {"log_details": {
-            "logger_role": "admin", "log_category": "attendance",
-            "log_data": f"event_id:{uuid.uuid4()},subscriber_id:1",
-        }}
+        qry = {
+            "log_details": {
+                "logger_role": "admin",
+                "log_category": "attendance",
+                "log_data": f"event_id:{uuid.uuid4()},subscriber_id:1",
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 404)
         self.assertEqual(resp.json()["code"], "BOOKING_NOT_FOUND")
 
     def test_log8_malformed_event_id_uuid_returns_404(self):
         booking, slot, citizen, org = self._make_booking()
-        qry = {"log_details": {
-            "logger_role": "admin", "log_category": "attendance",
-            "log_data": f"event_id:not-a-uuid,subscriber_id:{citizen.pk}",
-        }}
+        qry = {
+            "log_details": {
+                "logger_role": "admin",
+                "log_category": "attendance",
+                "log_data": f"event_id:not-a-uuid,subscriber_id:{citizen.pk}",
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 404)
         self.assertEqual(resp.json()["code"], "BOOKING_NOT_FOUND")
 
     def test_log9_non_integer_subscriber_id_returns_400(self):
         booking, slot, citizen, org = self._make_booking()
-        qry = {"log_details": {
-            "logger_role": "admin", "log_category": "attendance",
-            "log_data": f"event_id:{slot.pk},subscriber_id:not-an-int",
-        }}
+        qry = {
+            "log_details": {
+                "logger_role": "admin",
+                "log_category": "attendance",
+                "log_data": f"event_id:{slot.pk},subscriber_id:not-an-int",
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()["code"], "LOG_CREATE_FAILED")
 
     def test_log10_invalid_logger_role_returns_400(self):
         booking, slot, citizen, org = self._make_booking()
-        qry = {"log_details": {
-            "logger_role": "not-a-real-role", "log_category": "attendance",
-            "log_data": _log_data_for(slot, citizen),
-        }}
+        qry = {
+            "log_details": {
+                "logger_role": "not-a-real-role",
+                "log_category": "attendance",
+                "log_data": _log_data_for(slot, citizen),
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()["code"], "LOG_CREATE_FAILED")
 
     def test_log11_missing_log_category_returns_400(self):
         booking, slot, citizen, org = self._make_booking()
-        qry = {"log_details": {
-            "logger_role": "admin", "log_data": _log_data_for(slot, citizen),
-        }}
+        qry = {
+            "log_details": {
+                "logger_role": "admin",
+                "log_data": _log_data_for(slot, citizen),
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()["code"], "LOG_CREATE_FAILED")
@@ -274,24 +312,28 @@ class LogNewTests(LogBaseTestCase):
     def test_log12_mismatched_entity_id_returns_400(self):
         booking, slot, citizen, org = self._make_booking()
         other_org = _create_org("Other Org")
-        qry = {"log_details": {
-            "logger_role": "admin",
-            "log_category": "attendance",
-            "entity_id": str(other_org.pk),
-            "log_data": _log_data_for(slot, citizen),
-        }}
+        qry = {
+            "log_details": {
+                "logger_role": "admin",
+                "log_category": "attendance",
+                "entity_id": str(other_org.pk),
+                "log_data": _log_data_for(slot, citizen),
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()["code"], "ENTITY_MISMATCH")
 
     def test_log13_matching_entity_id_succeeds(self):
         booking, slot, citizen, org = self._make_booking()
-        qry = {"log_details": {
-            "logger_role": "admin",
-            "log_category": "attendance",
-            "entity_id": str(org.pk),
-            "log_data": _log_data_for(slot, citizen),
-        }}
+        qry = {
+            "log_details": {
+                "logger_role": "admin",
+                "log_category": "attendance",
+                "entity_id": str(org.pk),
+                "log_data": _log_data_for(slot, citizen),
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 200)
 
@@ -304,12 +346,14 @@ class LogNewTests(LogBaseTestCase):
         """
         booking, slot, citizen, org = self._make_booking()
         backdated = "2001-01-01T00:00:00Z"
-        qry = {"log_details": {
-            "logger_role": "admin",
-            "log_category": "attendance",
-            "datetime": backdated,
-            "log_data": _log_data_for(slot, citizen),
-        }}
+        qry = {
+            "log_details": {
+                "logger_role": "admin",
+                "log_category": "attendance",
+                "datetime": backdated,
+                "log_data": _log_data_for(slot, citizen),
+            }
+        }
         before = timezone.now()
         resp = self._post(qry)
         after = timezone.now()
@@ -323,6 +367,7 @@ class LogNewTests(LogBaseTestCase):
 # ===========================================================================
 # LOG15-LOG16: PUT /log/modifications — always 405
 # ===========================================================================
+
 
 class LogModificationsTests(LogBaseTestCase):
     """LOG15-LOG16: PUT /log/modifications always returns 405 for an admin caller."""
@@ -357,6 +402,7 @@ class LogModificationsTests(LogBaseTestCase):
 # LOG17-LOG18: DELETE /log — always 405
 # ===========================================================================
 
+
 class LogDeleteTests(LogBaseTestCase):
     """LOG17-LOG18: DELETE /log always returns 405 for an admin caller."""
 
@@ -370,7 +416,10 @@ class LogDeleteTests(LogBaseTestCase):
     def test_log18_no_audit_log_row_is_ever_deleted(self):
         booking, slot, citizen, org = self._make_booking()
         entry = BookingAuditLog.objects.create(
-            booking=booking, action="created", actor_id="system", actor_role="system",
+            booking=booking,
+            action="created",
+            actor_id="system",
+            actor_role="system",
         )
         self._delete()
         self.assertTrue(BookingAuditLog.objects.filter(pk=entry.pk).exists())
@@ -391,6 +440,7 @@ class LogDeleteTests(LogBaseTestCase):
 # ===========================================================================
 # LOG19-LOG30: GET /log/list_details
 # ===========================================================================
+
 
 class LogListDetailsTests(LogBaseTestCase):
     """LOG19-LOG30: GET /log/list_details"""
@@ -486,9 +536,14 @@ class LogListDetailsTests(LogBaseTestCase):
         """
         in_range, _ = self._create_log_entry_at(parse_datetime("2027-05-15T00:00:00Z"))
         out_of_range, _ = self._create_log_entry_at(parse_datetime("2020-01-01T00:00:00Z"))
-        resp = self._get({"log_filter": {
-            "from": "2027-01-01T00:00:00Z", "to": "2027-12-31T00:00:00Z",
-        }})
+        resp = self._get(
+            {
+                "log_filter": {
+                    "from": "2027-01-01T00:00:00Z",
+                    "to": "2027-12-31T00:00:00Z",
+                }
+            }
+        )
         data = resp.json()
         ids = [item["log_id"] for item in data]
         self.assertIn(str(in_range.pk), ids)
@@ -507,12 +562,14 @@ class LogListDetailsTests(LogBaseTestCase):
         self.assertIn("datetime", item["details"])
 
     def test_log25_logger_role_excluded_when_logger_category_flag_false(self):
-        """LOG25: Spec Quirk #2 — the "logger_category" flag gates the response's "logger_role" field."""
+        """LOG25: Spec Quirk #2 — the "logger_category" flag gates the response's "logger_role" field."""  # noqa: E501
         entry, _ = self._create_log_entry()
-        resp = self._get({
-            "log_filter": {"log_id": str(entry.pk)},
-            "log_details_required": {"logger_category": False},
-        })
+        resp = self._get(
+            {
+                "log_filter": {"log_id": str(entry.pk)},
+                "log_details_required": {"logger_category": False},
+            }
+        )
         item = resp.json()[0]
         self.assertNotIn("logger_role", item["details"])
 
@@ -524,10 +581,12 @@ class LogListDetailsTests(LogBaseTestCase):
 
     def test_log27_log_data_included_when_required_flag_true(self):
         entry, _ = self._create_log_entry()
-        resp = self._get({
-            "log_filter": {"log_id": str(entry.pk)},
-            "log_details_required": {"log_data": True},
-        })
+        resp = self._get(
+            {
+                "log_filter": {"log_id": str(entry.pk)},
+                "log_details_required": {"log_data": True},
+            }
+        )
         item = resp.json()[0]
         self.assertIn("log_data", item["details"])
         parsed = json.loads(item["details"]["log_data"])
@@ -559,6 +618,7 @@ class LogListDetailsTests(LogBaseTestCase):
 # LOG31-LOG40: Auth / role enforcement
 # ===========================================================================
 
+
 @override_settings(GOVSTACK_SCHEDULER_REQUIRE_TOKEN=True)
 class LogRoleEnforcementTests(LogBaseTestCase):
     """
@@ -577,7 +637,9 @@ class LogRoleEnforcementTests(LogBaseTestCase):
         correct plaintext secret. Finding #1 fix: request_token must never equal
         bb_id — it must verify against a separate hashed secret.
         """
-        bb = GovStackRegisteredBB.objects.create(bb_id=_AUTH["requestor_id"], is_active=True, role=role)
+        bb = GovStackRegisteredBB.objects.create(
+            bb_id=_AUTH["requestor_id"], is_active=True, role=role
+        )
         token = GovStackBBCredential.generate_plaintext_token()
         credential = GovStackBBCredential(bb=bb)
         credential.set_token(token)
@@ -589,20 +651,26 @@ class LogRoleEnforcementTests(LogBaseTestCase):
     def test_log31_organizer_role_denied_on_log_new(self):
         self._make_role_bb("organizer")
         booking, slot, citizen, org = self._make_booking()
-        qry = {"log_details": {
-            "logger_role": "admin", "log_category": "attendance",
-            "log_data": _log_data_for(slot, citizen),
-        }}
+        qry = {
+            "log_details": {
+                "logger_role": "admin",
+                "log_category": "attendance",
+                "log_data": _log_data_for(slot, citizen),
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 403)
 
     def test_log32_admin_role_allowed_on_log_new(self):
         self._make_role_bb("admin")
         booking, slot, citizen, org = self._make_booking()
-        qry = {"log_details": {
-            "logger_role": "admin", "log_category": "attendance",
-            "log_data": _log_data_for(slot, citizen),
-        }}
+        qry = {
+            "log_details": {
+                "logger_role": "admin",
+                "log_category": "attendance",
+                "log_data": _log_data_for(slot, citizen),
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 200)
 

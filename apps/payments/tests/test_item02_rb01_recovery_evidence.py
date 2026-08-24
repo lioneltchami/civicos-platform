@@ -1,24 +1,25 @@
+import threading
 from datetime import timedelta
 from decimal import Decimal
-import threading
 from unittest import mock
 
 from django.test import TransactionTestCase
 from django.utils import timezone
 
+from apps.payments.execution_intent import reserve_execution_intent
 from apps.payments.govstack_failure_services import PaymentLifecycleService
+from apps.payments.govstack_models import PaymentAttempt
+from apps.payments.govstack_provider import ProviderOutcome, ProviderResult
 from apps.payments.models import PaymentCommand, PaymentCommandOutbox
 from apps.payments.payment_command_boundary import PaymentCommandService, PaymentScope
 from apps.payments.payment_command_tasks import consume_bound_command_outbox_task
-from apps.payments.govstack_models import PaymentAttempt
-from apps.payments.execution_intent import reserve_execution_intent
-from apps.payments.govstack_provider import ProviderOutcome, ProviderResult
 from apps.payments.provider_runtime import ProviderRuntime, orchestrate_attempt
 from apps.payments.providers.deterministic import DeterministicProvider
 
 
 class RB01RecoveryEvidenceTests(TransactionTestCase):
     reset_sequences = True
+
     def _attempt(self, request_id, **changes):
         attempt, _ = PaymentLifecycleService.get_or_create_attempt(
             tenant_id="rb01-tenant",
@@ -143,9 +144,7 @@ class RB01RecoveryEvidenceTests(TransactionTestCase):
         self.assertEqual(attempt.claim_token, "worker-b")
         self.assertEqual(attempt.claim_generation, 5)
         self.assertFalse(
-            attempt.observations.filter(
-                observation_id="rb01-stale-observation"
-            ).exists()
+            attempt.observations.filter(observation_id="rb01-stale-observation").exists()
         )
 
     def test_submit_admission_marker_forces_later_worker_to_poll_without_reopening_submit(self):

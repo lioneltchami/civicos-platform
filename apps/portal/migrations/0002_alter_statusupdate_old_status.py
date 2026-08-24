@@ -4,15 +4,27 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('portal', '0001_initial'),
+    dependencies = [  # noqa: RUF012
+        ("portal", "0001_initial"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterField(
-            model_name='statusupdate',
-            name='old_status',
-            field=models.CharField(blank=True, choices=[('draft', 'Draft'), ('submitted', 'Submitted'), ('in_review', 'In review'), ('awaiting_info', 'Awaiting information'), ('approved', 'Approved'), ('rejected', 'Rejected'), ('closed', 'Closed')], max_length=32, verbose_name='Previous status'),
+            model_name="statusupdate",
+            name="old_status",
+            field=models.CharField(
+                blank=True,
+                choices=[
+                    ("draft", "Draft"),
+                    ("submitted", "Submitted"),
+                    ("in_review", "In review"),
+                    ("awaiting_info", "Awaiting information"),
+                    ("approved", "Approved"),
+                    ("rejected", "Rejected"),
+                    ("closed", "Closed"),
+                ],
+                max_length=32,
+                verbose_name="Previous status",
+            ),
         ),
     ]

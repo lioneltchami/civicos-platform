@@ -19,7 +19,7 @@ from django.utils.translation import gettext_lazy as _
 class CivicOSUserManager(UserManager):
     """Custom manager that uses email as the unique identifier."""
 
-    def _create_user(self, email: str, password: str | None, **extra_fields):
+    def _create_user(self, email: str, password: str | None, **extra_fields):  # noqa: ANN003, ANN202
         if not email:
             raise ValueError(_("An email address is required."))
         email = self.normalize_email(email)
@@ -28,12 +28,12 @@ class CivicOSUserManager(UserManager):
         user.save(using=self._db)
         return user
 
-    def create_user(self, email: str, password: str | None = None, **extra_fields):
+    def create_user(self, email: str, password: str | None = None, **extra_fields):  # noqa: ANN003, ANN201
         extra_fields.setdefault("is_staff", False)
         extra_fields.setdefault("is_superuser", False)
         return self._create_user(email, password, **extra_fields)
 
-    def create_superuser(self, email: str, password: str | None = None, **extra_fields):
+    def create_superuser(self, email: str, password: str | None = None, **extra_fields):  # noqa: ANN003, ANN201
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
         return self._create_user(email, password, **extra_fields)
@@ -97,14 +97,14 @@ class User(AbstractUser):
     )
 
     USERNAME_FIELD = "email"
-    REQUIRED_FIELDS = []  # email + password only for createsuperuser
+    REQUIRED_FIELDS = []  # email + password only for createsuperuser  # noqa: RUF012
 
     objects = CivicOSUserManager()
 
     class Meta:
         verbose_name = _("User")
         verbose_name_plural = _("Users")
-        ordering = ["email"]
+        ordering = ["email"]  # noqa: RUF012
 
     def __str__(self) -> str:
         # PIPEDA: never return email in __str__ — may appear in application logs.

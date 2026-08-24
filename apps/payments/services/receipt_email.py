@@ -7,6 +7,7 @@ Security invariants:
 - PDF attachment filename uses serial_number only — never donor name.
 - Only serial_number and error TYPE are logged.
 """
+
 from __future__ import annotations
 
 import logging
@@ -30,7 +31,7 @@ def _clean_header(value: str) -> str:
     return value.replace("\r\n", " ").replace("\r", " ").replace("\n", " ").strip()
 
 
-def send_receipt_email(receipt, pdf_bytes: bytes) -> bool:
+def send_receipt_email(receipt, pdf_bytes: bytes) -> bool:  # noqa: ANN001
     """
     Send the official donation receipt PDF to the donor.
 
@@ -101,7 +102,7 @@ def send_receipt_email(receipt, pdf_bytes: bytes) -> bool:
     return True
 
 
-def _get_donor_email(receipt) -> str:
+def _get_donor_email(receipt) -> str:  # noqa: ANN001
     """
     Extract the donor email address from the receipt's related donation.
 
@@ -115,8 +116,7 @@ def _get_donor_email(receipt) -> str:
         return donor.email or ""
     except Exception as exc:
         logger.warning(
-            "payments.receipt_email.donor_email_lookup_failed "
-            "receipt_pk=%s exc_type=%s",
+            "payments.receipt_email.donor_email_lookup_failed " "receipt_pk=%s exc_type=%s",
             receipt.pk,
             type(exc).__name__,
             # NOTE: do NOT log exc message or str(exc) — may contain PII

@@ -48,17 +48,17 @@ class TimestampedModel(models.Model):
 
     class Meta:
         abstract = True
-        ordering = ["-created_at"]
+        ordering = ["-created_at"]  # noqa: RUF012
 
 
 class ActiveQuerySet(models.QuerySet):
     """QuerySet that filters out soft-deleted records by default."""
 
-    def active(self):
+    def active(self):  # noqa: ANN201
         """Return only records that have not been soft-deleted."""
         return self.filter(deleted_at__isnull=True)
 
-    def deleted(self):
+    def deleted(self):  # noqa: ANN201
         """Return only soft-deleted records."""
         return self.filter(deleted_at__isnull=False)
 
@@ -71,7 +71,7 @@ class SoftDeleteManager(models.Manager):
     Model.objects_all.deleted().
     """
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         return ActiveQuerySet(self.model, using=self._db).active()
 
 
@@ -108,13 +108,14 @@ class SoftDeleteModel(models.Model):
     def is_deleted(self) -> bool:
         return self.deleted_at is not None
 
-    def soft_delete(self, using=None) -> None:
+    def soft_delete(self, using=None) -> None:  # noqa: ANN001
         """Mark this record as deleted without removing it from the database."""
         from django.utils import timezone
+
         self.deleted_at = timezone.now()
         self.save(update_fields=["deleted_at"], using=using)
 
-    def restore(self, using=None) -> None:
+    def restore(self, using=None) -> None:  # noqa: ANN001
         """Undo a soft deletion."""
         self.deleted_at = None
         self.save(update_fields=["deleted_at"], using=using)

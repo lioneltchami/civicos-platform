@@ -16,8 +16,8 @@ Design principles:
 import hashlib
 import json
 from dataclasses import dataclass, field
+from typing import Never
 
-from django.conf import settings
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
@@ -33,6 +33,7 @@ class ChainVerificationResult:
     does not equal the previous entry's ``entry_hash``, is recorded as a
     violation — evidence of tampering or data corruption.
     """
+
     ok: bool = True
     entries_checked: int = 0
     violations: list[dict] = field(default_factory=list)
@@ -212,26 +213,26 @@ class AuditLogEntry(models.Model):
     class Meta:
         verbose_name = _("Audit log entry")
         verbose_name_plural = _("Audit log entries")
-        ordering = ["-timestamp"]
-        indexes = [
+        ordering = ["-timestamp"]  # noqa: RUF012
+        indexes = [  # noqa: RUF012
             models.Index(fields=["resource_type", "resource_id"]),
             models.Index(fields=["actor_id", "timestamp"]),
             models.Index(fields=["event_type", "timestamp"]),
         ]
 
     def __str__(self) -> str:
-        return f"{self.timestamp:%Y-%m-%d %H:%M:%S} | {self.event_type} | {self.actor_email or 'system'}"
+        return f"{self.timestamp:%Y-%m-%d %H:%M:%S} | {self.event_type} | {self.actor_email or 'system'}"  # noqa: E501
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         if self.pk:
             raise ValueError(
                 "Audit log entries are immutable. "
-                "Attempted update on AuditLogEntry pk=%s." % self.pk
+                f"Attempted update on AuditLogEntry pk={self.pk}."
             )
         self.entry_hash = self._compute_hash()
         super().save(*args, **kwargs)
 
-    def delete(self, *args, **kwargs):
+    def delete(self, *args, **kwargs) -> Never:  # noqa: ANN002, ANN003
         raise ValueError("Audit log entries are immutable and cannot be deleted.")
 
     def _compute_hash(self) -> str:
@@ -246,9 +247,7 @@ class AuditLogEntry(models.Model):
             "event_detail": self.event_detail,
             "prev_hash": self.prev_hash,
         }
-        return hashlib.sha256(
-            json.dumps(payload, sort_keys=True, default=str).encode()
-        ).hexdigest()
+        return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
     # ------------------------------------------------------------------
     # Chain verification
@@ -297,17 +296,23 @@ class AuditLogEntry(models.Model):
             qs = qs.filter(id__lte=end_id)
 
         expected_prev_hash = ""
-        last_id = None
 
         # Stream in batches to avoid loading the full table into memory.
         offset = 0
         while True:
             batch = list(
                 qs.values(
-                    "id", "entry_hash", "prev_hash",
-                    "event_type", "outcome", "actor_id", "actor_ip",
-                    "resource_type", "resource_id", "event_detail",
-                )[offset: offset + batch_size]
+                    "id",
+                    "entry_hash",
+                    "prev_hash",
+                    "event_type",
+                    "outcome",
+                    "actor_id",
+                    "actor_ip",
+                    "resource_type",
+                    "resource_id",
+                    "event_detail",
+                )[offset : offset + batch_size]
             )
             if not batch:
                 break
@@ -350,7 +355,6 @@ class AuditLogEntry(models.Model):
                 # entry does not cascade false positives across the rest of
                 # the chain.
                 expected_prev_hash = row["entry_hash"]
-                last_id = entry_id
 
             offset += batch_size
 

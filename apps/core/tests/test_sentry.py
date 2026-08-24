@@ -10,10 +10,10 @@ from django.test import SimpleTestCase
 
 from apps.core.sentry import _mask_ip, _scrub_dict, before_send
 
-
 # ---------------------------------------------------------------------------
 # M-G — IPv6 address masking
 # ---------------------------------------------------------------------------
+
 
 class SentryIPv6MaskingTest(SimpleTestCase):
     """M-G: IPv6 addresses must be masked in Sentry events."""
@@ -100,6 +100,7 @@ class SentryIPv6MaskingTest(SimpleTestCase):
 # ---------------------------------------------------------------------------
 # M-H — _scrub_dict recurses into lists
 # ---------------------------------------------------------------------------
+
 
 class SentryListScrubTest(SimpleTestCase):
     """M-H: _scrub_dict must recurse into lists of dicts."""

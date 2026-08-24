@@ -1,4 +1,5 @@
 """Worker-only acknowledgement fence for a bound payment command outbox."""
+
 from __future__ import annotations
 
 import uuid
@@ -13,7 +14,7 @@ from .models import PaymentCommandOutbox
 TOPIC = "payments.command.reserved"
 
 
-class InvalidPaymentCommandDelivery(ValueError):
+class InvalidPaymentCommandDelivery(ValueError):  # noqa: N818
     """Raised when a delivered command cannot enter orchestration."""
 
 
@@ -21,7 +22,7 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
-def acknowledge_reserved_command(*, outbox_id, delivery: dict[str, Any]) -> dict[str, Any]:
+def acknowledge_reserved_command(*, outbox_id, delivery: dict[str, Any]) -> dict[str, Any]:  # noqa: ANN001
     """Acknowledge one valid bound delivery and schedule exactly one handoff."""
     command_id = _text(delivery.get("command_id"))
     attempt_id = _text(delivery.get("attempt_id"))
@@ -39,11 +40,14 @@ def acknowledge_reserved_command(*, outbox_id, delivery: dict[str, Any]) -> dict
             .get(pk=outbox_id)
         )
         if outbox.acknowledged_at is not None:
-            return dict(outbox.acknowledgement_result or {
-                "acknowledged": True,
-                "scheduled": False,
-                "attempt_id": str(outbox.command.attempt_id),
-            })
+            return dict(
+                outbox.acknowledgement_result
+                or {
+                    "acknowledged": True,
+                    "scheduled": False,
+                    "attempt_id": str(outbox.command.attempt_id),
+                }
+            )
 
         command = outbox.command
         attempt = command.attempt
@@ -57,7 +61,9 @@ def acknowledge_reserved_command(*, outbox_id, delivery: dict[str, Any]) -> dict
             raise InvalidPaymentCommandDelivery("operation mismatch")
         if command.fingerprint != fingerprint or attempt.payload_fingerprint != fingerprint:
             raise InvalidPaymentCommandDelivery("fingerprint mismatch")
-        intent = PaymentExecutionIntent.objects.select_for_update().filter(attempt_id=attempt.pk).first()
+        intent = (
+            PaymentExecutionIntent.objects.select_for_update().filter(attempt_id=attempt.pk).first()
+        )
         if (
             intent is None
             or intent.scope != tenant_id
@@ -82,8 +88,17 @@ def acknowledge_reserved_command(*, outbox_id, delivery: dict[str, Any]) -> dict
         outbox.acknowledged_at = timezone.now()
         outbox.acknowledgement_token = token
         outbox.acknowledgement_result = result
-        outbox.save(update_fields=["acknowledged_at", "acknowledgement_token", "acknowledgement_result", "updated_at"])
-        transaction.on_commit(lambda admitted_attempt_id=attempt_id: _schedule_orchestration(admitted_attempt_id))
+        outbox.save(
+            update_fields=[
+                "acknowledged_at",
+                "acknowledgement_token",
+                "acknowledgement_result",
+                "updated_at",
+            ]
+        )
+        transaction.on_commit(
+            lambda admitted_attempt_id=attempt_id: _schedule_orchestration(admitted_attempt_id)
+        )
     return result
 
 

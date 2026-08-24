@@ -13,23 +13,24 @@ Patching strategy:
   source module (apps.payments.services.receipt_pdf / receipt_email) — that
   way the mock is picked up by Python's module cache.
 """
+
 import uuid
-from datetime import date, datetime, timezone as dt_timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
-from django.test import TestCase, override_settings
+from django.test import TestCase
 
 from apps.payments.models import (
+    DONATION_STATUS_COMPLETED,
     CharitySettings,
     Donation,
     DonationCampaign,
     OfficialDonationReceipt,
     PaymentIntent,
-    DONATION_STATUS_COMPLETED,
 )
 from apps.payments.tests.factories import make_fake_save
 
@@ -44,6 +45,7 @@ _EMAIL_SEND = "apps.payments.services.receipt_email.send_receipt_email"
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
+
 
 def make_user(email=None, **kwargs):
     email = email or f"user_{uuid.uuid4().hex[:6]}@example.com"
@@ -146,8 +148,8 @@ def make_receipt(donation, **kwargs):
 # generate_and_send_receipt tests
 # ---------------------------------------------------------------------------
 
-class GenerateAndSendReceiptTests(TestCase):
 
+class GenerateAndSendReceiptTests(TestCase):
     def setUp(self):
         self.user = make_user()
         self.campaign = make_campaign()
@@ -156,9 +158,9 @@ class GenerateAndSendReceiptTests(TestCase):
         self.receipt = make_receipt(self.donation)
         self.pdf_bytes = b"%PDF-1.4 fake content"
 
-    def _run_task_with_mocks(self, receipt_pk=None,
-                             pdf_bytes=None, email_result=True,
-                             pdf_error=None, email_error=None):
+    def _run_task_with_mocks(
+        self, receipt_pk=None, pdf_bytes=None, email_result=True, pdf_error=None, email_error=None
+    ):
         """Run the task using apply() (always-eager) with mocked PDF/email services.
 
         Uses captureOnCommitCallbacks(execute=True) so that the on_commit hook
@@ -167,6 +169,7 @@ class GenerateAndSendReceiptTests(TestCase):
         commits, so on_commit callbacks are silently dropped.
         """
         from apps.payments.tasks_receipts import generate_and_send_receipt
+
         pk = receipt_pk or str(self.receipt.pk)
         _bytes = pdf_bytes or self.pdf_bytes
 
@@ -188,8 +191,8 @@ class GenerateAndSendReceiptTests(TestCase):
 
     # 2. Idempotency: if document already linked, skips PDF generation
     def test_skips_pdf_generation_if_already_exists(self):
-        from apps.payments.tasks_receipts import generate_and_send_receipt
         from apps.documents.models import Document, DocumentCategory
+        from apps.payments.tasks_receipts import generate_and_send_receipt
 
         # Wave 6: link a Document BB record to simulate prior successful PDF generation
         cat, _ = DocumentCategory.objects.get_or_create(
@@ -217,10 +220,10 @@ class GenerateAndSendReceiptTests(TestCase):
         with patch(_PDF_GEN) as mock_gen:
             with patch(_PDF_SAVE):
                 with patch(_EMAIL_SEND, return_value=True):
-                    with patch(
-                        "django.core.files.storage.default_storage.open"
-                    ) as mock_open:
-                        mock_open.return_value.__enter__.return_value.read.return_value = self.pdf_bytes
+                    with patch("django.core.files.storage.default_storage.open") as mock_open:
+                        mock_open.return_value.__enter__.return_value.read.return_value = (
+                            self.pdf_bytes
+                        )
                         generate_and_send_receipt.apply(args=[str(self.receipt.pk)]).get()
 
         # PDF generation should NOT be called (already saved)
@@ -231,7 +234,7 @@ class GenerateAndSendReceiptTests(TestCase):
         from apps.payments.tasks_receipts import generate_and_send_receipt
 
         fake_pk = str(uuid.uuid4())
-        with self.assertLogs("apps.payments.tasks_receipts", level="ERROR") as log_ctx:
+        with self.assertLogs("apps.payments.tasks_receipts", level="ERROR"):
             result = generate_and_send_receipt.apply(args=[fake_pk]).get()
 
         self.assertEqual(result["status"], "not_found")
@@ -252,7 +255,7 @@ class GenerateAndSendReceiptTests(TestCase):
         from apps.payments.tasks_receipts import generate_and_send_receipt
 
         with patch(_PDF_GEN, side_effect=Exception("WeasyPrint failed")):
-            with self.assertRaises(Exception):
+            with self.assertRaises(Exception):  # noqa: B017
                 # In always-eager mode with task_eager_propagates=True, exceptions propagate
                 generate_and_send_receipt.apply(
                     args=[str(self.receipt.pk)],
@@ -277,7 +280,7 @@ class GenerateAndSendReceiptTests(TestCase):
         with patch(_PDF_GEN, return_value=self.pdf_bytes):
             with patch(_PDF_SAVE):
                 with patch(_EMAIL_SEND, return_value=False):
-                    with self.assertRaises(Exception):
+                    with self.assertRaises(Exception):  # noqa: B017
                         with self.captureOnCommitCallbacks(execute=True):
                             generate_and_send_receipt.apply(
                                 args=[str(self.receipt.pk)],
@@ -286,8 +289,8 @@ class GenerateAndSendReceiptTests(TestCase):
 
     # 7. Status is 'resent' when PDF was already generated
     def test_status_is_resent_when_pdf_already_existed(self):
-        from apps.payments.tasks_receipts import generate_and_send_receipt
         from apps.documents.models import Document, DocumentCategory
+        from apps.payments.tasks_receipts import generate_and_send_receipt
 
         # Wave 6: link a Document BB record to simulate prior successful PDF generation
         cat, _ = DocumentCategory.objects.get_or_create(
@@ -315,13 +318,11 @@ class GenerateAndSendReceiptTests(TestCase):
         with patch(_PDF_GEN):
             with patch(_PDF_SAVE):
                 with patch(_EMAIL_SEND, return_value=True):
-                    with patch(
-                        "django.core.files.storage.default_storage.open"
-                    ) as mock_open:
-                        mock_open.return_value.__enter__.return_value.read.return_value = self.pdf_bytes
-                        result = generate_and_send_receipt.apply(
-                            args=[str(self.receipt.pk)]
-                        ).get()
+                    with patch("django.core.files.storage.default_storage.open") as mock_open:
+                        mock_open.return_value.__enter__.return_value.read.return_value = (
+                            self.pdf_bytes
+                        )
+                        result = generate_and_send_receipt.apply(args=[str(self.receipt.pk)]).get()
 
         self.assertEqual(result["status"], "resent")
 
@@ -374,7 +375,7 @@ class GenerateAndSendReceiptTests(TestCase):
         with patch(_PDF_GEN, return_value=self.pdf_bytes):
             with patch(_PDF_SAVE):
                 with patch(_EMAIL_SEND, return_value=False):
-                    with self.assertRaises(Exception):
+                    with self.assertRaises(Exception):  # noqa: B017
                         generate_and_send_receipt.apply(
                             args=[str(self.receipt.pk)],
                             throw=True,
@@ -388,8 +389,8 @@ class GenerateAndSendReceiptTests(TestCase):
 # generate_annual_receipts tests
 # ---------------------------------------------------------------------------
 
-class GenerateAnnualReceiptsTests(TestCase):
 
+class GenerateAnnualReceiptsTests(TestCase):
     def setUp(self):
         self.user = make_user()
         self.campaign = make_campaign()
@@ -397,8 +398,8 @@ class GenerateAnnualReceiptsTests(TestCase):
 
     def _run_annual_task(self, year=2026):
         from apps.payments.tasks_receipts import (
-            generate_annual_receipts,
             generate_and_send_receipt,
+            generate_annual_receipts,
         )
 
         # SQLite doesn't support nextval() — patch the serial_number generation
@@ -418,8 +419,13 @@ class GenerateAnnualReceiptsTests(TestCase):
 
         return result, mock_delay
 
-    def _make_completed_donation(self, eligible_amount=Decimal("100.00"),
-                                  amount=None, advantage_amount=Decimal("0.00"), **kwargs):
+    def _make_completed_donation(
+        self,
+        eligible_amount=Decimal("100.00"),
+        amount=None,
+        advantage_amount=Decimal("0.00"),
+        **kwargs,
+    ):
         intent = make_payment_intent(self.user)
         _amount = amount or eligible_amount
         return make_donation(
@@ -504,7 +510,8 @@ class GenerateAnnualReceiptsTests(TestCase):
     def test_zero_eligible_amount_skipped(self):
         intent = make_payment_intent(self.user)
         make_donation(
-            self.user, intent,
+            self.user,
+            intent,
             eligible_amount=Decimal("0.00"),
             amount=Decimal("100.00"),
             advantage_amount=Decimal("100.00"),
@@ -558,9 +565,10 @@ class GenerateAnnualReceiptsTests(TestCase):
     # 21. Logs correct counts at end
     def test_logs_final_counts(self):
         from apps.payments.tasks_receipts import (
-            generate_annual_receipts,
             generate_and_send_receipt,
+            generate_annual_receipts,
         )
+
         self._make_completed_donation()
 
         with patch.object(generate_and_send_receipt, "delay", return_value=None):
@@ -573,9 +581,10 @@ class GenerateAnnualReceiptsTests(TestCase):
     # 22. Never logs donor email in any log line
     def test_never_logs_donor_email(self):
         from apps.payments.tasks_receipts import (
-            generate_annual_receipts,
             generate_and_send_receipt,
+            generate_annual_receipts,
         )
+
         donor_email = self.user.email
         self._make_completed_donation()
 
@@ -594,11 +603,12 @@ class GenerateAnnualReceiptsTests(TestCase):
         loading the entire result set into memory. We verify this by patching
         QuerySet.iterator and asserting it was called with chunk_size=500.
         """
-        from apps.payments.tasks_receipts import (
-            generate_annual_receipts,
-            generate_and_send_receipt,
-        )
         from django.db.models.query import QuerySet
+
+        from apps.payments.tasks_receipts import (
+            generate_and_send_receipt,
+            generate_annual_receipts,
+        )
 
         self._make_completed_donation()
 
@@ -633,9 +643,10 @@ class GenerateAnnualReceiptsTests(TestCase):
         giving ops visibility into how large the batch is.
         """
         from apps.payments.tasks_receipts import (
-            generate_annual_receipts,
             generate_and_send_receipt,
+            generate_annual_receipts,
         )
+
         self._make_completed_donation()
         self._make_completed_donation()  # Two donations for same user
 
@@ -651,6 +662,7 @@ class GenerateAnnualReceiptsTests(TestCase):
 # ---------------------------------------------------------------------------
 # Fix 5 — UTC → local time for receipt dates
 # ---------------------------------------------------------------------------
+
 
 class ReceiptDateLocalTimeTests(TestCase):
     """
@@ -675,7 +687,7 @@ class ReceiptDateLocalTimeTests(TestCase):
 
         # A UTC datetime that rolls over to the next calendar day in Toronto.
         # 2025-12-31 at 23:30 ET = 2026-01-01 04:30 UTC.
-        utc_midnight_rollover = dt.datetime(2026, 1, 1, 4, 30, 0, tzinfo=dt.timezone.utc)
+        utc_midnight_rollover = dt.datetime(2026, 1, 1, 4, 30, 0, tzinfo=dt.UTC)
         expected_local_date = dt.date(2025, 12, 31)  # what the donor sees in Toronto
 
         donation = make_donation(user, intent)
@@ -693,6 +705,7 @@ class ReceiptDateLocalTimeTests(TestCase):
                 receipt_instance.serial_number = f"2025-{str(_counter[0]).zfill(6)}"
             # Skip OfficialDonationReceipt.save() validation and go straight to Model.save()
             from django.db.models import Model
+
             Model.save(receipt_instance, *args, **kwargs)
 
         with patch.object(OfficialDonationReceipt, "save", _fake_receipt_save):
@@ -700,6 +713,7 @@ class ReceiptDateLocalTimeTests(TestCase):
                 with self.captureOnCommitCallbacks(execute=True):
                     with self.settings(TIME_ZONE="America/Toronto", USE_TZ=True):
                         from apps.payments.receivers import on_donation_completed
+
                         on_donation_completed(
                             sender=Donation,
                             donation=donation,
@@ -719,6 +733,7 @@ class ReceiptDateLocalTimeTests(TestCase):
 # Fix 6 — receipt_issued signal emitted after on_donation_completed
 # ---------------------------------------------------------------------------
 
+
 class ReceiptIssuedSignalTests(TestCase):
     """
     Fix 6: receipt_issued signal must be sent after on_donation_completed
@@ -727,9 +742,10 @@ class ReceiptIssuedSignalTests(TestCase):
 
     def test_receipt_issued_signal_emitted(self):
         """After on_donation_completed fires, receipt_issued signal carries the receipt."""
-        from apps.payments.signals import receipt_issued
-        from apps.payments.models import OfficialDonationReceipt
         from unittest.mock import patch
+
+        from apps.payments.models import OfficialDonationReceipt
+        from apps.payments.signals import receipt_issued
 
         make_charity_settings()
         user = make_user()
@@ -752,6 +768,7 @@ class ReceiptIssuedSignalTests(TestCase):
                 _counter[0] += 1
                 receipt_instance.serial_number = f"2026-{str(_counter[0]).zfill(6)}"
             from django.db.models import Model
+
             Model.save(receipt_instance, *args, **kwargs)
 
         try:
@@ -759,6 +776,7 @@ class ReceiptIssuedSignalTests(TestCase):
                 with patch("apps.payments.tasks_receipts.generate_and_send_receipt.delay"):
                     with self.captureOnCommitCallbacks(execute=True):
                         from apps.payments.receivers import on_donation_completed
+
                         on_donation_completed(
                             sender=Donation,
                             donation=donation,
@@ -776,6 +794,7 @@ class ReceiptIssuedSignalTests(TestCase):
 # Fix 7 — TOCTOU duplicate safety in generate_annual_receipts
 # ---------------------------------------------------------------------------
 
+
 class AnnualReceiptDuplicateSafetyTests(TestCase):
     """
     Fix 7: Running generate_annual_receipts twice for the same tax year must
@@ -789,8 +808,8 @@ class AnnualReceiptDuplicateSafetyTests(TestCase):
         self.charity = make_charity_settings()
 
     def _run(self, year=2026):
-        from apps.payments.tasks_receipts import generate_annual_receipts, generate_and_send_receipt
         from apps.payments.models import OfficialDonationReceipt
+        from apps.payments.tasks_receipts import generate_and_send_receipt, generate_annual_receipts
 
         _counter = [0]
 
@@ -820,6 +839,7 @@ class AnnualReceiptDuplicateSafetyTests(TestCase):
 # Fix 8 — kickoff_annual_receipts fire-and-forget (no .get())
 # ---------------------------------------------------------------------------
 
+
 class KickoffAnnualReceiptsTests(TestCase):
     """
     Fix 8: kickoff_annual_receipts must dispatch generate_annual_receipts.delay()
@@ -829,9 +849,11 @@ class KickoffAnnualReceiptsTests(TestCase):
 
     def test_kickoff_dispatches_and_returns(self):
         """kickoff fires .delay with tax_year=current_year-1 and returns a dict."""
-        from unittest.mock import patch, MagicMock
-        from apps.payments.tasks_receipts import kickoff_annual_receipts
+        from unittest.mock import patch
+
         from django.utils.timezone import now
+
+        from apps.payments.tasks_receipts import kickoff_annual_receipts
 
         fake_result = MagicMock()
         fake_result.id = "fake-task-id-1234"
@@ -855,6 +877,7 @@ class KickoffAnnualReceiptsTests(TestCase):
 # C2 — email_sent=True must only be set AFTER successful send
 # ---------------------------------------------------------------------------
 
+
 class GenerateAndSendReceiptEmailSentFlagTest(TestCase):
     """
     C2: email_sent=True must only be committed to the DB after a confirmed
@@ -874,12 +897,13 @@ class GenerateAndSendReceiptEmailSentFlagTest(TestCase):
     def test_email_sent_false_if_send_raises(self):
         """If send_receipt_email raises, email_sent must remain False for retry."""
         from smtplib import SMTPException
+
         from apps.payments.tasks_receipts import generate_and_send_receipt
 
         with patch(_PDF_GEN, return_value=self.pdf_bytes):
             with patch(_PDF_SAVE):
                 with patch(_EMAIL_SEND, side_effect=SMTPException("timeout")):
-                    with self.assertRaises(Exception):
+                    with self.assertRaises(Exception):  # noqa: B017
                         generate_and_send_receipt.apply(
                             args=[str(self.receipt.pk)],
                             throw=True,
@@ -911,9 +935,7 @@ class GenerateAndSendReceiptEmailSentFlagTest(TestCase):
         from apps.payments.tasks_receipts import generate_and_send_receipt
 
         # Mark the receipt as already delivered
-        OfficialDonationReceipt._base_manager.filter(pk=self.receipt.pk).update(
-            email_sent=True
-        )
+        OfficialDonationReceipt._base_manager.filter(pk=self.receipt.pk).update(email_sent=True)
 
         with patch(_PDF_GEN, return_value=self.pdf_bytes) as mock_gen:
             with patch(_PDF_SAVE) as mock_save:
@@ -928,6 +950,7 @@ class GenerateAndSendReceiptEmailSentFlagTest(TestCase):
 # ---------------------------------------------------------------------------
 # C3 — only the specific unique constraint IntegrityError is swallowed
 # ---------------------------------------------------------------------------
+
 
 class AnnualReceiptIntegrityErrorTest(TestCase):
     """
@@ -950,8 +973,8 @@ class AnnualReceiptIntegrityErrorTest(TestCase):
         must propagate out of the inner try/except, be caught by the outer
         per-donor except block, and increment failed (not skipped).
         """
-        from apps.payments.tasks_receipts import generate_annual_receipts, generate_and_send_receipt
         from apps.payments.models import OfficialDonationReceipt
+        from apps.payments.tasks_receipts import generate_and_send_receipt, generate_annual_receipts
 
         unrelated_exc = IntegrityError(
             "NOT NULL constraint failed: payments_officialdonationreceipt.serial_number"
@@ -960,7 +983,6 @@ class AnnualReceiptIntegrityErrorTest(TestCase):
         _counter = [0]
         with patch.object(OfficialDonationReceipt, "save", make_fake_save(_counter, year=2026)):
             # Patch the inner transaction.atomic save to raise an unrelated IntegrityError
-            original_save = OfficialDonationReceipt.save
 
             def _raise_unrelated(instance, *args, **kwargs):
                 raise unrelated_exc
@@ -983,8 +1005,8 @@ class AnnualReceiptIntegrityErrorTest(TestCase):
         An IntegrityError whose message contains the specific unique constraint name
         must be swallowed and increment skipped (not failed).
         """
-        from apps.payments.tasks_receipts import generate_annual_receipts, generate_and_send_receipt
         from apps.payments.models import OfficialDonationReceipt
+        from apps.payments.tasks_receipts import generate_and_send_receipt, generate_annual_receipts
 
         duplicate_exc = IntegrityError(
             "UNIQUE constraint failed: payments_receipt_unique_issued_per_donation"
@@ -1009,6 +1031,7 @@ class AnnualReceiptIntegrityErrorTest(TestCase):
 # H4 — .iterator(chunk_size=500) must run inside transaction.atomic()
 # ---------------------------------------------------------------------------
 
+
 class AnnualReceiptsIteratorTransactionTests(TestCase):
     """
     H4: generate_annual_receipts must wrap .iterator(chunk_size=500) inside
@@ -1029,10 +1052,11 @@ class AnnualReceiptsIteratorTransactionTests(TestCase):
         .iterator() is invoked, confirming the outer transaction.atomic() wrapper
         is in place.
         """
-        from apps.payments.tasks_receipts import generate_annual_receipts, generate_and_send_receipt
         from django.db import connection
         from django.db.models.query import QuerySet
+
         from apps.payments.models import OfficialDonationReceipt
+        from apps.payments.tasks_receipts import generate_and_send_receipt, generate_annual_receipts
 
         intent = make_payment_intent(self.user)
         make_donation(self.user, intent)
@@ -1066,6 +1090,7 @@ class AnnualReceiptsIteratorTransactionTests(TestCase):
 # H5 — generate_annual_receipts must have reject_on_worker_lost=True
 # ---------------------------------------------------------------------------
 
+
 class AnnualReceiptsRejectOnWorkerLostTests(TestCase):
     """
     H5: generate_annual_receipts must declare reject_on_worker_lost=True.
@@ -1076,6 +1101,7 @@ class AnnualReceiptsRejectOnWorkerLostTests(TestCase):
 
     def test_generate_annual_receipts_reject_on_worker_lost(self):
         from apps.payments.tasks_receipts import generate_annual_receipts
+
         self.assertTrue(
             generate_annual_receipts.reject_on_worker_lost,
             "generate_annual_receipts must set reject_on_worker_lost=True so that a "
@@ -1087,6 +1113,7 @@ class AnnualReceiptsRejectOnWorkerLostTests(TestCase):
 # ---------------------------------------------------------------------------
 # H9 — Queue routing: receipt and webhook tasks on dedicated queues
 # ---------------------------------------------------------------------------
+
 
 class TaskQueueRoutingTests(TestCase):
     """
@@ -1106,6 +1133,7 @@ class TaskQueueRoutingTests(TestCase):
     def test_generate_annual_receipts_routes_to_receipts_queue(self):
         """generate_annual_receipts must declare queue='receipts'."""
         from apps.payments.tasks_receipts import generate_annual_receipts
+
         self.assertEqual(
             generate_annual_receipts.queue,
             "receipts",
@@ -1116,6 +1144,7 @@ class TaskQueueRoutingTests(TestCase):
     def test_generate_and_send_receipt_routes_to_receipts_queue(self):
         """generate_and_send_receipt must declare queue='receipts'."""
         from apps.payments.tasks_receipts import generate_and_send_receipt
+
         self.assertEqual(
             generate_and_send_receipt.queue,
             "receipts",
@@ -1126,6 +1155,7 @@ class TaskQueueRoutingTests(TestCase):
     def test_process_stripe_webhook_routes_to_webhooks_queue(self):
         """process_stripe_webhook must declare queue='webhooks'."""
         from apps.payments.tasks import process_stripe_webhook
+
         self.assertEqual(
             process_stripe_webhook.queue,
             "webhooks",
@@ -1137,6 +1167,7 @@ class TaskQueueRoutingTests(TestCase):
 # ---------------------------------------------------------------------------
 # M7 — Annual receipt year filter uses local Canadian time, not UTC year
 # ---------------------------------------------------------------------------
+
 
 class AnnualReceiptsLocalTimezoneFilterTests(TestCase):
     """
@@ -1164,7 +1195,7 @@ class AnnualReceiptsLocalTimezoneFilterTests(TestCase):
             The refreshed Donation instance with the overridden timestamp.
         """
         tz = ZoneInfo(tz_name)
-        dt_utc = local_dt_naive.replace(tzinfo=tz).astimezone(dt_timezone.utc)
+        dt_utc = local_dt_naive.replace(tzinfo=tz).astimezone(UTC)
         donation = make_donation(user, intent)
         # Force-set the auto_now_add field via update() — create() ignores it.
         Donation.objects.filter(pk=donation.pk).update(created_at=dt_utc)
@@ -1190,12 +1221,10 @@ class AnnualReceiptsLocalTimezoneFilterTests(TestCase):
         A donation at 23:00 ET on Dec 31 must be included in that year's run,
         even though its UTC timestamp falls on Jan 1 of the following year.
         """
-        from apps.payments.tasks_receipts import generate_annual_receipts, generate_and_send_receipt
+        from apps.payments.tasks_receipts import generate_and_send_receipt, generate_annual_receipts
 
         _counter = [0]
-        with patch.object(
-            OfficialDonationReceipt, "save", make_fake_save(_counter, year=2024)
-        ):
+        with patch.object(OfficialDonationReceipt, "save", make_fake_save(_counter, year=2024)):
             with patch.object(generate_and_send_receipt, "delay", return_value=None):
                 result = generate_annual_receipts.apply(args=[2024]).get()
 
@@ -1221,12 +1250,10 @@ class AnnualReceiptsLocalTimezoneFilterTests(TestCase):
             datetime(2025, 1, 15, 10, 0, 0),
         )
 
-        from apps.payments.tasks_receipts import generate_annual_receipts, generate_and_send_receipt
+        from apps.payments.tasks_receipts import generate_and_send_receipt, generate_annual_receipts
 
         _counter = [0]
-        with patch.object(
-            OfficialDonationReceipt, "save", make_fake_save(_counter, year=2024)
-        ):
+        with patch.object(OfficialDonationReceipt, "save", make_fake_save(_counter, year=2024)):
             with patch.object(generate_and_send_receipt, "delay", return_value=None):
                 result = generate_annual_receipts.apply(args=[2024]).get()
 
@@ -1241,6 +1268,7 @@ class AnnualReceiptsLocalTimezoneFilterTests(TestCase):
 # ---------------------------------------------------------------------------
 # H-D — BC/NL timezone boundary: all Dec 31 Canadian donations captured
 # ---------------------------------------------------------------------------
+
 
 class AnnualReceiptsBCTimezoneTest(TestCase):
     """
@@ -1263,11 +1291,10 @@ class AnnualReceiptsBCTimezoneTest(TestCase):
         self.charity = make_charity_settings()
 
     def _run_annual_for_year(self, tax_year):
-        from apps.payments.tasks_receipts import generate_annual_receipts, generate_and_send_receipt
+        from apps.payments.tasks_receipts import generate_and_send_receipt, generate_annual_receipts
+
         _counter = [0]
-        with patch.object(
-            OfficialDonationReceipt, "save", make_fake_save(_counter, year=tax_year)
-        ):
+        with patch.object(OfficialDonationReceipt, "save", make_fake_save(_counter, year=tax_year)):
             with patch.object(generate_and_send_receipt, "delay", return_value=None):
                 return generate_annual_receipts.apply(args=[tax_year]).get()
 
@@ -1277,11 +1304,11 @@ class AnnualReceiptsBCTimezoneTest(TestCase):
         2024 run because it is Dec 31 in the donor's local (Pacific) time.
         """
         pst = ZoneInfo("America/Vancouver")
-        dt_utc = datetime(2024, 12, 31, 22, 0, 0).replace(tzinfo=pst).astimezone(dt_timezone.utc)
+        dt_utc = datetime(2024, 12, 31, 22, 0, 0).replace(tzinfo=pst).astimezone(UTC)
 
         user = make_user()
         intent = make_payment_intent(user)
-        donation = self._make_donation_at_utc(user, intent, dt_utc)
+        self._make_donation_at_utc(user, intent, dt_utc)
 
         result = self._run_annual_for_year(2024)
         self.assertEqual(
@@ -1298,7 +1325,7 @@ class AnnualReceiptsBCTimezoneTest(TestCase):
         because it is already January 1 in the donor's local (Pacific) time.
         """
         pst = ZoneInfo("America/Vancouver")
-        dt_utc = datetime(2025, 1, 1, 0, 1, 0).replace(tzinfo=pst).astimezone(dt_timezone.utc)
+        dt_utc = datetime(2025, 1, 1, 0, 1, 0).replace(tzinfo=pst).astimezone(UTC)
 
         user = make_user()
         intent = make_payment_intent(user)
@@ -1329,7 +1356,7 @@ class AnnualReceiptsBCTimezoneTest(TestCase):
         duplicate is rectifiable, but a missing receipt is not.
         """
         nst = ZoneInfo("America/St_Johns")
-        dt_utc = datetime(2025, 1, 1, 0, 1, 0).replace(tzinfo=nst).astimezone(dt_timezone.utc)
+        dt_utc = datetime(2025, 1, 1, 0, 1, 0).replace(tzinfo=nst).astimezone(UTC)
 
         user = make_user()
         intent = make_payment_intent(user)
@@ -1350,7 +1377,7 @@ class AnnualReceiptsBCTimezoneTest(TestCase):
         be included in the current-year run — regression guard.
         """
         et = ZoneInfo("America/Toronto")
-        dt_utc = datetime(2024, 12, 31, 23, 0, 0).replace(tzinfo=et).astimezone(dt_timezone.utc)
+        dt_utc = datetime(2024, 12, 31, 23, 0, 0).replace(tzinfo=et).astimezone(UTC)
 
         user = make_user()
         intent = make_payment_intent(user)
@@ -1369,6 +1396,7 @@ class AnnualReceiptsBCTimezoneTest(TestCase):
 # M-G — generate_annual_receipts must not buffer all donor rows in memory
 # ---------------------------------------------------------------------------
 
+
 class AnnualReceiptsGroupbyTests(TestCase):
     """
     M-G: generate_annual_receipts must process donations donor-by-donor using
@@ -1383,6 +1411,7 @@ class AnnualReceiptsGroupbyTests(TestCase):
     def test_source_uses_groupby_not_donor_dict(self):
         """Source code must use itertools.groupby, not a donations_by_donor dict."""
         import inspect
+
         from apps.payments.tasks_receipts import generate_annual_receipts
 
         source = inspect.getsource(generate_annual_receipts)
@@ -1410,10 +1439,10 @@ class AnnualReceiptsGroupbyTests(TestCase):
         Two donors with different donations must each receive their own receipt.
         Verifies that the groupby refactor preserves correct per-donor aggregation.
         """
-        from apps.payments.tasks_receipts import generate_annual_receipts, generate_and_send_receipt
         from apps.payments.models import OfficialDonationReceipt
+        from apps.payments.tasks_receipts import generate_and_send_receipt, generate_annual_receipts
 
-        charity = make_charity_settings()
+        make_charity_settings()
         user1 = make_user()
         user2 = make_user()
         intent1 = make_payment_intent(user1)
@@ -1447,6 +1476,7 @@ class AnnualReceiptsGroupbyTests(TestCase):
 # M-H — kickoff_annual_receipts must have acks_late=True, reject_on_worker_lost=True
 # ---------------------------------------------------------------------------
 
+
 class KickoffAnnualReceiptsReliabilityTests(TestCase):
     """
     M-H: kickoff_annual_receipts is a once-per-year CRA compliance task.
@@ -1462,6 +1492,7 @@ class KickoffAnnualReceiptsReliabilityTests(TestCase):
     def test_kickoff_annual_receipts_has_acks_late(self):
         """kickoff_annual_receipts must declare acks_late=True."""
         from apps.payments.tasks_receipts import kickoff_annual_receipts
+
         self.assertTrue(
             kickoff_annual_receipts.acks_late,
             "kickoff_annual_receipts must set acks_late=True so the message is not "
@@ -1472,6 +1503,7 @@ class KickoffAnnualReceiptsReliabilityTests(TestCase):
     def test_kickoff_annual_receipts_has_reject_on_worker_lost(self):
         """kickoff_annual_receipts must declare reject_on_worker_lost=True."""
         from apps.payments.tasks_receipts import kickoff_annual_receipts
+
         self.assertTrue(
             kickoff_annual_receipts.reject_on_worker_lost,
             "kickoff_annual_receipts must set reject_on_worker_lost=True so a "

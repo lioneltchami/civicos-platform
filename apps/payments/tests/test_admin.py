@@ -18,20 +18,19 @@ Covers uncovered display methods and permission overrides:
 
 Strategy: instantiate AdminModelAdmin classes directly and call methods on mock objects
 to avoid the need for a running HTTP test client for every branch.
-"""
+"""  # noqa: E501
+
 import uuid
 from datetime import date
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
-from django.test import TestCase, RequestFactory, SimpleTestCase
+from django.test import RequestFactory, TestCase
 
 from apps.payments.admin import (
-    CharitySettingsAdmin,
     DonationAdmin,
-    FeeScheduleAdmin,
     OfficialDonationReceiptAdmin,
     PaymentAdmin,
     PaymentAuditEntryAdmin,
@@ -40,13 +39,12 @@ from apps.payments.admin import (
     RefundAdmin,
     RefundInline,
     ServiceFeePaymentAdmin,
-    TaxRateAdmin,
     TenantPaymentConfigAdmin,
     WebhookEventAdmin,
 )
 from apps.payments.models import (
+    DONATION_STATUS_COMPLETED,
     Donation,
-    DonationCampaign,
     OfficialDonationReceipt,
     Payment,
     PaymentAuditEntry,
@@ -56,7 +54,6 @@ from apps.payments.models import (
     ServiceFeePayment,
     TenantPaymentConfig,
     WebhookEvent,
-    DONATION_STATUS_COMPLETED,
 )
 
 User = get_user_model()
@@ -66,13 +63,14 @@ User = get_user_model()
 # Shared helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_user(email=None):
-    email = email or "admin_test_{}@example.com".format(uuid.uuid4().hex[:6])
+    email = email or f"admin_test_{uuid.uuid4().hex[:6]}@example.com"
     return User.objects.create_user(email=email, password="TestPass123!")
 
 
 def _make_superuser(email=None):
-    email = email or "super_{}@example.com".format(uuid.uuid4().hex[:6])
+    email = email or f"super_{uuid.uuid4().hex[:6]}@example.com"
     return User.objects.create_superuser(email=email, password="SuperPass123!")
 
 
@@ -84,15 +82,16 @@ def _make_intent(user):
         purpose=PaymentIntent.PURPOSE_DONATION,
         status=PaymentIntent.STATUS_COMPLETED,
         gateway=PaymentIntent.GATEWAY_STRIPE,
-        gateway_intent_id="pi_{}".format(uuid.uuid4().hex[:8]),
+        gateway_intent_id=f"pi_{uuid.uuid4().hex[:8]}",
     )
 
 
 def _make_payment(intent):
     from django.utils import timezone
+
     return Payment.objects.create(
         intent=intent,
-        gateway_charge_id="ch_{}".format(uuid.uuid4().hex[:8]),
+        gateway_charge_id=f"ch_{uuid.uuid4().hex[:8]}",
         amount_paid=intent.amount,
         processor_fee=Decimal("1.75"),
         net_amount=intent.amount - Decimal("1.75"),
@@ -105,11 +104,12 @@ def _make_payment(intent):
 
 def _make_refund(payment, authorized_by):
     from django.utils import timezone
+
     return Refund.objects.create(
         payment=payment,
         amount=Decimal("10.00"),
         reason="requested_by_customer",
-        gateway_refund_id="re_{}".format(uuid.uuid4().hex[:8]),
+        gateway_refund_id=f"re_{uuid.uuid4().hex[:8]}",
         authorized_by=authorized_by,
         refunded_at=timezone.now(),
     )
@@ -132,7 +132,7 @@ def _make_donation(user, intent, campaign=None):
 
 
 def _make_receipt(donation):
-    serial = "2026-{:06d}".format(uuid.uuid4().int % 1000000)
+    serial = f"2026-{uuid.uuid4().int % 1000000:06d}"
     r = OfficialDonationReceipt(
         donation=donation,
         status=OfficialDonationReceipt.RECEIPT_STATUS_ISSUED,
@@ -163,8 +163,8 @@ def _make_receipt(donation):
 # PaymentIntentAdmin
 # ---------------------------------------------------------------------------
 
-class PaymentIntentAdminTest(TestCase):
 
+class PaymentIntentAdminTest(TestCase):
     def setUp(self):
         self.site = AdminSite()
         self.admin = PaymentIntentAdmin(PaymentIntent, self.site)
@@ -184,8 +184,8 @@ class PaymentIntentAdminTest(TestCase):
 # PaymentAdmin
 # ---------------------------------------------------------------------------
 
-class PaymentAdminTest(TestCase):
 
+class PaymentAdminTest(TestCase):
     def setUp(self):
         self.site = AdminSite()
         self.admin = PaymentAdmin(Payment, self.site)
@@ -232,8 +232,9 @@ class PaymentAdminTest(TestCase):
 
     def test_get_list_display_includes_refund_link_with_permission(self):
         """Users with payments.add_refund see the refund_link column."""
-        from django.contrib.contenttypes.models import ContentType
         from django.contrib.auth.models import Permission
+        from django.contrib.contenttypes.models import ContentType
+
         ct = ContentType.objects.get_for_model(Refund)
         perm = Permission.objects.get(content_type=ct, codename="add_refund")
         self.user.user_permissions.add(perm)
@@ -257,8 +258,8 @@ class PaymentAdminTest(TestCase):
 # RefundInline
 # ---------------------------------------------------------------------------
 
-class RefundInlineTest(TestCase):
 
+class RefundInlineTest(TestCase):
     def setUp(self):
         self.site = AdminSite()
         self.inline = RefundInline(Payment, self.site)
@@ -280,8 +281,8 @@ class RefundInlineTest(TestCase):
 # RefundAdmin
 # ---------------------------------------------------------------------------
 
-class RefundAdminTest(TestCase):
 
+class RefundAdminTest(TestCase):
     def setUp(self):
         self.site = AdminSite()
         self.admin = RefundAdmin(Refund, self.site)
@@ -316,8 +317,8 @@ class RefundAdminTest(TestCase):
 # WebhookEventAdmin
 # ---------------------------------------------------------------------------
 
-class WebhookEventAdminTest(TestCase):
 
+class WebhookEventAdminTest(TestCase):
     def setUp(self):
         self.site = AdminSite()
         self.admin = WebhookEventAdmin(WebhookEvent, self.site)
@@ -341,8 +342,8 @@ class WebhookEventAdminTest(TestCase):
 # PaymentAuditEntryAdmin
 # ---------------------------------------------------------------------------
 
-class PaymentAuditEntryAdminTest(TestCase):
 
+class PaymentAuditEntryAdminTest(TestCase):
     def setUp(self):
         self.site = AdminSite()
         self.admin = PaymentAuditEntryAdmin(PaymentAuditEntry, self.site)
@@ -401,8 +402,8 @@ class PaymentAuditEntryAdminTest(TestCase):
 # TenantPaymentConfigAdmin
 # ---------------------------------------------------------------------------
 
-class TenantPaymentConfigAdminTest(TestCase):
 
+class TenantPaymentConfigAdminTest(TestCase):
     def setUp(self):
         self.site = AdminSite()
         self.admin = TenantPaymentConfigAdmin(TenantPaymentConfig, self.site)
@@ -445,8 +446,8 @@ class TenantPaymentConfigAdminTest(TestCase):
 # ServiceFeePaymentAdmin
 # ---------------------------------------------------------------------------
 
-class ServiceFeePaymentAdminTest(TestCase):
 
+class ServiceFeePaymentAdminTest(TestCase):
     def setUp(self):
         self.site = AdminSite()
         self.admin = ServiceFeePaymentAdmin(ServiceFeePayment, self.site)
@@ -470,8 +471,8 @@ class ServiceFeePaymentAdminTest(TestCase):
 # DonationAdmin
 # ---------------------------------------------------------------------------
 
-class DonationAdminTest(TestCase):
 
+class DonationAdminTest(TestCase):
     def setUp(self):
         self.site = AdminSite()
         self.admin = DonationAdmin(Donation, self.site)
@@ -501,8 +502,8 @@ class DonationAdminTest(TestCase):
 # RecurringGiftPlanAdmin
 # ---------------------------------------------------------------------------
 
-class RecurringGiftPlanAdminTest(TestCase):
 
+class RecurringGiftPlanAdminTest(TestCase):
     def setUp(self):
         self.site = AdminSite()
         self.admin = RecurringGiftPlanAdmin(RecurringGiftPlan, self.site)
@@ -516,8 +517,8 @@ class RecurringGiftPlanAdminTest(TestCase):
             amount=Decimal("25.00"),
             frequency="monthly",
             next_charge_date=date(2026, 7, 1),
-            gateway_subscription_id="sub_{}".format(uuid.uuid4().hex[:8]),
-            gateway_payment_method_id="pm_{}".format(uuid.uuid4().hex[:8]),
+            gateway_subscription_id=f"sub_{uuid.uuid4().hex[:8]}",
+            gateway_payment_method_id=f"pm_{uuid.uuid4().hex[:8]}",
             status="active",
         )
 
@@ -544,8 +545,8 @@ class RecurringGiftPlanAdminTest(TestCase):
 # OfficialDonationReceiptAdmin
 # ---------------------------------------------------------------------------
 
-class OfficialDonationReceiptAdminTest(TestCase):
 
+class OfficialDonationReceiptAdminTest(TestCase):
     def setUp(self):
         self.site = AdminSite()
         self.admin = OfficialDonationReceiptAdmin(OfficialDonationReceipt, self.site)
@@ -580,6 +581,7 @@ class OfficialDonationReceiptAdminTest(TestCase):
 # ---------------------------------------------------------------------------
 # AdminOTPEnforcementTest — security regression guard for C5
 # ---------------------------------------------------------------------------
+
 
 class AdminOTPEnforcementTest(TestCase):
     """
@@ -638,6 +640,7 @@ class AdminOTPEnforcementTest(TestCase):
 # ---------------------------------------------------------------------------
 # M-L: OfficialDonationReceiptAdmin PII access control (Bug Fix)
 # ---------------------------------------------------------------------------
+
 
 class OfficialDonationReceiptAdminPermissionTests(TestCase):
     """

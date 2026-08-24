@@ -4,10 +4,13 @@ from importlib import import_module
 from unittest import mock
 
 from django.db import connection
-from django.test import TransactionTestCase, TestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 
-from apps.appointments.models import GovStackAlertSchedule, SchedulerOutbox, SchedulerRecipientDelivery
+from apps.appointments.models import (
+    SchedulerOutbox,
+    SchedulerRecipientDelivery,
+)
 from apps.appointments.services import scheduler_runtime
 from apps.appointments.services.govstack_alert_schedule import alert_schedule_create
 from apps.appointments.tasks import dispatch_alert_schedule
@@ -61,8 +64,12 @@ class SchedulerRuntimeTests(TestCase):
 
         self.assertIsNotNone(token)
         self.assertIsNone(scheduler_runtime.claim(idempotency_key=delivery.idempotency_key))
-        self.assertFalse(scheduler_runtime.succeed(idempotency_key=delivery.idempotency_key, lease_token="stale"))
-        self.assertTrue(scheduler_runtime.succeed(idempotency_key=delivery.idempotency_key, lease_token=token))
+        self.assertFalse(
+            scheduler_runtime.succeed(idempotency_key=delivery.idempotency_key, lease_token="stale")
+        )
+        self.assertTrue(
+            scheduler_runtime.succeed(idempotency_key=delivery.idempotency_key, lease_token=token)
+        )
         delivery.refresh_from_db()
         self.assertEqual(delivery.status, SchedulerRecipientDelivery.DELIVERED)
         self.assertTrue(scheduler_runtime.acknowledge(idempotency_key=delivery.idempotency_key))
@@ -127,6 +134,7 @@ class SchedulerRuntimeTests(TestCase):
 )
 class SchedulerPublisherRecoveryPostgresTests(TransactionTestCase):
     """Real PostgreSQL proof for the bounded SCH-02.1 publisher contract."""
+
     reset_sequences = True
 
     def setUp(self):
@@ -138,15 +146,20 @@ class SchedulerPublisherRecoveryPostgresTests(TransactionTestCase):
         )
         self.message = _create_message(entity_id=self.org.pk)
         self.schedule = alert_schedule_create(
-            event_id=str(self.slot.pk), message_id=self.message.pk,
-            target_category="resource", alert_datetime="2027-06-01T09:00:00Z",
+            event_id=str(self.slot.pk),
+            message_id=self.message.pk,
+            target_category="resource",
+            alert_datetime="2027-06-01T09:00:00Z",
         )
 
     def _outbox(self, correlation_id="sch02-correlation", recipient_ref=None):
         delivery, created = scheduler_runtime.materialize(
-            schedule=self.schedule, owner_key=f"schedule:{self.schedule.pk}",
-            correlation_id=correlation_id, recipient_kind="staff",
-            recipient_ref=recipient_ref or str(self.staff.pk), payload={},
+            schedule=self.schedule,
+            owner_key=f"schedule:{self.schedule.pk}",
+            correlation_id=correlation_id,
+            recipient_kind="staff",
+            recipient_ref=recipient_ref or str(self.staff.pk),
+            payload={},
             generation=self.schedule.delivery_generation,
         )
         self.assertTrue(created)
@@ -160,9 +173,12 @@ class SchedulerPublisherRecoveryPostgresTests(TransactionTestCase):
     def _fail(self, claim, now, unknown=False):
         outbox_id, _, token, generation = claim
         return scheduler_runtime.mark_outbox_failed(
-            outbox_id=outbox_id, token=token, generation=generation,
+            outbox_id=outbox_id,
+            token=token,
+            generation=generation,
             error_class="TimeoutError" if unknown else "BrokerUnavailable",
-            now=now, unknown_handoff=unknown,
+            now=now,
+            unknown_handoff=unknown,
         )
 
     def test_claim_outbox_consumes_attempt_and_sets_publisher_lease(self):
@@ -230,7 +246,9 @@ class SchedulerPublisherRecoveryPostgresTests(TransactionTestCase):
         self._fail(self._claim(now=now), now)
         outbox.refresh_from_db()
         self._fail(self._claim(now=outbox.available_at), outbox.available_at)
-        self.assertTrue(scheduler_runtime.replay_outbox(outbox_id=outbox.pk, now=outbox.available_at))
+        self.assertTrue(
+            scheduler_runtime.replay_outbox(outbox_id=outbox.pk, now=outbox.available_at)
+        )
         outbox.refresh_from_db()
         self.assertEqual(outbox.publisher_state, SchedulerOutbox.PENDING)
         self.assertEqual(outbox.delivery.correlation_id, "replay")
@@ -239,20 +257,43 @@ class SchedulerPublisherRecoveryPostgresTests(TransactionTestCase):
     def test_replay_rejects_published_and_cancelled_rows(self):
         published = self._outbox("published")
         outbox_id, _, token, generation = self._claim()
-        self.assertTrue(scheduler_runtime.mark_outbox_published(outbox_id=outbox_id, token=token, generation=generation))
+        self.assertTrue(
+            scheduler_runtime.mark_outbox_published(
+                outbox_id=outbox_id, token=token, generation=generation
+            )
+        )
         self.assertFalse(scheduler_runtime.replay_outbox(outbox_id=published.pk))
         cancelled = self._outbox("cancelled", "cancelled-recipient")
-        SchedulerOutbox.objects.filter(pk=cancelled.pk).update(cancelled_at=timezone.now(), publisher_state=SchedulerOutbox.CANCELLED)
+        SchedulerOutbox.objects.filter(pk=cancelled.pk).update(
+            cancelled_at=timezone.now(), publisher_state=SchedulerOutbox.CANCELLED
+        )
         self.assertFalse(scheduler_runtime.replay_outbox(outbox_id=cancelled.pk))
 
     def test_published_and_failure_require_current_publisher_token_and_generation(self):
-        outbox = self._outbox()
+        self._outbox()
         outbox_id, _, stale_token, stale_generation = self._claim(owner="publisher-a")
-        SchedulerOutbox.objects.filter(pk=outbox_id).update(publisher_lease_expires_at=timezone.now() - timedelta(seconds=1))
+        SchedulerOutbox.objects.filter(pk=outbox_id).update(
+            publisher_lease_expires_at=timezone.now() - timedelta(seconds=1)
+        )
         _, _, current_token, current_generation = self._claim(owner="publisher-b")
-        self.assertFalse(scheduler_runtime.mark_outbox_published(outbox_id=outbox_id, token=stale_token, generation=stale_generation))
-        self.assertFalse(scheduler_runtime.mark_outbox_failed(outbox_id=outbox_id, token=stale_token, generation=stale_generation, error_class="stale"))
-        self.assertTrue(scheduler_runtime.mark_outbox_published(outbox_id=outbox_id, token=current_token, generation=current_generation))
+        self.assertFalse(
+            scheduler_runtime.mark_outbox_published(
+                outbox_id=outbox_id, token=stale_token, generation=stale_generation
+            )
+        )
+        self.assertFalse(
+            scheduler_runtime.mark_outbox_failed(
+                outbox_id=outbox_id,
+                token=stale_token,
+                generation=stale_generation,
+                error_class="stale",
+            )
+        )
+        self.assertTrue(
+            scheduler_runtime.mark_outbox_published(
+                outbox_id=outbox_id, token=current_token, generation=current_generation
+            )
+        )
 
     def test_existing_outbox_rows_migrate_to_safe_publisher_states(self):
         pending = self._outbox("legacy-pending")
@@ -262,29 +303,50 @@ class SchedulerPublisherRecoveryPostgresTests(TransactionTestCase):
         SchedulerOutbox.objects.filter(pk=claimed.pk).update(publisher_token="legacy-token")
         SchedulerOutbox.objects.filter(pk=published.pk).update(published_at=timezone.now())
         SchedulerOutbox.objects.filter(pk=cancelled.pk).update(cancelled_at=timezone.now())
-        migration = import_module("apps.appointments.migrations.0023_sch02_1_bounded_publisher_recovery")
+        migration = import_module(
+            "apps.appointments.migrations.0023_sch02_1_bounded_publisher_recovery"
+        )
+
         class CurrentApps:
             @staticmethod
             def get_model(app_label, model_name):
                 return SchedulerOutbox
+
         migration.backfill_publisher_states(CurrentApps(), None)
-        for row, state in ((pending, SchedulerOutbox.PENDING), (claimed, SchedulerOutbox.CLAIMED), (published, SchedulerOutbox.PUBLISHED), (cancelled, SchedulerOutbox.CANCELLED)):
+        for row, state in (
+            (pending, SchedulerOutbox.PENDING),
+            (claimed, SchedulerOutbox.CLAIMED),
+            (published, SchedulerOutbox.PUBLISHED),
+            (cancelled, SchedulerOutbox.CANCELLED),
+        ):
             row.refresh_from_db()
             self.assertEqual(row.publisher_state, state)
 
     def test_real_competing_publishers_have_one_current_owner(self):
-        outbox = self._outbox()
+        self._outbox()
         outbox_id, _, stale_token, stale_generation = self._claim(owner="publisher-a")
-        SchedulerOutbox.objects.filter(pk=outbox_id).update(publisher_lease_expires_at=timezone.now() - timedelta(seconds=1))
+        SchedulerOutbox.objects.filter(pk=outbox_id).update(
+            publisher_lease_expires_at=timezone.now() - timedelta(seconds=1)
+        )
+
         def compete(owner):
             try:
                 return scheduler_runtime.claim_outbox(owner=owner)
             finally:
                 connection.close()
+
         with ThreadPoolExecutor(max_workers=2) as pool:
             claims = list(pool.map(compete, ["publisher-b", "publisher-c"]))
         current = [claim for claim in claims if claim is not None]
         self.assertEqual(len(current), 1)
         _, _, token, generation = current[0]
-        self.assertFalse(scheduler_runtime.mark_outbox_published(outbox_id=outbox_id, token=stale_token, generation=stale_generation))
-        self.assertTrue(scheduler_runtime.mark_outbox_published(outbox_id=outbox_id, token=token, generation=generation))
+        self.assertFalse(
+            scheduler_runtime.mark_outbox_published(
+                outbox_id=outbox_id, token=stale_token, generation=stale_generation
+            )
+        )
+        self.assertTrue(
+            scheduler_runtime.mark_outbox_published(
+                outbox_id=outbox_id, token=token, generation=generation
+            )
+        )

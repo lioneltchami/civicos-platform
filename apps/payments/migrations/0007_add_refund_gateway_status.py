@@ -4,25 +4,24 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('payments', '0006_alter_payment_card_brand'),
+    dependencies = [  # noqa: RUF012
+        ("payments", "0006_alter_payment_card_brand"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddField(
-            model_name='refund',
-            name='gateway_status',
+            model_name="refund",
+            name="gateway_status",
             field=models.CharField(
                 choices=[
-                    ('pending', 'Pending'),
-                    ('succeeded', 'Succeeded'),
-                    ('failed', 'Failed'),
+                    ("pending", "Pending"),
+                    ("succeeded", "Succeeded"),
+                    ("failed", "Failed"),
                 ],
                 db_index=True,
-                default='pending',
+                default="pending",
                 max_length=20,
-                verbose_name='Gateway Status',
+                verbose_name="Gateway Status",
             ),
         ),
     ]

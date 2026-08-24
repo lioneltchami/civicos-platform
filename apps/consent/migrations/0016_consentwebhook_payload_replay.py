@@ -9,17 +9,15 @@
 # on each delivery attempt and exposed by ConfigWebhookPayloadView.
 from __future__ import annotations
 
-import django.utils.timezone
 from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("consent", "0015_nullable_download_token"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddField(
             model_name="consentwebhook",
             name="last_payload",

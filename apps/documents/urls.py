@@ -33,6 +33,7 @@ Security notes
   literal string ``"quarantine"`` being matched as a UUID (it would fail UUID
   parsing, but explicit ordering avoids confusing 404s).
 """
+
 from __future__ import annotations
 
 from django.urls import path

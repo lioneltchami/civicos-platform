@@ -19,6 +19,7 @@ Privacy invariants:
   - No PII (email, full name) in log output
   - ZoneInfo conversion correctness for Canadian timezones
 """
+
 from __future__ import annotations
 
 import uuid
@@ -36,7 +37,6 @@ from apps.appointments.models import (
     AvailabilityTemplate,
     Location,
     Organization,
-    Resource,
     SchedulingPolicy,
     ServiceType,
     Slot,
@@ -45,13 +45,12 @@ from apps.appointments.models import (
 )
 from apps.appointments.services.availability import (
     SlotAvailabilityService,
-    _SettingsPolicy,
     _overlaps,
     _policy_from_settings,
     _resolve_policy,
+    _SettingsPolicy,
 )
 from apps.appointments.services.slots import (
-    SlotFullError,
     SlotHasBookingsError,
     block_slot,
     cancel_slot,
@@ -70,6 +69,7 @@ VANCOUVER = ZoneInfo("America/Vancouver")
 # any date already in the past produces 0 results and breaks count assertions.
 # ---------------------------------------------------------------------------
 
+
 def _next_weekday(iso_weekday: int) -> date:
     """Return the next upcoming date with the given ISO weekday (1=Mon…7=Sun)."""
     today = date.today()
@@ -78,16 +78,17 @@ def _next_weekday(iso_weekday: int) -> date:
         days_ahead += 7
     return today + timedelta(days=days_ahead)
 
+
 # Module-level computed dates — always point to the next upcoming weekday so
 # tests never pass a date that the lead-time filter would drop entirely.
-_NEXT_MON = _next_weekday(1)   # isoweekday 1 = Monday
-_NEXT_TUE = _next_weekday(2)   # isoweekday 2 = Tuesday
-
+_NEXT_MON = _next_weekday(1)  # isoweekday 1 = Monday
+_NEXT_TUE = _next_weekday(2)  # isoweekday 2 = Tuesday
 
 
 # ---------------------------------------------------------------------------
 # Shared factories
 # ---------------------------------------------------------------------------
+
 
 def make_user(email: str = "staff@example.com", is_staff: bool = True) -> User:
     return User.objects.create_user(email=email, password="pass!", is_staff=is_staff)
@@ -220,6 +221,7 @@ def make_slot(
 # _overlaps() unit tests
 # ---------------------------------------------------------------------------
 
+
 class OverlapHelperTests(TestCase):
     """Unit tests for the _overlaps() helper."""
 
@@ -230,7 +232,7 @@ class OverlapHelperTests(TestCase):
         self.assertTrue(_overlaps(self._dt(9), self._dt(10), self._dt(9, 30), self._dt(11)))
 
     def test_adjacent_intervals_do_not_overlap(self):
-        """[9–10) and [10–11) share an endpoint but must NOT be counted as overlapping."""
+        """[9–10) and [10–11) share an endpoint but must NOT be counted as overlapping."""  # noqa: RUF002
         self.assertFalse(_overlaps(self._dt(9), self._dt(10), self._dt(10), self._dt(11)))
 
     def test_contained_interval_overlaps(self):
@@ -244,12 +246,12 @@ class OverlapHelperTests(TestCase):
 
     def test_overlap_is_commutative(self):
         """overlap(A, B) == overlap(B, A) for any two intervals."""
-        # Non-overlapping: A=09:00–10:00, B=10:00–11:00 (adjacent, no overlap)
+        # Non-overlapping: A=09:00–10:00, B=10:00–11:00 (adjacent, no overlap)  # noqa: RUF003
         self.assertEqual(
             _overlaps(self._dt(9, 0), self._dt(10, 0), self._dt(10, 0), self._dt(11, 0)),
             _overlaps(self._dt(10, 0), self._dt(11, 0), self._dt(9, 0), self._dt(10, 0)),
         )
-        # Overlapping: A=09:00–10:30, B=10:00–11:00
+        # Overlapping: A=09:00–10:30, B=10:00–11:00  # noqa: RUF003
         self.assertEqual(
             _overlaps(self._dt(9, 0), self._dt(10, 30), self._dt(10, 0), self._dt(11, 0)),
             _overlaps(self._dt(10, 0), self._dt(11, 0), self._dt(9, 0), self._dt(10, 30)),
@@ -261,7 +263,7 @@ class OverlapHelperTests(TestCase):
         _overlaps uses strict < so touching at a single point is NOT an overlap.
         Zero-length at 10:00 against [10:00–11:00): a_start(10:00) < b_end(11:00) is True,
         but a_end(10:00) > b_start(10:00) is False — result is False.
-        """
+        """  # noqa: RUF002
         result = _overlaps(self._dt(10, 0), self._dt(10, 0), self._dt(10, 0), self._dt(11, 0))
         self.assertFalse(result)
 
@@ -270,6 +272,7 @@ class OverlapHelperTests(TestCase):
 # AvailabilityTemplateQuerySet.active_on() tests
 # (previously tested models_Q_valid_until — logic moved to model manager in L-9)
 # ---------------------------------------------------------------------------
+
 
 class ActiveOnQuerysetTests(TestCase):
     """Verify AvailabilityTemplateQuerySet.active_on(date) filtering."""
@@ -289,7 +292,10 @@ class ActiveOnQuerysetTests(TestCase):
     def test_template_expiring_before_target_excluded(self):
         """valid_until < target_date → excluded."""
         make_template(
-            self.staff, 1, time(9, 0), time(17, 0),
+            self.staff,
+            1,
+            time(9, 0),
+            time(17, 0),
             valid_until=date(2026, 6, 30),
         )
         count = AvailabilityTemplate.objects.active_on(date(2026, 7, 7)).count()
@@ -298,7 +304,10 @@ class ActiveOnQuerysetTests(TestCase):
     def test_template_expiring_on_target_included(self):
         """valid_until == target_date → still active on that day (inclusive)."""
         make_template(
-            self.staff, 1, time(9, 0), time(17, 0),
+            self.staff,
+            1,
+            time(9, 0),
+            time(17, 0),
             valid_until=date(2026, 7, 7),
         )
         count = AvailabilityTemplate.objects.active_on(date(2026, 7, 7)).count()
@@ -326,6 +335,7 @@ class ActiveOnQuerysetTests(TestCase):
 # _SettingsPolicy / _policy_from_settings() tests
 # ---------------------------------------------------------------------------
 
+
 class SettingsPolicyTests(TestCase):
     """Tests for _SettingsPolicy dataclass and _policy_from_settings()."""
 
@@ -338,22 +348,26 @@ class SettingsPolicyTests(TestCase):
         """With default CIVICOS settings, returns the concrete defaults defined in base.py."""
         p = _policy_from_settings()
         self.assertIsInstance(p, _SettingsPolicy)
-        self.assertEqual(p.slot_interval_minutes, 15)   # DEFAULT_SLOT_INTERVAL_MINUTES default
-        self.assertEqual(p.min_lead_time_hours, 1)       # DEFAULT_MIN_LEAD_HOURS default
-        self.assertEqual(p.max_advance_days, 180)        # DEFAULT_MAX_ADVANCE_DAYS default
+        self.assertEqual(p.slot_interval_minutes, 15)  # DEFAULT_SLOT_INTERVAL_MINUTES default
+        self.assertEqual(p.min_lead_time_hours, 1)  # DEFAULT_MIN_LEAD_HOURS default
+        self.assertEqual(p.max_advance_days, 180)  # DEFAULT_MAX_ADVANCE_DAYS default
 
-    @override_settings(CIVICOS={"APPOINTMENTS": {
-        "DEFAULT_SLOT_DURATION_MINUTES": 60,      # duration (length of appointment)
-        "DEFAULT_SLOT_INTERVAL_MINUTES": 45,       # C-4 fix: interval is a separate key from duration
-        "DEFAULT_BUFFER_BEFORE_MINUTES": 0,
-        "DEFAULT_BUFFER_AFTER_MINUTES": 0,
-        "DEFAULT_MIN_LEAD_HOURS": 2,
-        "DEFAULT_MAX_ADVANCE_DAYS": 90,
-        "DEFAULT_MAX_ACTIVE_BOOKINGS": 5,
-        "WAITLIST_ACCEPTANCE_WINDOW_HOURS": 4,
-        "WAITLIST_NOTIFY_BATCH_SIZE": 5,
-        "GLOBAL_NO_SHOW_SUSPENSION_THRESHOLD": 2,
-    }})
+    @override_settings(
+        CIVICOS={
+            "APPOINTMENTS": {
+                "DEFAULT_SLOT_DURATION_MINUTES": 60,  # duration (length of appointment)
+                "DEFAULT_SLOT_INTERVAL_MINUTES": 45,  # C-4 fix: interval is a separate key from duration  # noqa: E501
+                "DEFAULT_BUFFER_BEFORE_MINUTES": 0,
+                "DEFAULT_BUFFER_AFTER_MINUTES": 0,
+                "DEFAULT_MIN_LEAD_HOURS": 2,
+                "DEFAULT_MAX_ADVANCE_DAYS": 90,
+                "DEFAULT_MAX_ACTIVE_BOOKINGS": 5,
+                "WAITLIST_ACCEPTANCE_WINDOW_HOURS": 4,
+                "WAITLIST_NOTIFY_BATCH_SIZE": 5,
+                "GLOBAL_NO_SHOW_SUSPENSION_THRESHOLD": 2,
+            }
+        }
+    )
     def test_policy_from_settings_reads_overrides(self):
         p = _policy_from_settings()
         self.assertEqual(p.slot_interval_minutes, 45)  # reads DEFAULT_SLOT_INTERVAL_MINUTES
@@ -368,6 +382,7 @@ class SettingsPolicyTests(TestCase):
 # ---------------------------------------------------------------------------
 # _resolve_policy() tests
 # ---------------------------------------------------------------------------
+
 
 class ResolvePolicyTests(TestCase):
     """Tests for the three-level policy cascade."""
@@ -428,6 +443,7 @@ class ResolvePolicyTests(TestCase):
 # SlotGenerationTests
 # ---------------------------------------------------------------------------
 
+
 class SlotGenerationTests(TestCase):
     """
     Verifies the core slot generation algorithm:
@@ -462,7 +478,7 @@ class SlotGenerationTests(TestCase):
         """
         9:00–11:00 template, 30-min duration, 30-min interval → 4 slots at
         09:00, 09:30, 10:00, 10:30 local (converted to UTC).
-        """
+        """  # noqa: RUF002
         policy = make_policy(
             slot_interval_minutes=30,
             buffer_before_minutes=0,
@@ -525,7 +541,7 @@ class SlotGenerationTests(TestCase):
             date_to=target_date,
             staff=staff,
         )
-        # 45-min duration with 30-min stride in 9:00–11:00 window (120 min total)
+        # 45-min duration with 30-min stride in 9:00–11:00 window (120 min total)  # noqa: RUF003
         # Slots: 9:00-9:45, 9:30-10:15, 10:00-10:45 (10:30-11:15 overruns window)
         # Actually with buffer_after=0: slot_end + 0 <= 11:00?
         # 9:00 end=9:45 ✓, 9:30 end=10:15 ✓, 10:00 end=10:45 ✓, 10:30 end=11:15 ✗
@@ -560,7 +576,7 @@ class SlotGenerationTests(TestCase):
             date_to=target_date,
             staff=staff,
         )
-        # Template: Tuesday 09:00–11:00, slot_interval=30min, duration=30min,
+        # Template: Tuesday 09:00–11:00, slot_interval=30min, duration=30min,  # noqa: RUF003
         # buffer_after=10min. A slot at 10:30 would have effective_end=11:10,
         # overrunning the 11:00 template window → only 3 slots fit:
         # 09:00 (eff_end 09:40), 09:30 (eff_end 10:10), 10:00 (eff_end 10:40).
@@ -603,7 +619,7 @@ class SlotGenerationTests(TestCase):
         """
         Template for Monday (1) only. Date range Mon–Sun → 1 day with slots,
         6 days without.
-        """
+        """  # noqa: RUF002
         policy = make_policy(
             slot_interval_minutes=60,
             buffer_before_minutes=0,
@@ -619,10 +635,10 @@ class SlotGenerationTests(TestCase):
         )
         staff = make_staff(self.location, suffix="-md")
         appt_type.staff_members.add(staff)
-        # Monday (1) template: 9:00–13:00 → 4 hourly slots
+        # Monday (1) template: 9:00–13:00 → 4 hourly slots  # noqa: RUF003
         make_template(staff, day_of_week=1, start_time=time(9, 0), end_time=time(13, 0))
 
-        # Week of Mon Jul 6 2026 – Sun Jul 12 2026
+        # Week of Mon Jul 6 2026 – Sun Jul 12 2026  # noqa: RUF003
         result = self.svc.get_available_slots(
             appointment_type=appt_type,
             date_from=date(2026, 7, 6),
@@ -647,7 +663,10 @@ class SlotGenerationTests(TestCase):
         appt_type.staff_members.add(staff)
         # Template valid only until 2026-06-30; query is 2026-07-07
         make_template(
-            staff, day_of_week=2, start_time=time(9, 0), end_time=time(17, 0),
+            staff,
+            day_of_week=2,
+            start_time=time(9, 0),
+            end_time=time(17, 0),
             valid_until=date(2026, 6, 30),
         )
         result = self.svc.get_available_slots(
@@ -678,13 +697,22 @@ class SlotGenerationTests(TestCase):
             date_to=_NEXT_TUE,
             staff=staff,
         )
-        # Template: Tuesday 09:00–10:00, slot_interval=30min, duration=30min
+        # Template: Tuesday 09:00–10:00, slot_interval=30min, duration=30min  # noqa: RUF003
         # Window = 60 min / 30 min interval = 2 slots
         self.assertEqual(len(result), 2)
         required_keys = {
-            "slot_id", "staff_id", "location_id", "appointment_type_id",
-            "start_datetime", "end_datetime", "effective_start", "effective_end",
-            "timezone", "start_local", "available_spaces", "waitlist_count",
+            "slot_id",
+            "staff_id",
+            "location_id",
+            "appointment_type_id",
+            "start_datetime",
+            "end_datetime",
+            "effective_start",
+            "effective_end",
+            "timezone",
+            "start_local",
+            "available_spaces",
+            "waitlist_count",
         }
         for slot in result:
             self.assertEqual(set(slot.keys()), required_keys)
@@ -754,9 +782,10 @@ class SlotGenerationTests(TestCase):
             date_to=target_date,
             staff=staff_b,
         )
-        # 9:00–13:00 window, 60-min duration, 60-min stride → 4 slots
+        # 9:00–13:00 window, 60-min duration, 60-min stride → 4 slots  # noqa: RUF003
         self.assertEqual(
-            len(result_b), 4,
+            len(result_b),
+            4,
             f"staff_b (60-min policy) should produce 4 slots in 4-hour window; got {len(result_b)}",
         )
         # Verify stride is exactly 60 minutes (not 15)
@@ -764,7 +793,8 @@ class SlotGenerationTests(TestCase):
         for i in range(1, len(starts_b)):
             stride = (starts_b[i] - starts_b[i - 1]).total_seconds() / 60
             self.assertEqual(
-                stride, 60,
+                stride,
+                60,
                 f"CR-2 regression: staff_b slot stride should be 60 min but got {stride} min. "
                 "Policy from location_a may be leaking into location_b's staff.",
             )
@@ -776,20 +806,26 @@ class SlotGenerationTests(TestCase):
             date_to=target_date,
             staff=staff_a,
         )
-        # 9:00–13:00 window, 60-min duration, 15-min stride → 13 slots
+        # 9:00–13:00 window, 60-min duration, 15-min stride → 13 slots  # noqa: RUF003
         # (09:00, 09:15, …, 12:00 — last slot ends at 13:00)
         self.assertEqual(
-            len(result_a), 13,
-            f"staff_a (15-min policy) should produce 13 slots in 4-hour window; got {len(result_a)}",
+            len(result_a),
+            13,
+            f"staff_a (15-min policy) should produce 13 slots in 4-hour window; got {len(result_a)}",  # noqa: E501
         )
 
     def test_not_accepting_bookings_staff_excluded(self):
         """Staff with is_accepting_bookings=False are excluded."""
         policy = make_policy(
-            slot_interval_minutes=30, buffer_before_minutes=0, buffer_after_minutes=0,
-            min_lead_time_hours=0, max_advance_days=365,
+            slot_interval_minutes=30,
+            buffer_before_minutes=0,
+            buffer_after_minutes=0,
+            min_lead_time_hours=0,
+            max_advance_days=365,
         )
-        appt_type = make_appt_type(self.service_type, slug="gen-not-accepting", scheduling_policy=policy)
+        appt_type = make_appt_type(
+            self.service_type, slug="gen-not-accepting", scheduling_policy=policy
+        )
         staff = make_staff(self.location, suffix="-na", is_accepting_bookings=False)
         appt_type.staff_members.add(staff)
         make_template(staff, day_of_week=2, start_time=time(9, 0), end_time=time(17, 0))
@@ -819,7 +855,9 @@ class SlotGenerationTests(TestCase):
 
         # Pre-populate the 09:00 slot for _NEXT_TUE (future date keeps lead-time filter happy)
         tz_toronto = ZoneInfo("America/Toronto")
-        nine_am_local = datetime(_NEXT_TUE.year, _NEXT_TUE.month, _NEXT_TUE.day, 9, 0, tzinfo=tz_toronto)
+        nine_am_local = datetime(
+            _NEXT_TUE.year, _NEXT_TUE.month, _NEXT_TUE.day, 9, 0, tzinfo=tz_toronto
+        )
         nine_am_utc = nine_am_local.astimezone(UTC)
         make_slot(appt_type, staff, self.location, nine_am_utc, duration_minutes=30)
 
@@ -838,13 +876,16 @@ class SlotGenerationTests(TestCase):
             )
             for s in result_with_existing
         ]
-        self.assertNotIn((9, 0), start_hm_local, "09:00 slot must be excluded — pre-existing slot occupies it")
+        self.assertNotIn(
+            (9, 0), start_hm_local, "09:00 slot must be excluded — pre-existing slot occupies it"
+        )
         self.assertIn((9, 30), start_hm_local, "09:30 slot must still be available")
 
 
 # ---------------------------------------------------------------------------
 # StaffExceptionTests (services layer)
 # ---------------------------------------------------------------------------
+
 
 class StaffExceptionTests(TestCase):
     """
@@ -924,7 +965,7 @@ class StaffExceptionTests(TestCase):
         self.assertEqual(result, [])
 
     def test_override_exception_uses_custom_hours(self):
-        """OVERRIDE exception replaces the template's 9–17 window with 13–15."""
+        """OVERRIDE exception replaces the template's 9–17 window with 13–15."""  # noqa: RUF002
         appt_type, staff = self._setup_staff_with_tuesday_template("-override")
         StaffException.objects.create(
             staff=staff,
@@ -939,11 +980,11 @@ class StaffExceptionTests(TestCase):
             date_to=_NEXT_TUE,
             staff=staff,
         )
-        # 13:00–15:00 window with 30-min duration and 30-min stride = 4 slots
+        # 13:00–15:00 window with 30-min duration and 30-min stride = 4 slots  # noqa: RUF003
         self.assertEqual(len(result), 4)
         tz_toronto = ZoneInfo("America/Toronto")
         hours = {s["start_datetime"].astimezone(tz_toronto).hour for s in result}
-        # Only hours within 13:00–14:30 range
+        # Only hours within 13:00–14:30 range  # noqa: RUF003
         self.assertTrue(hours.issubset({13, 14}))
         # No slots outside the override window
         for slot in result:
@@ -980,6 +1021,7 @@ class StaffExceptionTests(TestCase):
 # ---------------------------------------------------------------------------
 # BookingWindowTests
 # ---------------------------------------------------------------------------
+
 
 class BookingWindowTests(TestCase):
     """
@@ -1030,7 +1072,8 @@ class BookingWindowTests(TestCase):
 
         # Slots from day+1 and day+2 must be present — otherwise the test is vacuous
         self.assertGreater(
-            len(result), 0,
+            len(result),
+            0,
             "Expected slots outside 24h lead-time window to be returned (day+1 / day+2)",
         )
 
@@ -1101,6 +1144,7 @@ class BookingWindowTests(TestCase):
 # FrequencyControlTests
 # ---------------------------------------------------------------------------
 
+
 class FrequencyControlTests(TestCase):
     """
     Tests for booking_frequency_days (food bank / frequency-control pattern).
@@ -1140,10 +1184,11 @@ class FrequencyControlTests(TestCase):
             citizen=None,  # No citizen
         )
         # When no citizen is provided frequency control is completely bypassed.
-        # Template: Monday 09:00–10:00, slot_interval=30min, duration=30min (default).
-        # Window = 60 min / 30 min interval = 2 slots.
+        # Template: Monday 09:00-10:00 with a 30-minute interval and default duration.
+        # The 60-minute window therefore contains two slots.
         self.assertEqual(
-            len(result), 2,
+            len(result),
+            2,
             "Without a citizen, frequency control must be bypassed and slots must be returned",
         )
 
@@ -1179,10 +1224,11 @@ class FrequencyControlTests(TestCase):
                 citizen=citizen,
             )
         # _citizen_within_frequency_window returns False → citizen is NOT blocked.
-        # Template: Monday 09:00–10:00, slot_interval=30min, duration=30min (default).
-        # Window = 60 min / 30 min interval = 2 slots.
+        # Template: Monday 09:00-10:00 with a 30-minute interval and default duration.
+        # The 60-minute window therefore contains two slots.
         self.assertEqual(
-            len(result), 2,
+            len(result),
+            2,
             "Citizen outside frequency window must see available slots",
         )
 
@@ -1235,7 +1281,9 @@ class FrequencyControlTests(TestCase):
         make_template(staff, day_of_week=1, start_time=time(9, 0), end_time=time(10, 0))
 
         citizen = User.objects.create_user(
-            email="citizen_zero@example.com", password="pass!", is_staff=False,
+            email="citizen_zero@example.com",
+            password="pass!",
+            is_staff=False,
         )
         # Even if this citizen has recent bookings, frequency=0 means no restriction
         # The _citizen_within_frequency_window should not even be called
@@ -1256,6 +1304,7 @@ class FrequencyControlTests(TestCase):
 # ---------------------------------------------------------------------------
 # DSTHandlingTests
 # ---------------------------------------------------------------------------
+
 
 class DSTHandlingTests(TestCase):
     """
@@ -1288,7 +1337,9 @@ class DSTHandlingTests(TestCase):
         """
         location = make_location(self.org, "dst-toronto-summer", tz="America/Toronto")
         appt_type = make_appt_type(
-            self.service_type, slug="dst-summer", scheduling_policy=self.policy,
+            self.service_type,
+            slug="dst-summer",
+            scheduling_policy=self.policy,
             duration_minutes=60,
         )
         staff = make_staff(location, suffix="-dsts")
@@ -1313,7 +1364,9 @@ class DSTHandlingTests(TestCase):
         """
         location = make_location(self.org, "dst-toronto-winter", tz="America/Toronto")
         appt_type = make_appt_type(
-            self.service_type, slug="dst-winter", scheduling_policy=self.policy,
+            self.service_type,
+            slug="dst-winter",
+            scheduling_policy=self.policy,
             duration_minutes=60,
         )
         staff = make_staff(location, suffix="-dstw")
@@ -1340,7 +1393,9 @@ class DSTHandlingTests(TestCase):
         """
         location = make_location(self.org, "dst-toronto-transition", tz="America/Toronto")
         appt_type = make_appt_type(
-            self.service_type, slug="dst-trans", scheduling_policy=self.policy,
+            self.service_type,
+            slug="dst-trans",
+            scheduling_policy=self.policy,
             duration_minutes=60,
         )
         staff = make_staff(location, suffix="-dsttrans")
@@ -1370,6 +1425,7 @@ class DSTHandlingTests(TestCase):
 # MultiTimezoneTests
 # ---------------------------------------------------------------------------
 
+
 class MultiTimezoneTests(TestCase):
     """
     Tests for staff located in different Canadian timezones.
@@ -1398,7 +1454,9 @@ class MultiTimezoneTests(TestCase):
         org = make_org("tz-van-org")
         location = make_location(org, "tz-van-loc", tz="America/Vancouver")
         appt_type = make_appt_type(
-            self.service_type, slug="tz-van-summer", scheduling_policy=self.policy,
+            self.service_type,
+            slug="tz-van-summer",
+            scheduling_policy=self.policy,
             duration_minutes=60,
         )
         staff = make_staff(location, suffix="-van")
@@ -1425,7 +1483,9 @@ class MultiTimezoneTests(TestCase):
         org = make_org("tz-van-win-org")
         location = make_location(org, "tz-van-win-loc", tz="America/Vancouver")
         appt_type = make_appt_type(
-            self.service_type, slug="tz-van-winter", scheduling_policy=self.policy,
+            self.service_type,
+            slug="tz-van-winter",
+            scheduling_policy=self.policy,
             duration_minutes=60,
         )
         staff = make_staff(location, suffix="-vanw")
@@ -1454,7 +1514,9 @@ class MultiTimezoneTests(TestCase):
             max_advance_days=730,
         )
         appt_type = make_appt_type(
-            self.service_type, slug="tz-start-local", scheduling_policy=policy,
+            self.service_type,
+            slug="tz-start-local",
+            scheduling_policy=policy,
             duration_minutes=60,
         )
         staff = make_staff(location, suffix="-sl")
@@ -1477,6 +1539,7 @@ class MultiTimezoneTests(TestCase):
 # ---------------------------------------------------------------------------
 # GenerateSlotsForRangeTests
 # ---------------------------------------------------------------------------
+
 
 class GenerateSlotsForRangeTests(TestCase):
     """
@@ -1502,12 +1565,14 @@ class GenerateSlotsForRangeTests(TestCase):
 
     def test_generate_slots_creates_db_records(self):
         appt_type = make_appt_type(
-            self.service_type, slug="gsfr-create",
-            scheduling_policy=self.policy, duration_minutes=30,
+            self.service_type,
+            slug="gsfr-create",
+            scheduling_policy=self.policy,
+            duration_minutes=30,
         )
         staff = make_staff(self.location, suffix="-gsfr")
         appt_type.staff_members.add(staff)
-        # Monday template: 9–10 → 2 slots (30 min each)
+        # Monday template: 9–10 → 2 slots (30 min each)  # noqa: RUF003
         make_template(staff, day_of_week=1, start_time=time(9, 0), end_time=time(10, 0))
 
         count = generate_slots_for_range(
@@ -1522,8 +1587,10 @@ class GenerateSlotsForRangeTests(TestCase):
     def test_generate_slots_idempotent(self):
         """Running generate_slots_for_range twice for the same range creates 0 on second run."""
         appt_type = make_appt_type(
-            self.service_type, slug="gsfr-idem",
-            scheduling_policy=self.policy, duration_minutes=30,
+            self.service_type,
+            slug="gsfr-idem",
+            scheduling_policy=self.policy,
+            duration_minutes=30,
         )
         staff = make_staff(self.location, suffix="-idem")
         appt_type.staff_members.add(staff)
@@ -1549,14 +1616,20 @@ class GenerateSlotsForRangeTests(TestCase):
         # second run; there is no unique constraint on Slot that would trigger
         # ignore_conflicts. The idempotency is enforced by the availability
         # service's busy-time collision logic, not by a DB constraint.
-        self.assertEqual(second, 0, "Second run returns 0 — all candidate slots are blocked by existing busy_times")
+        self.assertEqual(
+            second,
+            0,
+            "Second run returns 0 — all candidate slots are blocked by existing busy_times",
+        )
         total = Slot.objects.filter(staff=staff, appointment_type=appt_type).count()
         self.assertEqual(total, 2)
 
     def test_generated_slots_have_correct_status(self):
         appt_type = make_appt_type(
-            self.service_type, slug="gsfr-status",
-            scheduling_policy=self.policy, duration_minutes=30,
+            self.service_type,
+            slug="gsfr-status",
+            scheduling_policy=self.policy,
+            duration_minutes=30,
         )
         staff = make_staff(self.location, suffix="-stat")
         appt_type.staff_members.add(staff)
@@ -1575,8 +1648,10 @@ class GenerateSlotsForRangeTests(TestCase):
 
     def test_generated_slots_have_correct_capacity(self):
         appt_type = make_appt_type(
-            self.service_type, slug="gsfr-cap",
-            scheduling_policy=self.policy, duration_minutes=30,
+            self.service_type,
+            slug="gsfr-cap",
+            scheduling_policy=self.policy,
+            duration_minutes=30,
             capacity_per_slot=3,
         )
         staff = make_staff(self.location, suffix="-cap")
@@ -1594,7 +1669,8 @@ class GenerateSlotsForRangeTests(TestCase):
 
     def test_no_templates_returns_zero(self):
         appt_type = make_appt_type(
-            self.service_type, slug="gsfr-notempl",
+            self.service_type,
+            slug="gsfr-notempl",
             scheduling_policy=self.policy,
         )
         staff = make_staff(self.location, suffix="-nt")
@@ -1621,8 +1697,10 @@ class GenerateSlotsForRangeTests(TestCase):
             max_advance_days=365,
         )
         appt_type = make_appt_type(
-            self.service_type, slug="gsfr-daily-cap",
-            scheduling_policy=cap_policy, duration_minutes=30,
+            self.service_type,
+            slug="gsfr-daily-cap",
+            scheduling_policy=cap_policy,
+            duration_minutes=30,
         )
         # Staff with max_daily_appointments=1
         staff = make_staff(self.location, suffix="-dcap")
@@ -1630,7 +1708,7 @@ class GenerateSlotsForRangeTests(TestCase):
         staff.save()
         appt_type.staff_members.add(staff)
 
-        # Monday 2026-07-06 template: 9:00–11:00 would produce 4 slots normally
+        # Monday 2026-07-06 template: 9:00–11:00 would produce 4 slots normally  # noqa: RUF003
         make_template(staff, day_of_week=1, start_time=time(9, 0), end_time=time(11, 0))
 
         # Pre-create a slot with spaces_used=1 for that Monday to reach the cap
@@ -1638,8 +1716,13 @@ class GenerateSlotsForRangeTests(TestCase):
         nine_am_local = datetime(2026, 7, 6, 9, 0, tzinfo=tz_toronto)
         nine_am_utc = nine_am_local.astimezone(UTC)
         make_slot(
-            appt_type, staff, self.location, nine_am_utc,
-            duration_minutes=30, spaces_used=1, status="available",
+            appt_type,
+            staff,
+            self.location,
+            nine_am_utc,
+            duration_minutes=30,
+            spaces_used=1,
+            status="available",
         )
 
         svc = SlotAvailabilityService()
@@ -1650,7 +1733,8 @@ class GenerateSlotsForRangeTests(TestCase):
             staff=staff,
         )
         self.assertEqual(
-            result, [],
+            result,
+            [],
             "Staff at max_daily_appointments cap must have no new slots returned",
         )
 
@@ -1667,8 +1751,10 @@ class GenerateSlotsForRangeTests(TestCase):
             max_advance_days=365,
         )
         appt_type = make_appt_type(
-            self.service_type, slug="gsfr-future-vf",
-            scheduling_policy=future_policy, duration_minutes=30,
+            self.service_type,
+            slug="gsfr-future-vf",
+            scheduling_policy=future_policy,
+            duration_minutes=30,
         )
         staff = make_staff(self.location, suffix="-fvf")
         appt_type.staff_members.add(staff)
@@ -1693,7 +1779,8 @@ class GenerateSlotsForRangeTests(TestCase):
             staff=staff,
         )
         self.assertEqual(
-            result, [],
+            result,
+            [],
             "Template with future valid_from must not generate slots before its start date",
         )
 
@@ -1712,7 +1799,7 @@ class GenerateSlotsForRangeTests(TestCase):
         set up the multi-template scenario. This is intentional — the test exercises the
         slot generation code path (availability.py iterates all matching avail_windows)
         without testing the admin/form validation layer.
-        """
+        """  # noqa: RUF002
         policy = make_policy(
             slot_interval_minutes=30,
             buffer_before_minutes=0,
@@ -1721,8 +1808,10 @@ class GenerateSlotsForRangeTests(TestCase):
             max_advance_days=365,
         )
         appt_type = make_appt_type(
-            self.service_type, slug="gsfr-multi-tmpl",
-            scheduling_policy=policy, duration_minutes=30,
+            self.service_type,
+            slug="gsfr-multi-tmpl",
+            scheduling_policy=policy,
+            duration_minutes=30,
         )
         staff = make_staff(self.location, suffix="-mt")
         appt_type.staff_members.add(staff)
@@ -1730,8 +1819,8 @@ class GenerateSlotsForRangeTests(TestCase):
         # Always use a future Monday so the lead-time filter keeps all slots.
         target_monday = _NEXT_MON
 
-        # Template A: 09:00–12:00 Monday → 6 slots (09:00, 09:30, 10:00, 10:30, 11:00, 11:30)
-        # Template B: 14:00–17:00 Monday → 6 slots (14:00, 14:30, 15:00, 15:30, 16:00, 16:30)
+        # Template A: 09:00-12:00 Monday produces six slots from 09:00 through 11:30.
+        # Template B: 14:00-17:00 Monday produces six slots from 14:00 through 16:30.
         # objects.create() bypasses clean() — no H-5 overlap check runs here.
         AvailabilityTemplate.objects.create(
             staff=staff,
@@ -1766,38 +1855,45 @@ class GenerateSlotsForRangeTests(TestCase):
             local_dt = slot["start_datetime"].astimezone(tz_toronto)
             self.assertEqual(local_dt.date(), target_monday)
 
-        # No slot must start in the 12:00–14:00 gap
+        # No slot must start in the 12:00–14:00 gap  # noqa: RUF003
         for slot in result:
             local_hour = slot["start_datetime"].astimezone(tz_toronto).hour
             local_minute = slot["start_datetime"].astimezone(tz_toronto).minute
             local_time = time(local_hour, local_minute)
             self.assertFalse(
                 time(12, 0) <= local_time < time(14, 0),
-                f"Slot at {local_time} falls in the 12:00–14:00 gap between windows",
+                f"Slot at {local_time} falls in the 12:00–14:00 gap between windows",  # noqa: RUF001
             )
 
-        # At least one slot must start in the morning window (09:00–12:00)
+        # At least one slot must start in the morning window (09:00–12:00)  # noqa: RUF003
         morning_slots = [
-            s for s in result
+            s
+            for s in result
             if time(9, 0) <= s["start_datetime"].astimezone(tz_toronto).time() < time(12, 0)
         ]
-        # Template A: Monday 09:00–12:00, slot_interval=30min, duration=30min
+        # Template A: Monday 09:00–12:00, slot_interval=30min, duration=30min  # noqa: RUF003
         # Window = 180 min / 30 min interval = 6 slots
-        self.assertEqual(len(morning_slots), 6, "Expected 6 slots in morning window (09:00–12:00)")
+        self.assertEqual(len(morning_slots), 6, "Expected 6 slots in morning window (09:00–12:00)")  # noqa: RUF001
 
-        # At least one slot must start in the afternoon window (14:00–17:00)
+        # At least one slot must start in the afternoon window (14:00–17:00)  # noqa: RUF003
         afternoon_slots = [
-            s for s in result
+            s
+            for s in result
             if time(14, 0) <= s["start_datetime"].astimezone(tz_toronto).time() < time(17, 0)
         ]
-        # Template B: Monday 14:00–17:00, slot_interval=30min, duration=30min
+        # Template B: Monday 14:00–17:00, slot_interval=30min, duration=30min  # noqa: RUF003
         # Window = 180 min / 30 min interval = 6 slots
-        self.assertEqual(len(afternoon_slots), 6, "Expected 6 slots in afternoon window (14:00–17:00)")
+        self.assertEqual(
+            len(afternoon_slots),
+            6,
+            "Expected 6 slots in afternoon window (14:00–17:00)",  # noqa: RUF001
+        )
 
 
 # ---------------------------------------------------------------------------
 # SlotServiceUnitTests (block_slot / cancel_slot)
 # ---------------------------------------------------------------------------
+
 
 class SlotServiceUnitTests(TestCase):
     """
@@ -1809,17 +1905,18 @@ class SlotServiceUnitTests(TestCase):
         self.location = make_location(org, "ss-loc")
         self.service_type = make_service_type("ss-svc")
         self.policy = make_policy(
-            slot_interval_minutes=30, buffer_before_minutes=0,
-            buffer_after_minutes=0, min_lead_time_hours=0, max_advance_days=365,
+            slot_interval_minutes=30,
+            buffer_before_minutes=0,
+            buffer_after_minutes=0,
+            min_lead_time_hours=0,
+            max_advance_days=365,
         )
         self.appt_type = make_appt_type(
             self.service_type, slug="ss-appt", scheduling_policy=self.policy
         )
         self.staff = make_staff(self.location, suffix="-ss")
         now_utc = datetime(2026, 8, 1, 10, 0, tzinfo=UTC)
-        self.slot = make_slot(
-            self.appt_type, self.staff, self.location, now_utc
-        )
+        self.slot = make_slot(self.appt_type, self.staff, self.location, now_utc)
 
     def test_block_slot_transitions_to_blocked(self):
         slot = block_slot(slot=self.slot)
@@ -1890,13 +1987,19 @@ class SlotServiceUnitTests(TestCase):
         succeeds) AND mock 'bookings' at the Slot CLASS level so the fresh
         select_for_update() instance inside the atomic block also sees it.
         """
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import patch
+
         import apps.appointments.models as _appt_models
 
         now_utc = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
         slot = make_slot(
-            self.appt_type, self.staff, self.location, now_utc,
-            capacity=1, spaces_used=1, status="full",
+            self.appt_type,
+            self.staff,
+            self.location,
+            now_utc,
+            capacity=1,
+            spaces_used=1,
+            status="full",
         )
 
         mock_qs = MagicMock()
@@ -1918,13 +2021,19 @@ class SlotServiceUnitTests(TestCase):
         cancel_slot raises SlotHasBookingsError if the slot has active bookings.
         Same Wave-3 guard path as block_slot — mocked identically.
         """
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import patch
+
         import apps.appointments.models as _appt_models
 
         now_utc = datetime(2026, 8, 1, 13, 0, tzinfo=UTC)
         slot = make_slot(
-            self.appt_type, self.staff, self.location, now_utc,
-            capacity=1, spaces_used=1, status="full",
+            self.appt_type,
+            self.staff,
+            self.location,
+            now_utc,
+            capacity=1,
+            spaces_used=1,
+            status="full",
         )
 
         mock_qs = MagicMock()
@@ -1941,6 +2050,7 @@ class SlotServiceUnitTests(TestCase):
 # ---------------------------------------------------------------------------
 # AvailabilityTemplateModelTests (Wave 2 model constraints)
 # ---------------------------------------------------------------------------
+
 
 class AvailabilityTemplateModelTests(TestCase):
     """
@@ -1960,9 +2070,7 @@ class AvailabilityTemplateModelTests(TestCase):
 
     def test_str_contains_day_and_times(self):
         """__str__ includes the human-readable weekday label (e.g. 'Monday')."""
-        tpl = make_template(
-            self.staff, day_of_week=1, start_time=time(9, 0), end_time=time(17, 0)
-        )
+        tpl = make_template(self.staff, day_of_week=1, start_time=time(9, 0), end_time=time(17, 0))
         s = str(tpl)
         self.assertIn("Monday", s)
 
@@ -1982,6 +2090,7 @@ class AvailabilityTemplateModelTests(TestCase):
 # ---------------------------------------------------------------------------
 # StaffExceptionModelTests (Wave 2 model constraints)
 # ---------------------------------------------------------------------------
+
 
 class StaffExceptionModelTests(TestCase):
     """
@@ -2027,6 +2136,7 @@ class StaffExceptionModelTests(TestCase):
 
     def test_override_requires_both_times(self):
         from django.core.exceptions import ValidationError
+
         exc = StaffException(
             staff=self.staff,
             exception_date=date(2026, 7, 9),
@@ -2039,6 +2149,7 @@ class StaffExceptionModelTests(TestCase):
 
     def test_override_requires_end_after_start(self):
         from django.core.exceptions import ValidationError
+
         exc = StaffException(
             staff=self.staff,
             exception_date=date(2026, 7, 9),
@@ -2080,6 +2191,7 @@ class StaffExceptionModelTests(TestCase):
 # TaskDecoratorTests
 # ---------------------------------------------------------------------------
 
+
 class TaskDecoratorTests(TestCase):
     """
     Verify Celery task decorator properties for Wave 2 tasks.
@@ -2089,31 +2201,38 @@ class TaskDecoratorTests(TestCase):
 
     def test_generate_slots_task_acks_late(self):
         from apps.appointments.tasks import generate_slots_for_period
+
         self.assertTrue(generate_slots_for_period.acks_late)
 
     def test_generate_slots_task_reject_on_worker_lost(self):
         from apps.appointments.tasks import generate_slots_for_period
+
         self.assertTrue(generate_slots_for_period.reject_on_worker_lost)
 
     def test_mark_past_slots_task_acks_late(self):
         from apps.appointments.tasks import mark_past_slots_completed
+
         self.assertTrue(mark_past_slots_completed.acks_late)
 
     def test_mark_past_slots_task_reject_on_worker_lost(self):
         from apps.appointments.tasks import mark_past_slots_completed
+
         self.assertTrue(mark_past_slots_completed.reject_on_worker_lost)
 
     def test_generate_slots_task_name(self):
         from apps.appointments.tasks import generate_slots_for_period
+
         self.assertEqual(generate_slots_for_period.name, "appointments.generate_slots_for_period")
 
     def test_mark_past_slots_task_name(self):
         from apps.appointments.tasks import mark_past_slots_completed
+
         self.assertEqual(mark_past_slots_completed.name, "appointments.mark_past_slots_completed")
 
     def test_generate_slots_task_is_bound(self):
         """generate_slots_for_period must use bind=True so self.retry() is available."""
         from apps.appointments.tasks import generate_slots_for_period
+
         self.assertTrue(
             generate_slots_for_period.bind,
             "generate_slots_for_period must have bind=True for self.retry() to work",
@@ -2122,6 +2241,7 @@ class TaskDecoratorTests(TestCase):
     def test_mark_past_slots_task_is_bound(self):
         """mark_past_slots_completed must use bind=True so self.retry() is available."""
         from apps.appointments.tasks import mark_past_slots_completed
+
         self.assertTrue(
             mark_past_slots_completed.bind,
             "mark_past_slots_completed must have bind=True for self.retry() to work",
@@ -2149,9 +2269,7 @@ class TaskDecoratorTests(TestCase):
             try:
                 result = generate_slots_for_period.run(horizon_days=1)
             except SoftTimeLimitExceeded:
-                self.fail(
-                    "SoftTimeLimitExceeded propagated out — task must catch it gracefully"
-                )
+                self.fail("SoftTimeLimitExceeded propagated out — task must catch it gracefully")
 
         # Task must return a result dict, not re-raise.
         self.assertIsInstance(result, dict)
@@ -2161,6 +2279,7 @@ class TaskDecoratorTests(TestCase):
 # ---------------------------------------------------------------------------
 # PIPEDAInvariantTests
 # ---------------------------------------------------------------------------
+
 
 class PIPEDAInvariantTests(TestCase):
     """
@@ -2176,10 +2295,7 @@ class PIPEDAInvariantTests(TestCase):
 
     def test_availability_template_str_no_pii(self):
         """AvailabilityTemplate.__str__ must not contain email address."""
-        tpl = make_template(
-            self.staff, day_of_week=1,
-            start_time=time(9, 0), end_time=time(17, 0)
-        )
+        tpl = make_template(self.staff, day_of_week=1, start_time=time(9, 0), end_time=time(17, 0))
         s = str(tpl)
         self.assertNotIn("@", s, "Email address must not appear in __str__")
         # email component of "staff@example.com" must not appear
@@ -2195,8 +2311,9 @@ class PIPEDAInvariantTests(TestCase):
         self.assertNotIn("@", str(exc))
 
     def test_slot_str_no_pii(self):
-        """Slot.__str__ must not contain email address (@ as separator is OK, email domain is not)."""
+        """Slot.__str__ must not contain email address (@ as separator is OK, email domain is not)."""  # noqa: E501
         import re as _re
+
         now = datetime(2026, 7, 7, 14, 0, tzinfo=UTC)
         service_type = make_service_type("pipeda-slot-svc")
         appt_type = make_appt_type(service_type, "pipeda-slot-appt")
@@ -2245,6 +2362,7 @@ class PIPEDAInvariantTests(TestCase):
 # MarkPastSlotsCompletedTests (H-8e)
 # ---------------------------------------------------------------------------
 
+
 class MarkPastSlotsCompletedTests(TestCase):
     """
     Integration tests for the mark_past_slots_completed Celery task.
@@ -2273,24 +2391,36 @@ class MarkPastSlotsCompletedTests(TestCase):
     def _past_slot(self, status: str = "available", **overrides) -> Slot:
         """Create a Slot whose end_datetime is 2 hours in the past."""
         from django.utils import timezone as tz_module
+
         past = tz_module.now() - timedelta(hours=2)
         return make_slot(
-            self.appt_type, self.staff, self.location, past,
-            duration_minutes=30, status=status, **overrides,
+            self.appt_type,
+            self.staff,
+            self.location,
+            past,
+            duration_minutes=30,
+            status=status,
+            **overrides,
         )
 
     def _future_slot(self, status: str = "available") -> Slot:
         """Create a Slot whose start_datetime is 2 hours in the future."""
         from django.utils import timezone as tz_module
+
         future = tz_module.now() + timedelta(hours=2)
         return make_slot(
-            self.appt_type, self.staff, self.location, future,
-            duration_minutes=30, status=status,
+            self.appt_type,
+            self.staff,
+            self.location,
+            future,
+            duration_minutes=30,
+            status=status,
         )
 
     def test_past_available_slots_are_marked_completed(self):
         """Slots with status 'available' whose end_datetime is in the past must be completed."""
         from apps.appointments.tasks import mark_past_slots_completed
+
         slot = self._past_slot(status="available")
         mark_past_slots_completed.run()
         slot.refresh_from_db()
@@ -2299,6 +2429,7 @@ class MarkPastSlotsCompletedTests(TestCase):
     def test_past_partial_slots_are_marked_completed(self):
         """Slots with status 'partial' in the past must also be marked completed."""
         from apps.appointments.tasks import mark_past_slots_completed
+
         slot = self._past_slot(status="partial", spaces_used=1, capacity=2)
         mark_past_slots_completed.run()
         slot.refresh_from_db()
@@ -2307,6 +2438,7 @@ class MarkPastSlotsCompletedTests(TestCase):
     def test_past_full_slots_are_marked_completed(self):
         """Slots with status 'full' in the past must also be marked completed."""
         from apps.appointments.tasks import mark_past_slots_completed
+
         slot = self._past_slot(status="full", spaces_used=1, capacity=1)
         mark_past_slots_completed.run()
         slot.refresh_from_db()
@@ -2315,39 +2447,46 @@ class MarkPastSlotsCompletedTests(TestCase):
     def test_future_slots_not_affected(self):
         """Future slots (end_datetime > now) must NOT be marked completed."""
         from apps.appointments.tasks import mark_past_slots_completed
+
         slot = self._future_slot(status="available")
         mark_past_slots_completed.run()
         slot.refresh_from_db()
         self.assertEqual(
-            slot.status, "available",
+            slot.status,
+            "available",
             "Future slot must not be marked completed by mark_past_slots_completed",
         )
 
     def test_blocked_slots_not_marked_completed(self):
         """Past slots with status 'blocked' must NOT be changed by the task."""
         from apps.appointments.tasks import mark_past_slots_completed
+
         slot = self._past_slot(status="blocked")
         mark_past_slots_completed.run()
         slot.refresh_from_db()
         self.assertEqual(
-            slot.status, "blocked",
+            slot.status,
+            "blocked",
             "Blocked slot must not be touched by mark_past_slots_completed",
         )
 
     def test_cancelled_slots_not_marked_completed(self):
         """Past slots with status 'cancelled' must NOT be changed by the task."""
         from apps.appointments.tasks import mark_past_slots_completed
+
         slot = self._past_slot(status="cancelled")
         mark_past_slots_completed.run()
         slot.refresh_from_db()
         self.assertEqual(
-            slot.status, "cancelled",
+            slot.status,
+            "cancelled",
             "Cancelled slot must not be touched by mark_past_slots_completed",
         )
 
     def test_task_returns_count_dict(self):
         """mark_past_slots_completed must return {'slots_updated': N}."""
         from apps.appointments.tasks import mark_past_slots_completed
+
         self._past_slot(status="available")
         self._past_slot(status="partial", spaces_used=1, capacity=2)
         result = mark_past_slots_completed.run()
@@ -2357,8 +2496,9 @@ class MarkPastSlotsCompletedTests(TestCase):
         self.assertEqual(result["slots_updated"], 2)
 
     def test_task_is_idempotent(self):
-        """Running the task twice on the same data must not raise and must not change status again."""
+        """Running the task twice on the same data must not raise and must not change status again."""  # noqa: E501
         from apps.appointments.tasks import mark_past_slots_completed
+
         slot = self._past_slot(status="available")
         mark_past_slots_completed.run()
         mark_past_slots_completed.run()  # Second run — idempotent

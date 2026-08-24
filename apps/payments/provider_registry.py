@@ -3,10 +3,12 @@
 Legacy ProviderRegistration rows intentionally fail closed until operators migrate
 an approved factory key and schema version through controlled configuration.
 """
+
 from __future__ import annotations
 
 import json
-from typing import Any, Callable, Mapping
+from collections.abc import Callable, Mapping
+from typing import Any
 
 from django.utils import timezone
 
@@ -21,11 +23,11 @@ class ProviderRegistryError(RuntimeError):
     """Raised before a provider adapter is instantiated or invoked."""
 
 
-class UnknownProviderFactory(ProviderRegistryError):
+class UnknownProviderFactory(ProviderRegistryError):  # noqa: N818
     pass
 
 
-class MalformedProviderConfiguration(ProviderRegistryError):
+class MalformedProviderConfiguration(ProviderRegistryError):  # noqa: N818
     pass
 
 
@@ -46,7 +48,9 @@ def _deterministic_configuration(value: Mapping[str, Any]) -> dict[str, Any]:
     statuses = value.get("statuses", {})
     if not isinstance(outcomes, list) or not isinstance(statuses, dict):
         raise MalformedProviderConfiguration("deterministic configuration has invalid containers")
-    if any(not isinstance(item, dict) for item in outcomes) or any(not isinstance(item, dict) for item in statuses.values()):
+    if any(not isinstance(item, dict) for item in outcomes) or any(
+        not isinstance(item, dict) for item in statuses.values()
+    ):
         raise MalformedProviderConfiguration("deterministic results must be objects")
     return {"outcomes": outcomes, "statuses": statuses}
 
@@ -58,11 +62,16 @@ def _deterministic_factory(*, configuration: Mapping[str, Any]) -> PaymentProvid
     config = _deterministic_configuration(configuration)
     return DeterministicProvider(
         outcomes=[ProviderRuntime._deserialize_result(item) for item in config["outcomes"]],
-        statuses={key: ProviderRuntime._deserialize_result(item) for key, item in config["statuses"].items()},
+        statuses={
+            key: ProviderRuntime._deserialize_result(item)
+            for key, item in config["statuses"].items()
+        },
     )
 
 
-FACTORIES: dict[str, tuple[int, Callable[..., PaymentProvider], Callable[[Mapping[str, Any]], dict[str, Any]]]] = {
+FACTORIES: dict[
+    str, tuple[int, Callable[..., PaymentProvider], Callable[[Mapping[str, Any]], dict[str, Any]]]
+] = {
     FACTORY_DETERMINISTIC: (SCHEMA_VERSION, _deterministic_factory, _deterministic_configuration),
 }
 
@@ -72,10 +81,13 @@ def resolve_provider(*, tenant_id: str, operation: str) -> PaymentProvider:
     if not tenant_id or not operation:
         raise ProviderRegistryError("provider scope is blank")
 
-    registrations = list(ProviderRegistration.objects.filter(tenant_id=tenant_id, operation=operation, active=True))
+    registrations = list(
+        ProviderRegistration.objects.filter(tenant_id=tenant_id, operation=operation, active=True)
+    )
     now = timezone.now()
     registrations = [
-        item for item in registrations
+        item
+        for item in registrations
         if (item.active_from is None or item.active_from <= now)
         and (item.active_until is None or item.active_until > now)
     ]

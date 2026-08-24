@@ -74,7 +74,7 @@ def main() -> int:
     if shutil.which(command[0]) is None:
         parser.error(f"required executable is unavailable: {command[0]}")
 
-    process = subprocess.run(command, text=True, capture_output=True, check=False)
+    process = subprocess.run(command, text=True, capture_output=True, check=False)  # noqa: S603
     record = {
         "schema_version": 1,
         "started_at_utc": datetime.now(UTC).isoformat(),

@@ -14,7 +14,7 @@ from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.logging import LoggingIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
 
-from .base import *  # noqa: F401, F403
+from .base import *  # noqa: F403
 from .base import env
 
 # Hard override — DEBUG must NEVER be True in production
@@ -37,7 +37,7 @@ CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS")
 # ALLOWED_HOSTS is read from DJANGO_ALLOWED_HOSTS env var (set in base.py).
 # Default is [] which causes Django to reject all requests — set the env var in deployment.
 # Example: DJANGO_ALLOWED_HOSTS=civicos.ca,www.civicos.ca
-if not ALLOWED_HOSTS:
+if not ALLOWED_HOSTS:  # noqa: F405
     raise ImproperlyConfigured(
         "DJANGO_ALLOWED_HOSTS env var must be set in production. "
         "Example: DJANGO_ALLOWED_HOSTS=yourdomain.ca,www.yourdomain.ca"
@@ -217,8 +217,8 @@ else:
 # JWT RS256 asymmetric signing — required in production
 # ---------------------------------------------------------------------------
 
-SIMPLE_JWT["SIGNING_KEY"] = env("JWT_PRIVATE_KEY")   # no default — must be set
-SIMPLE_JWT["VERIFYING_KEY"] = env("JWT_PUBLIC_KEY")   # no default — must be set
+SIMPLE_JWT["SIGNING_KEY"] = env("JWT_PRIVATE_KEY")  # no default — must be set  # noqa: F405
+SIMPLE_JWT["VERIFYING_KEY"] = env("JWT_PUBLIC_KEY")  # no default — must be set  # noqa: F405
 
 # ---------------------------------------------------------------------------
 # Cache — Redis in production
@@ -409,9 +409,7 @@ GOVSTACK_REQUIRE_REGISTERED_PAYER_FI = env.bool(
 # the env var for per-environment control.
 #
 # Handled by apps/payments/govstack_views.GovStackAPIView._validate_platform_tenant_id().
-GOVSTACK_REQUIRE_PLATFORM_TENANT_ID = env.bool(
-    "GOVSTACK_REQUIRE_PLATFORM_TENANT_ID", default=True
-)
+GOVSTACK_REQUIRE_PLATFORM_TENANT_ID = env.bool("GOVSTACK_REQUIRE_PLATFORM_TENANT_ID", default=True)
 
 # ---------------------------------------------------------------------------
 # GOVSTACK_REQUIRE_CONSENT_AUTH

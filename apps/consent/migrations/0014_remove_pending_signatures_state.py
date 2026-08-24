@@ -7,22 +7,22 @@ The GovStack Consent BB spec defines exactly four states:
 'pending_signatures' was a CivicOS legacy variant of 'pending'.  This
 migration converts any lingering rows and adds a DB-level constraint.
 """
+
 from django.db import migrations, models
 
 
-def convert_pending_signatures(apps, schema_editor):
+def convert_pending_signatures(apps, schema_editor) -> None:  # noqa: ANN001
     """Convert any legacy 'pending_signatures' rows to 'pending'."""
     ConsentRecord = apps.get_model("consent", "ConsentRecord")
     ConsentRecord.objects.filter(state="pending_signatures").update(state="pending")
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("consent", "0013_rotate_webhook_secrets"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.RunPython(
             convert_pending_signatures,
             reverse_code=migrations.RunPython.noop,

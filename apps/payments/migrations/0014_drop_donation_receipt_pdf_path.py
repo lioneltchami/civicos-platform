@@ -8,11 +8,11 @@ class Migration(migrations.Migration):
     Safe to drop the legacy pdf_path CharField.
     """
 
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("payments", "0013_add_donation_receipt_document_fk"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.RemoveField(
             model_name="officialdonationreceipt",
             name="pdf_path",

@@ -5,7 +5,9 @@ dispatch_consent_webhook — async HTTP POST for individual webhook deliveries
 process_data_export      — generates the citizen's data export file
 cleanup_export_files     — marks expired export requests and logs them
 """
+
 from __future__ import annotations
+
 import hashlib
 import hmac
 import ipaddress
@@ -16,14 +18,14 @@ from datetime import timedelta
 from urllib.parse import urlparse
 
 import requests as _requests
-
-from celery import shared_task
-from celery.exceptions import SoftTimeLimitExceeded
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.utils import timezone
+
+from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -93,7 +95,7 @@ def _is_safe_outbound_url(url: str) -> bool:
                 return False
 
         return True
-    except Exception:  # noqa: BLE001 — fail closed on ANY parse/DNS error.
+    except Exception:
         return False
 
 
@@ -108,7 +110,7 @@ def _is_safe_outbound_url(url: str) -> bool:
     retry_backoff_max=60,
 )
 def dispatch_consent_webhook(
-    self,
+    self,  # noqa: ANN001
     webhook_pk: str,
     event_type: str,
     payload_dict: dict,
@@ -157,15 +159,11 @@ def dispatch_consent_webhook(
         webhook = ConsentWebhook.objects.get(pk=webhook_pk)
     except ConsentWebhook.DoesNotExist:
         # Webhook was deleted between enqueue and execution — safe to discard.
-        logger.info(
-            "dispatch_consent_webhook: webhook %s not found; skipping.", webhook_pk
-        )
+        logger.info("dispatch_consent_webhook: webhook %s not found; skipping.", webhook_pk)
         return {"status": "skipped", "reason": "webhook_not_found"}
 
     if webhook.is_disabled:
-        logger.info(
-            "dispatch_consent_webhook: webhook %s is disabled; skipping.", webhook_pk
-        )
+        logger.info("dispatch_consent_webhook: webhook %s is disabled; skipping.", webhook_pk)
         return {"status": "skipped", "reason": "webhook_disabled"}
 
     # Bug 4 (SSRF hardening): re-validate the destination immediately before
@@ -178,7 +176,8 @@ def dispatch_consent_webhook(
     if not _is_safe_outbound_url(webhook.payload_url):
         logger.warning(
             "dispatch_consent_webhook: webhook %s payload_url failed SSRF safety "
-            "check; skipping dispatch.", webhook_pk,
+            "check; skipping dispatch.",
+            webhook_pk,
         )
         return {"status": "skipped", "reason": "unsafe_url"}
 
@@ -240,7 +239,9 @@ def dispatch_consent_webhook(
         logger.warning(
             "dispatch_consent_webhook: webhook %s event %s received a %s redirect "
             "response; not followed (allow_redirects=False), treated as failed.",
-            webhook_pk, event_type, resp.status_code,
+            webhook_pk,
+            event_type,
+            resp.status_code,
         )
         return {"status": "receiver_error", "http_status": resp.status_code}
 
@@ -255,7 +256,9 @@ def dispatch_consent_webhook(
         )
         logger.debug(
             "dispatch_consent_webhook: delivered event %s to webhook %s (HTTP %s).",
-            event_type, webhook_pk, resp.status_code,
+            event_type,
+            webhook_pk,
+            resp.status_code,
         )
         return {"status": "delivered", "http_status": resp.status_code}
     else:
@@ -267,13 +270,15 @@ def dispatch_consent_webhook(
         )
         logger.warning(
             "dispatch_consent_webhook: receiver returned HTTP %s for webhook %s event %s.",
-            resp.status_code, webhook_pk, event_type,
+            resp.status_code,
+            webhook_pk,
+            event_type,
         )
         return {"status": "receiver_error", "http_status": resp.status_code}
 
 
 @shared_task(name="consent.process_data_export", bind=True, max_retries=2)
-def process_data_export(self, export_request_id: str) -> dict:
+def process_data_export(self, export_request_id: str) -> dict:  # noqa: ANN001
     """
     Generate and store a citizen's PIPEDA data export package.
 
@@ -285,9 +290,7 @@ def process_data_export(self, export_request_id: str) -> dict:
     from apps.consent.models import DataExportRequest
 
     try:
-        req = DataExportRequest.objects.select_related("citizen").get(
-            pk=export_request_id
-        )
+        req = DataExportRequest.objects.select_related("citizen").get(pk=export_request_id)
     except DataExportRequest.DoesNotExist:
         logger.error("process_data_export: export request %s not found", export_request_id)
         return {"error": "not_found"}
@@ -301,7 +304,8 @@ def process_data_export(self, export_request_id: str) -> dict:
         ):
             logger.info(
                 "process_data_export: %s is already %s — skipping.",
-                export_request_id, req.status,
+                export_request_id,
+                req.status,
             )
             return {"skipped": True, "status": req.status}
 
@@ -345,6 +349,7 @@ def process_data_export(self, export_request_id: str) -> dict:
         # System-generated exports skip virus scan (scan_status=ACTIVE immediately).
         # PIPEDA: original_filename is NOT logged; storage_key is NOT logged.
         import uuid as _uuid
+
         from apps.documents.models import Document, DocumentCategory
         from apps.documents.services.retention import schedule_expiry as _schedule_expiry
 
@@ -389,6 +394,7 @@ def process_data_export(self, export_request_id: str) -> dict:
         # Mark ready — wrap save + audit in a single atomic block so that a failure
         # on either step leaves no committed state without a corresponding audit trail.
         from django.db import transaction as _transaction
+
         now = timezone.now()
         _update_fields = ["status", "processed_at", "expires_at"]
         if _doc is not None:
@@ -401,6 +407,7 @@ def process_data_export(self, export_request_id: str) -> dict:
             req.document = _doc
         try:
             from apps.consent.models import ConsentAuditEntry
+
             with _transaction.atomic():
                 req.save(update_fields=_update_fields)
                 ConsentAuditEntry.objects.create(
@@ -465,6 +472,7 @@ def process_data_export(self, export_request_id: str) -> dict:
         )
         try:
             from apps.consent.models import ConsentAuditEntry
+
             ConsentAuditEntry.objects.create(
                 citizen=req.citizen,
                 action="export_failed",
@@ -484,6 +492,7 @@ def process_data_export(self, export_request_id: str) -> dict:
         )
         try:
             from apps.consent.models import ConsentAuditEntry
+
             ConsentAuditEntry.objects.create(
                 citizen=req.citizen,
                 action="export_failed",
@@ -495,11 +504,11 @@ def process_data_export(self, export_request_id: str) -> dict:
                 "process_data_export: could not write export_failed audit entry: %s",
                 audit_exc,
             )
-        raise self.retry(exc=exc, countdown=300)
+        raise self.retry(exc=exc, countdown=300)  # noqa: B904
 
 
 @shared_task(name="consent.cleanup_export_files", bind=True, max_retries=3)
-def cleanup_export_files(self) -> dict:
+def cleanup_export_files(self) -> dict:  # noqa: ANN001
     """
     Mark expired DataExportRequests and delete their stored files.
     Runs daily via Celery Beat.
@@ -517,6 +526,7 @@ def cleanup_export_files(self) -> dict:
             if req.document_id and req.document.category and req.document.category.is_transitory:
                 try:
                     from apps.documents.services.retention import mark_purpose_fulfilled
+
                     # PIPEDA: actor is the citizen who owns the export request.
                     # Passing actor=None would crash at actor.pk inside mark_purpose_fulfilled()
                     # (the function signature is non-Optional). Using req.citizen records the
@@ -524,8 +534,9 @@ def cleanup_export_files(self) -> dict:
                     mark_purpose_fulfilled(document=req.document, actor=req.citizen)
                 except Exception as exc:
                     logger.error(
-                        "cleanup_export_files: mark_purpose_fulfilled failed for document pk=%s: %s",
-                        req.document_id, type(exc).__name__,
+                        "cleanup_export_files: mark_purpose_fulfilled failed for document pk=%s: %s",  # noqa: E501
+                        req.document_id,
+                        type(exc).__name__,
                     )
             req.status = DataExportRequest.STATUS_EXPIRED
             req.save(update_fields=["status"])
@@ -566,9 +577,7 @@ def cleanup_export_files(self) -> dict:
                 logger.warning(
                     "cleanup_export_files: could not create stuck recovery audit entry: %s", e
                 )
-            logger.info(
-                "cleanup_export_files: recovered stuck processing request %s", req.pk
-            )
+            logger.info("cleanup_export_files: recovered stuck processing request %s", req.pk)
             recovered += 1
 
         if recovered:
@@ -580,10 +589,10 @@ def cleanup_export_files(self) -> dict:
         return {"error": "timeout"}
     except Exception as exc:
         logger.exception("cleanup_export_files: failed: %s", exc)
-        raise self.retry(exc=exc, countdown=600)
+        raise self.retry(exc=exc, countdown=600)  # noqa: B904
 
 
-def _build_export_payload(user) -> dict:
+def _build_export_payload(user) -> dict:  # noqa: ANN001
     """Collect all data held about a citizen for PIPEDA s.4.9 export."""
     from apps.consent.models import ConsentRecord
 
@@ -631,6 +640,7 @@ def _build_export_payload(user) -> dict:
     service_requests = []
     try:
         from apps.portal.models import ServiceRequest
+
         service_requests = list(
             ServiceRequest.objects.filter(citizen=user).values(
                 "reference_number", "service_name", "status", "description", "created_at"
@@ -648,6 +658,7 @@ def _build_export_payload(user) -> dict:
     notifications = []
     try:
         from apps.notifications.models import Notification
+
         notifications = list(
             Notification.objects.filter(recipient=user).values(
                 "subject", "channel", "read_at", "sent_at", "created_at"
@@ -665,10 +676,11 @@ def _build_export_payload(user) -> dict:
     consent_audit_entries = []
     try:
         from apps.consent.models import ConsentAuditEntry
+
         consent_audit_entries = list(
-            ConsentAuditEntry.objects.filter(citizen=user).order_by("-timestamp").values(
-                "action", "category__slug", "actor_ip", "timestamp", "details"
-            )
+            ConsentAuditEntry.objects.filter(citizen=user)
+            .order_by("-timestamp")
+            .values("action", "category__slug", "actor_ip", "timestamp", "details")
         )
         # Convert datetime objects to strings for JSON serialization
         for entry in consent_audit_entries:
@@ -719,8 +731,12 @@ def _build_export_payload(user) -> dict:
                 )
                 .order_by("-timestamp")
                 .values(
-                    "id", "object_id", "serialized_snapshot", "serialized_hash",
-                    "timestamp", "predecessor_hash",
+                    "id",
+                    "object_id",
+                    "serialized_snapshot",
+                    "serialized_hash",
+                    "timestamp",
+                    "predecessor_hash",
                 )
             )
             for rev in revisions:
@@ -731,9 +747,14 @@ def _build_export_payload(user) -> dict:
                 ConsentSignature.objects.filter(consent_record__in=consent_records)
                 .order_by("-timestamp")
                 .values(
-                    "id", "consent_record_id", "payload", "signature",
-                    "verification_type", "verification_signed_as",
-                    "verification_signed_by", "timestamp",
+                    "id",
+                    "consent_record_id",
+                    "payload",
+                    "signature",
+                    "verification_type",
+                    "verification_signed_as",
+                    "verification_signed_by",
+                    "timestamp",
                 )
             )
             for sig in signatures:
@@ -775,10 +796,11 @@ def _build_export_payload(user) -> dict:
     }
 
 
-def _notify_export_ready(export_request) -> None:
+def _notify_export_ready(export_request) -> None:  # noqa: ANN001
     """Send email to citizen when their export is ready, then fire export_ready signal (Fix 6)."""
     from django.core.mail import send_mail
     from django.template.loader import render_to_string
+
     from apps.consent.models import DataExportRequest
     from apps.consent.signals import export_ready as export_ready_signal
 

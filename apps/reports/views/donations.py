@@ -14,11 +14,12 @@ All views require staff login + explicit permission. No donor PII (name,
 address, email) is ever passed to templates or exported — amounts, counts,
 receipt serial numbers and campaign names only.
 """
+
 from __future__ import annotations
 
 import calendar
 import logging
-from datetime import date, timedelta
+from datetime import date
 
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.db import transaction
@@ -43,6 +44,7 @@ logger = logging.getLogger("apps.reports.views.donations")
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _current_toronto_ym() -> tuple[int, int]:
     """Return (year, month) in America/Toronto local time."""
     now_local = timezone.localtime(timezone.now())
@@ -53,7 +55,7 @@ def _current_toronto_year() -> int:
     return timezone.localtime(timezone.now()).year
 
 
-def _parse_year_month(request) -> tuple[int, int] | None:
+def _parse_year_month(request) -> tuple[int, int] | None:  # noqa: ANN001
     """Parse ?year=YYYY&month=M, return (year, month) or None on error."""
     try:
         year = int(request.GET["year"])
@@ -65,7 +67,7 @@ def _parse_year_month(request) -> tuple[int, int] | None:
         return None
 
 
-def _parse_year(request) -> int | None:
+def _parse_year(request) -> int | None:  # noqa: ANN001
     """Parse ?year=YYYY, return int or None on error."""
     try:
         year = int(request.GET["year"])
@@ -79,6 +81,7 @@ def _parse_year(request) -> int | None:
 # ---------------------------------------------------------------------------
 # Dashboard view
 # ---------------------------------------------------------------------------
+
 
 class DonationDashboardView(LoginRequiredMixin, PermissionRequiredMixin, TemplateView):
     """
@@ -95,8 +98,9 @@ class DonationDashboardView(LoginRequiredMixin, PermissionRequiredMixin, Templat
     permission_required = "payments.view_donationreport"
     template_name = "reports/donations/dashboard.html"
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         from decimal import Decimal as _Dec
+
         from apps.reports.models import ReportSnapshot
 
         ctx = super().get_context_data(**kwargs)
@@ -105,7 +109,7 @@ class DonationDashboardView(LoginRequiredMixin, PermissionRequiredMixin, Templat
         ym = _parse_year_month(self.request)
         year, month = ym if ym else (current_year, current_month)
 
-        is_current_month = (year == current_year and month == current_month)
+        is_current_month = year == current_year and month == current_month
 
         source = "realtime"
         donations = None
@@ -119,7 +123,7 @@ class DonationDashboardView(LoginRequiredMixin, PermissionRequiredMixin, Templat
                     period_month=month,
                 )
 
-                def _d(v):
+                def _d(v):  # noqa: ANN001, ANN202
                     try:
                         return _Dec(v)
                     except Exception:
@@ -165,36 +169,39 @@ class DonationDashboardView(LoginRequiredMixin, PermissionRequiredMixin, Templat
             donations = get_monthly_donation_summary(year, month)
 
         # ── Recent snapshots for the sidebar table ─────────────────────────────
-        recent_snapshots = (
-            ReportSnapshot.objects.filter(
-                report_type=ReportSnapshot.REPORT_TYPE_DONATIONS,
-            )
-            .order_by("-period_year", "-period_month")[:6]
-        )
+        recent_snapshots = ReportSnapshot.objects.filter(
+            report_type=ReportSnapshot.REPORT_TYPE_DONATIONS,
+        ).order_by("-period_year", "-period_month")[:6]
 
         logger.info(
             "reports.views.donations.dashboard user_pk=%s year=%s month=%s source=%s",
-            self.request.user.pk, year, month, source,
+            self.request.user.pk,
+            year,
+            month,
+            source,
         )
 
-        ctx.update({
-            "year": year,
-            "month": month,
-            "month_label": f"{calendar.month_name[month]} {year}",
-            # Last day of the current month — used by the receipts export URL
-            # in the template. calendar.monthrange() is leap-year-safe.
-            "month_last_day": calendar.monthrange(year, month)[1],
-            "is_current_month": is_current_month,
-            "data_source": source,
-            "donations": donations,
-            "recent_snapshots": recent_snapshots,
-        })
+        ctx.update(
+            {
+                "year": year,
+                "month": month,
+                "month_label": f"{calendar.month_name[month]} {year}",
+                # Last day of the current month — used by the receipts export URL
+                # in the template. calendar.monthrange() is leap-year-safe.
+                "month_last_day": calendar.monthrange(year, month)[1],
+                "is_current_month": is_current_month,
+                "data_source": source,
+                "donations": donations,
+                "recent_snapshots": recent_snapshots,
+            }
+        )
         return ctx
 
 
 # ---------------------------------------------------------------------------
 # Annual summary view
 # ---------------------------------------------------------------------------
+
 
 class AnnualDonationView(LoginRequiredMixin, PermissionRequiredMixin, TemplateView):
     """
@@ -213,7 +220,7 @@ class AnnualDonationView(LoginRequiredMixin, PermissionRequiredMixin, TemplateVi
     permission_required = "payments.view_donationreport"
     template_name = "reports/donations/annual.html"
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
 
         current_year = _current_toronto_year()
@@ -223,20 +230,25 @@ class AnnualDonationView(LoginRequiredMixin, PermissionRequiredMixin, TemplateVi
 
         logger.info(
             "reports.views.donations.annual user_pk=%s year=%s donation_count=%s",
-            self.request.user.pk, year, annual["donation_count"],
+            self.request.user.pk,
+            year,
+            annual["donation_count"],
         )
 
-        ctx.update({
-            "year": year,
-            "current_year": current_year,
-            "annual": annual,
-        })
+        ctx.update(
+            {
+                "year": year,
+                "current_year": current_year,
+                "annual": annual,
+            }
+        )
         return ctx
 
 
 # ---------------------------------------------------------------------------
 # T3010 prep view
 # ---------------------------------------------------------------------------
+
 
 class T3010PrepView(LoginRequiredMixin, PermissionRequiredMixin, TemplateView):
     """
@@ -259,7 +271,7 @@ class T3010PrepView(LoginRequiredMixin, PermissionRequiredMixin, TemplateView):
     permission_required = "payments.view_donationreport"
     template_name = "reports/donations/t3010_prep.html"
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
 
         # Default: December 31 of previous calendar year
@@ -272,32 +284,35 @@ class T3010PrepView(LoginRequiredMixin, PermissionRequiredMixin, TemplateView):
         else:
             fiscal_year_end = default_fy_end
             # Pre-fill the form with the default value for display
-            form = FiscalYearEndForm(
-                initial={"fiscal_year_end": default_fy_end.isoformat()}
-            )
+            form = FiscalYearEndForm(initial={"fiscal_year_end": default_fy_end.isoformat()})
 
         t3010 = get_t3010_preparatory_data(fiscal_year_end)
 
         logger.info(
             "reports.views.donations.t3010_prep user_pk=%s fiscal_year_end=%s "
             "donation_count=%s total_receipted=%s",
-            self.request.user.pk, fiscal_year_end,
-            t3010["donation_count"], t3010["total_receipted_donations"],
+            self.request.user.pk,
+            fiscal_year_end,
+            t3010["donation_count"],
+            t3010["total_receipted_donations"],
         )
 
-        ctx.update({
-            "form": form,
-            "t3010": t3010,
-            "fiscal_year_end": fiscal_year_end,
-            "fiscal_year_start": t3010["fiscal_year_start"],
-            "filing_deadline": t3010["filing_deadline"],
-        })
+        ctx.update(
+            {
+                "form": form,
+                "t3010": t3010,
+                "fiscal_year_end": fiscal_year_end,
+                "fiscal_year_start": t3010["fiscal_year_start"],
+                "filing_deadline": t3010["filing_deadline"],
+            }
+        )
         return ctx
 
 
 # ---------------------------------------------------------------------------
 # Export views
 # ---------------------------------------------------------------------------
+
 
 class ReceiptsExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
     """
@@ -321,7 +336,7 @@ class ReceiptsExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
 
     permission_required = "payments.export_donationreport"
 
-    def get(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         form = ReceiptExportForm(request.GET)
         if not form.is_valid():
             errors = "; ".join(
@@ -331,6 +346,7 @@ class ReceiptsExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
         start, end = form.cleaned_data["start"], form.cleaned_data["end"]
 
         from apps.reports.services.donations import get_receipt_list_queryset
+
         row_count = get_receipt_list_queryset(start, end).count()
 
         masked_ip = _mask_ip(request.META.get("REMOTE_ADDR") or "")
@@ -349,7 +365,10 @@ class ReceiptsExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
 
         logger.info(
             "reports.views.donations.receipts_export actor_pk=%s start=%s end=%s row_count=%s",
-            request.user.pk, start, end, row_count,
+            request.user.pk,
+            start,
+            end,
+            row_count,
         )
 
         return export_receipts_csv(start, end)
@@ -367,7 +386,7 @@ class T3010PrepExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
 
     permission_required = "payments.export_donationreport"
 
-    def get(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         form = FiscalYearEndForm(request.GET)
         if not form.is_valid():
             errors = "; ".join(
@@ -381,6 +400,7 @@ class T3010PrepExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
         # second DB round-trip (previously get_t3010_preparatory_data was
         # called twice — once here and once inside the export function).
         from apps.reports.services.donations import get_t3010_preparatory_data
+
         data = get_t3010_preparatory_data(fiscal_year_end)
         row_count = len(data["by_month"]) + len(data["by_campaign"]) + 4  # 4 summary rows
 
@@ -398,7 +418,8 @@ class T3010PrepExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
 
         logger.info(
             "reports.views.donations.t3010_prep_export actor_pk=%s fiscal_year_end=%s",
-            request.user.pk, fiscal_year_end,
+            request.user.pk,
+            fiscal_year_end,
         )
 
         # Pass pre-computed data to avoid a second DB call inside the exporter.

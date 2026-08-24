@@ -45,7 +45,9 @@ class ProviderRegistryTests(TestCase):
         for changes in cases:
             with self.subTest(changes=changes):
                 self.registration(**changes)
-                with patch("apps.payments.providers.deterministic.DeterministicProvider.submit") as submit:
+                with patch(
+                    "apps.payments.providers.deterministic.DeterministicProvider.submit"
+                ) as submit:
                     with self.assertRaises(ProviderRegistryError):
                         resolve_provider(tenant_id=self.tenant_id, operation=self.operation)
                     submit.assert_not_called()

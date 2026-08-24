@@ -2,12 +2,12 @@
 Tests for StripeGateway — all Stripe HTTP calls are mocked.
 No real API calls are made in this test suite.
 """
-import unittest
+
 from decimal import Decimal
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 from django.core.exceptions import ImproperlyConfigured
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import SimpleTestCase, override_settings
 
 from apps.payments.gateways.exceptions import (
     GatewayAuthError,
@@ -18,21 +18,28 @@ from apps.payments.gateways.exceptions import (
     GatewayWebhookError,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helper: make a minimal fake stripe.error module
 # ---------------------------------------------------------------------------
 
+
 def _make_stripe_error_module():
     """Return a namespace with fake stripe.error classes for patching."""
     import types
+
     mod = types.SimpleNamespace()
-    mod.AuthenticationError = type("AuthenticationError", (Exception,), {"code": None, "user_message": None})
-    mod.CardError = type("CardError", (Exception,), {"code": None, "decline_code": None, "user_message": None})
+    mod.AuthenticationError = type(
+        "AuthenticationError", (Exception,), {"code": None, "user_message": None}
+    )
+    mod.CardError = type(
+        "CardError", (Exception,), {"code": None, "decline_code": None, "user_message": None}
+    )
     mod.RateLimitError = type("RateLimitError", (Exception,), {"code": None})
     mod.APIConnectionError = type("APIConnectionError", (Exception,), {"code": None})
     mod.IdempotencyError = type("IdempotencyError", (Exception,), {"code": None})
-    mod.SignatureVerificationError = type("SignatureVerificationError", (Exception,), {"code": None})
+    mod.SignatureVerificationError = type(
+        "SignatureVerificationError", (Exception,), {"code": None}
+    )
     mod.InvalidRequestError = type("InvalidRequestError", (Exception,), {"code": None})
     return mod
 
@@ -41,11 +48,13 @@ def _make_stripe_error_module():
 # _to_cents / _from_cents unit tests (no DB, no Stripe)
 # ---------------------------------------------------------------------------
 
+
 class ToCentsTests(SimpleTestCase):
     """Test _to_cents conversion helper."""
 
     def _to_cents(self, amount):
         from apps.payments.gateways.stripe_gateway import _to_cents
+
         return _to_cents(amount)
 
     def test_standard_amount(self):
@@ -77,6 +86,7 @@ class FromCentsTests(SimpleTestCase):
 
     def _from_cents(self, cents):
         from apps.payments.gateways.stripe_gateway import _from_cents
+
         return _from_cents(cents)
 
     def test_standard_amount(self):
@@ -96,7 +106,8 @@ class FromCentsTests(SimpleTestCase):
         self.assertIsInstance(result, Decimal)
 
     def test_round_trip(self):
-        from apps.payments.gateways.stripe_gateway import _to_cents, _from_cents
+        from apps.payments.gateways.stripe_gateway import _from_cents, _to_cents
+
         original = Decimal("99.99")
         self.assertEqual(_from_cents(_to_cents(original)), original)
 
@@ -105,12 +116,14 @@ class FromCentsTests(SimpleTestCase):
 # verify_webhook_signature tests
 # ---------------------------------------------------------------------------
 
+
 @override_settings(STRIPE_SECRET_KEY="sk_test_fake")
 class StripeGatewayVerifyWebhookTests(SimpleTestCase):
     """Test verify_webhook_signature — must never raise, always return bool."""
 
     def setUp(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         self.gateway = StripeGateway()
         self.payload = b'{"id":"evt_test","type":"payment_intent.succeeded"}'
         self.sig = "t=1234,v1=abcdef"
@@ -119,19 +132,14 @@ class StripeGatewayVerifyWebhookTests(SimpleTestCase):
     def test_returns_true_on_valid_signature(self):
         with patch("stripe.WebhookSignature.verify_header") as mock_verify:
             mock_verify.return_value = None  # Does not raise = valid
-            result = self.gateway.verify_webhook_signature(
-                self.payload, self.sig, self.secret
-            )
+            result = self.gateway.verify_webhook_signature(self.payload, self.sig, self.secret)
         self.assertTrue(result)
 
     def test_returns_false_on_signature_verification_error(self):
-        import stripe
         err_cls = type("SignatureVerificationError", (Exception,), {})
         with patch("stripe.WebhookSignature.verify_header") as mock_verify:
             mock_verify.side_effect = err_cls("bad sig")
-            result = self.gateway.verify_webhook_signature(
-                self.payload, self.sig, self.secret
-            )
+            result = self.gateway.verify_webhook_signature(self.payload, self.sig, self.secret)
         self.assertFalse(result)
 
     def test_returns_false_when_webhook_secret_empty_string(self):
@@ -145,9 +153,7 @@ class StripeGatewayVerifyWebhookTests(SimpleTestCase):
     def test_returns_false_on_unexpected_exception(self):
         with patch("stripe.WebhookSignature.verify_header") as mock_verify:
             mock_verify.side_effect = RuntimeError("unexpected error")
-            result = self.gateway.verify_webhook_signature(
-                self.payload, self.sig, self.secret
-            )
+            result = self.gateway.verify_webhook_signature(self.payload, self.sig, self.secret)
         self.assertFalse(result)
 
     def test_never_raises(self):
@@ -155,18 +161,14 @@ class StripeGatewayVerifyWebhookTests(SimpleTestCase):
         with patch("stripe.WebhookSignature.verify_header") as mock_verify:
             mock_verify.side_effect = Exception("anything can happen")
             try:
-                result = self.gateway.verify_webhook_signature(
-                    self.payload, self.sig, self.secret
-                )
+                result = self.gateway.verify_webhook_signature(self.payload, self.sig, self.secret)
                 self.assertIsInstance(result, bool)
             except Exception as exc:
                 self.fail(f"verify_webhook_signature raised unexpectedly: {exc}")
 
     def test_return_value_is_bool_on_success(self):
         with patch("stripe.WebhookSignature.verify_header"):
-            result = self.gateway.verify_webhook_signature(
-                self.payload, self.sig, self.secret
-            )
+            result = self.gateway.verify_webhook_signature(self.payload, self.sig, self.secret)
         self.assertIsInstance(result, bool)
 
     def test_return_value_is_bool_on_failure(self):
@@ -178,12 +180,14 @@ class StripeGatewayVerifyWebhookTests(SimpleTestCase):
 # parse_webhook_event tests
 # ---------------------------------------------------------------------------
 
+
 @override_settings(STRIPE_SECRET_KEY="sk_test_fake")
 class StripeGatewayParseWebhookTests(SimpleTestCase):
     """Test parse_webhook_event."""
 
     def setUp(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         self.gateway = StripeGateway()
 
     def _succeeded_payload(self, pi_id="pi_test_001", charge_id="ch_test_001"):
@@ -397,7 +401,7 @@ class StripeGatewayParseWebhookTests(SimpleTestCase):
             self.gateway.parse_webhook_event(payload)
 
     def test_pci_violation_raises_when_last4_too_long_legacy_path(self):
-        """GatewayWebhookError raised if Stripe returns last4 > 4 chars (legacy charges.data path)."""
+        """GatewayWebhookError raised if Stripe returns last4 > 4 chars (legacy charges.data path)."""  # noqa: E501
         payload = {
             "type": "payment_intent.succeeded",
             "data": {
@@ -438,12 +442,14 @@ class StripeGatewayParseWebhookTests(SimpleTestCase):
 # create_payment_intent tests
 # ---------------------------------------------------------------------------
 
+
 @override_settings(STRIPE_SECRET_KEY="sk_test_fake")
 class StripeGatewayCreatePaymentIntentTests(SimpleTestCase):
     """Test create_payment_intent — Stripe calls mocked."""
 
     def setUp(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         self.gateway = StripeGateway()
         self.fake_intent = MagicMock()
         self.fake_intent.id = "pi_test_created"
@@ -567,10 +573,10 @@ class StripeGatewayCreatePaymentIntentTests(SimpleTestCase):
             decline_code="insufficient_funds",
         )
 
-        with patch("stripe.PaymentIntent.create", side_effect=card_err), \
-             patch.object(
-                 self.gateway, "_handle_stripe_error", side_effect=expected_gateway_err
-             ):
+        with (
+            patch("stripe.PaymentIntent.create", side_effect=card_err),
+            patch.object(self.gateway, "_handle_stripe_error", side_effect=expected_gateway_err),
+        ):
             with self.assertRaises(GatewayCardError) as ctx:
                 self.gateway.create_payment_intent(
                     amount=Decimal("50.00"),
@@ -613,12 +619,14 @@ class StripeGatewayCreatePaymentIntentTests(SimpleTestCase):
 # create_refund tests
 # ---------------------------------------------------------------------------
 
+
 @override_settings(STRIPE_SECRET_KEY="sk_test_fake")
 class StripeGatewayCreateRefundTests(SimpleTestCase):
     """Test create_refund — Stripe calls mocked."""
 
     def setUp(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         self.gateway = StripeGateway()
         self.fake_refund = MagicMock()
         self.fake_refund.id = "re_test_001"
@@ -694,12 +702,14 @@ class StripeGatewayCreateRefundTests(SimpleTestCase):
 # cancel_payment_intent tests
 # ---------------------------------------------------------------------------
 
+
 @override_settings(STRIPE_SECRET_KEY="sk_test_fake")
 class StripeGatewayCancelPaymentIntentTests(SimpleTestCase):
     """Test cancel_payment_intent."""
 
     def setUp(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         self.gateway = StripeGateway()
 
     def test_returns_true_when_stripe_returns_canceled(self):
@@ -732,11 +742,13 @@ class StripeGatewayCancelPaymentIntentTests(SimpleTestCase):
 # _get_api_key tests
 # ---------------------------------------------------------------------------
 
+
 class StripeGatewayApiKeyTests(SimpleTestCase):
     """Test _get_api_key raises ImproperlyConfigured when key is absent."""
 
     def test_raises_improperly_configured_when_key_missing(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         gateway = StripeGateway()
         with override_settings(STRIPE_SECRET_KEY=""):
             with self.assertRaises(ImproperlyConfigured):
@@ -744,6 +756,7 @@ class StripeGatewayApiKeyTests(SimpleTestCase):
 
     def test_returns_key_when_set(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         gateway = StripeGateway()
         with override_settings(STRIPE_SECRET_KEY="sk_test_validkey"):
             key = gateway._get_api_key()
@@ -753,6 +766,7 @@ class StripeGatewayApiKeyTests(SimpleTestCase):
 # ---------------------------------------------------------------------------
 # _parse_charge_refunded — refund ordering regression tests
 # ---------------------------------------------------------------------------
+
 
 @override_settings(STRIPE_SECRET_KEY="sk_test_fake")
 class StripeGatewayParseChargeRefundedTests(SimpleTestCase):
@@ -768,6 +782,7 @@ class StripeGatewayParseChargeRefundedTests(SimpleTestCase):
 
     def setUp(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         self.gateway = StripeGateway()
 
     def _build_charge_payload(self, refunds_list):
@@ -816,6 +831,7 @@ class StripeGatewayParseChargeRefundedTests(SimpleTestCase):
     def test_multiple_refunds_returns_newest_amount(self):
         """The refund_amount must match the newest refund (index 0), not the oldest."""
         from decimal import Decimal
+
         refunds = [
             {"id": "re_newest", "amount": 2500, "status": "succeeded"},
             {"id": "re_oldest", "amount": 1000, "status": "succeeded"},
@@ -834,23 +850,28 @@ class StripeGatewayParseChargeRefundedTests(SimpleTestCase):
     def test_empty_refunds_returns_zero_amount(self):
         """With no refunds, refund_amount is $0.00."""
         from decimal import Decimal
+
         charge = self._build_charge_payload([])
         result = self.gateway._parse_charge_refunded(charge)
         self.assertEqual(result["refund_amount"], Decimal("0.00"))
 
     def test_result_contains_gateway_charge_id(self):
         """The parsed result always includes the charge ID."""
-        charge = self._build_charge_payload([
-            {"id": "re_001", "amount": 1000, "status": "succeeded"},
-        ])
+        charge = self._build_charge_payload(
+            [
+                {"id": "re_001", "amount": 1000, "status": "succeeded"},
+            ]
+        )
         result = self.gateway._parse_charge_refunded(charge)
         self.assertEqual(result["gateway_charge_id"], "ch_test_123")
 
     def test_result_contains_refund_status(self):
         """The parsed result includes refund_status from the newest refund."""
-        charge = self._build_charge_payload([
-            {"id": "re_001", "amount": 1000, "status": "succeeded"},
-        ])
+        charge = self._build_charge_payload(
+            [
+                {"id": "re_001", "amount": 1000, "status": "succeeded"},
+            ]
+        )
         result = self.gateway._parse_charge_refunded(charge)
         self.assertEqual(result["refund_status"], "succeeded")
 
@@ -858,6 +879,7 @@ class StripeGatewayParseChargeRefundedTests(SimpleTestCase):
 # ---------------------------------------------------------------------------
 # Fix 27 — thread-safety: no global api_key mutation
 # ---------------------------------------------------------------------------
+
 
 class StripeGatewayNoGlobalApiKeyMutationTests(SimpleTestCase):
     """
@@ -874,14 +896,12 @@ class StripeGatewayNoGlobalApiKeyMutationTests(SimpleTestCase):
         The only legal form is 'api_key=' (keyword argument in a function call).
         """
         import inspect
+
         from apps.payments.gateways.stripe_gateway import StripeGateway
 
         src = inspect.getsource(StripeGateway)
         # Strip comment lines so commented-out legacy code doesn't trigger false positives
-        code_lines = [
-            line for line in src.split("\n")
-            if not line.strip().startswith("#")
-        ]
+        code_lines = [line for line in src.split("\n") if not line.strip().startswith("#")]
         code = "\n".join(code_lines)
 
         # 'api_key =' (with a space before =) is the global-mutation pattern.
@@ -900,6 +920,7 @@ class StripeGatewayNoGlobalApiKeyMutationTests(SimpleTestCase):
         to the gateway's key.
         """
         import stripe
+
         from apps.payments.gateways.stripe_gateway import StripeGateway
 
         original_key = stripe.api_key
@@ -953,6 +974,7 @@ class StripeGatewayNoGlobalApiKeyMutationTests(SimpleTestCase):
 # Nit 1 — _BRAND_MAP completeness tests
 # ---------------------------------------------------------------------------
 
+
 class BrandMapCompletenessTests(SimpleTestCase):
     """
     Verify that _BRAND_MAP maps all four additional Stripe card brands
@@ -963,6 +985,7 @@ class BrandMapCompletenessTests(SimpleTestCase):
 
     def setUp(self):
         from apps.payments.gateways.stripe_gateway import _BRAND_MAP
+
         self._map = _BRAND_MAP
 
     def test_discover_mapped(self):
@@ -994,6 +1017,7 @@ class BrandMapCompletenessTests(SimpleTestCase):
 # _handle_stripe_error — all error branches (lines 153-158)
 # ---------------------------------------------------------------------------
 
+
 @override_settings(STRIPE_SECRET_KEY="sk_test_fake")
 class HandleStripeErrorTests(SimpleTestCase):
     """
@@ -1003,7 +1027,9 @@ class HandleStripeErrorTests(SimpleTestCase):
 
     def setUp(self):
         import stripe as real_stripe
+
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         self.gw = StripeGateway()
         self.stripe = real_stripe
 
@@ -1033,6 +1059,7 @@ class HandleStripeErrorTests(SimpleTestCase):
 
     def test_generic_stripe_error_raises_gateway_error(self):
         from apps.payments.gateways.exceptions import GatewayError
+
         exc = self.stripe.error.StripeError("generic stripe problem")
         with self.assertRaises(GatewayError):
             self.gw._handle_stripe_error(exc)
@@ -1040,6 +1067,7 @@ class HandleStripeErrorTests(SimpleTestCase):
     def test_unknown_exception_raises_gateway_error(self):
         """Any non-Stripe exception falls through to GatewayError."""
         from apps.payments.gateways.exceptions import GatewayError
+
         exc = ValueError("something totally unexpected")
         with self.assertRaises(GatewayError):
             self.gw._handle_stripe_error(exc)
@@ -1064,13 +1092,16 @@ class HandleStripeErrorTests(SimpleTestCase):
 # _stripe() ImportError branch (lines 122-123)
 # ---------------------------------------------------------------------------
 
+
 class StripeImportErrorTests(SimpleTestCase):
     """_stripe() raises ImportError with a helpful message when stripe is missing."""
 
     def test_import_error_when_stripe_not_installed(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         gw = StripeGateway()
         import sys
+
         real_stripe = sys.modules.get("stripe")
         try:
             sys.modules["stripe"] = None  # simulate missing package
@@ -1088,6 +1119,7 @@ class StripeImportErrorTests(SimpleTestCase):
 # _get_api_key — ImportError / Exception fallback paths (lines 79-80)
 # ---------------------------------------------------------------------------
 
+
 @override_settings(STRIPE_SECRET_KEY="sk_test_fake")
 class GetApiKeyFallbackTests(SimpleTestCase):
     """
@@ -1097,7 +1129,9 @@ class GetApiKeyFallbackTests(SimpleTestCase):
 
     def test_import_error_on_tenant_model_falls_back_to_settings(self):
         import sys
+
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         gw = StripeGateway()
         # Temporarily remove the payments models module so the import fails
         payments_models_key = "apps.payments.models"
@@ -1114,8 +1148,10 @@ class GetApiKeyFallbackTests(SimpleTestCase):
 
     def test_generic_exception_on_tenant_model_falls_back_to_settings(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         gw = StripeGateway()
         import builtins
+
         real_import = builtins.__import__
 
         def broken_import(name, *args, **kwargs):
@@ -1136,17 +1172,20 @@ class GetApiKeyFallbackTests(SimpleTestCase):
 # _get_connect_account — use_connect branch (lines 92-99)
 # ---------------------------------------------------------------------------
 
+
 @override_settings(STRIPE_SECRET_KEY="sk_test_fake")
 class GetConnectAccountTests(SimpleTestCase):
     """Test _get_connect_account returns the account ID when use_connect=True."""
 
     def setUp(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         self.gw = StripeGateway()
 
     def test_returns_none_when_import_fails(self):
         """If TenantPaymentConfig cannot be imported, returns None gracefully."""
         import sys
+
         payments_models_key = "apps.payments.models"
         original = sys.modules.get(payments_models_key)
         try:
@@ -1168,7 +1207,9 @@ class GetConnectAccountTests(SimpleTestCase):
         mock_model = MagicMock()
         mock_model.get_solo.return_value = mock_config
 
-        with patch.dict("sys.modules", {"apps.payments.models": MagicMock(TenantPaymentConfig=mock_model)}):
+        with patch.dict(
+            "sys.modules", {"apps.payments.models": MagicMock(TenantPaymentConfig=mock_model)}
+        ):
             result = self.gw._get_connect_account()
         self.assertEqual(result, "acct_connect_123")
 
@@ -1181,7 +1222,9 @@ class GetConnectAccountTests(SimpleTestCase):
         mock_model = MagicMock()
         mock_model.get_solo.return_value = mock_config
 
-        with patch.dict("sys.modules", {"apps.payments.models": MagicMock(TenantPaymentConfig=mock_model)}):
+        with patch.dict(
+            "sys.modules", {"apps.payments.models": MagicMock(TenantPaymentConfig=mock_model)}
+        ):
             result = self.gw._get_connect_account()
         self.assertIsNone(result)
 
@@ -1190,7 +1233,9 @@ class GetConnectAccountTests(SimpleTestCase):
         mock_model = MagicMock()
         mock_model.get_solo.side_effect = Exception("DB unavailable")
 
-        with patch.dict("sys.modules", {"apps.payments.models": MagicMock(TenantPaymentConfig=mock_model)}):
+        with patch.dict(
+            "sys.modules", {"apps.payments.models": MagicMock(TenantPaymentConfig=mock_model)}
+        ):
             result = self.gw._get_connect_account()
         self.assertIsNone(result)
 
@@ -1199,12 +1244,14 @@ class GetConnectAccountTests(SimpleTestCase):
 # retrieve_payment_intent (lines 202-220)
 # ---------------------------------------------------------------------------
 
+
 @override_settings(STRIPE_SECRET_KEY="sk_test_fake")
 class RetrievePaymentIntentTests(SimpleTestCase):
     """Test retrieve_payment_intent happy path and exception path."""
 
     def setUp(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         self.gw = StripeGateway()
 
     def _make_intent(self, latest_charge="ch_abc", latest_charge_as_str=True):
@@ -1244,13 +1291,18 @@ class RetrievePaymentIntentTests(SimpleTestCase):
         self.assertEqual(result["currency"], "cad")
 
     def test_returns_gateway_charge_id_from_string_latest_charge(self):
-        with patch("stripe.PaymentIntent.retrieve", return_value=self._make_intent("ch_string_001")):
+        with patch(
+            "stripe.PaymentIntent.retrieve", return_value=self._make_intent("ch_string_001")
+        ):
             result = self.gw.retrieve_payment_intent("pi_retrieve_001")
         self.assertEqual(result["gateway_charge_id"], "ch_string_001")
 
     def test_returns_gateway_charge_id_from_expanded_charge_object(self):
         """When latest_charge is an object (expanded), use .id attribute."""
-        with patch("stripe.PaymentIntent.retrieve", return_value=self._make_intent("ch_expanded_001", latest_charge_as_str=False)):
+        with patch(
+            "stripe.PaymentIntent.retrieve",
+            return_value=self._make_intent("ch_expanded_001", latest_charge_as_str=False),
+        ):
             result = self.gw.retrieve_payment_intent("pi_retrieve_001")
         self.assertEqual(result["gateway_charge_id"], "ch_expanded_001")
 
@@ -1277,6 +1329,7 @@ class RetrievePaymentIntentTests(SimpleTestCase):
     def test_exception_path_calls_handle_stripe_error(self):
         """When Stripe raises, _handle_stripe_error is invoked."""
         import stripe
+
         exc = stripe.error.APIConnectionError("network error")
         with patch("stripe.PaymentIntent.retrieve", side_effect=exc):
             with self.assertRaises(GatewayNetworkError):
@@ -1287,16 +1340,19 @@ class RetrievePaymentIntentTests(SimpleTestCase):
 # create_refund — exception path (lines 271-272)
 # ---------------------------------------------------------------------------
 
+
 @override_settings(STRIPE_SECRET_KEY="sk_test_fake")
 class CreateRefundExceptionTests(SimpleTestCase):
     """Test create_refund exception path."""
 
     def setUp(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         self.gw = StripeGateway()
 
     def test_exception_path_raises_gateway_error(self):
         import stripe
+
         exc = stripe.error.APIConnectionError("network error")
         with patch("stripe.Refund.create", side_effect=exc):
             with self.assertRaises(GatewayNetworkError):
@@ -1312,6 +1368,7 @@ class CreateRefundExceptionTests(SimpleTestCase):
 # cancel_payment_intent — exception path line 294
 # ---------------------------------------------------------------------------
 
+
 @override_settings(STRIPE_SECRET_KEY="sk_test_fake")
 class CancelPaymentIntentOtherExceptionTests(SimpleTestCase):
     """
@@ -1321,11 +1378,14 @@ class CancelPaymentIntentOtherExceptionTests(SimpleTestCase):
 
     def setUp(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         self.gw = StripeGateway()
 
     def test_other_invalid_request_error_raises_gateway_error(self):
         import stripe
+
         from apps.payments.gateways.exceptions import GatewayError
+
         exc = stripe.error.InvalidRequestError("No such payment intent: pi_xxx", None)
         with patch("stripe.PaymentIntent.cancel", side_effect=exc):
             with self.assertRaises(GatewayError):
@@ -1336,12 +1396,14 @@ class CancelPaymentIntentOtherExceptionTests(SimpleTestCase):
 # create_subscription (lines 305-326)
 # ---------------------------------------------------------------------------
 
+
 @override_settings(STRIPE_SECRET_KEY="sk_test_fake")
 class CreateSubscriptionTests(SimpleTestCase):
     """Test create_subscription happy path and exception path."""
 
     def setUp(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         self.gw = StripeGateway()
         self.fake_sub = MagicMock()
         self.fake_sub.id = "sub_test_001"
@@ -1381,6 +1443,7 @@ class CreateSubscriptionTests(SimpleTestCase):
             )
         # M2 fix: current_period_end must be an ISO 8601 string, not a raw Unix timestamp.
         import datetime
+
         self.assertIsInstance(result["current_period_end"], str)
         dt = datetime.datetime.fromisoformat(result["current_period_end"])
         self.assertIsNotNone(dt)
@@ -1412,6 +1475,7 @@ class CreateSubscriptionTests(SimpleTestCase):
 
     def test_exception_path_raises_gateway_error(self):
         import stripe
+
         exc = stripe.error.APIConnectionError("network error")
         with patch("stripe.Subscription.create", side_effect=exc):
             with self.assertRaises(GatewayNetworkError):
@@ -1428,12 +1492,14 @@ class CreateSubscriptionTests(SimpleTestCase):
 # cancel_subscription (lines 333-345)
 # ---------------------------------------------------------------------------
 
+
 @override_settings(STRIPE_SECRET_KEY="sk_test_fake")
 class CancelSubscriptionTests(SimpleTestCase):
     """Test cancel_subscription happy path, 'no such subscription', and other errors."""
 
     def setUp(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         self.gw = StripeGateway()
 
     def test_returns_true_when_canceled(self):
@@ -1452,6 +1518,7 @@ class CancelSubscriptionTests(SimpleTestCase):
 
     def test_returns_false_on_no_such_subscription_error(self):
         import stripe
+
         exc = stripe.error.InvalidRequestError("No such subscription: sub_xxx", None)
         # Set the stable Stripe error code — the gateway now checks exc.code, not
         # str(exc), so the code attribute must be set for the branch to trigger.
@@ -1462,7 +1529,9 @@ class CancelSubscriptionTests(SimpleTestCase):
 
     def test_other_invalid_request_error_raises_gateway_error(self):
         import stripe
+
         from apps.payments.gateways.exceptions import GatewayError
+
         exc = stripe.error.InvalidRequestError("Something else went wrong", None)
         with patch("stripe.Subscription.cancel", side_effect=exc):
             with self.assertRaises(GatewayError):
@@ -1470,6 +1539,7 @@ class CancelSubscriptionTests(SimpleTestCase):
 
     def test_network_error_raises_gateway_network_error(self):
         import stripe
+
         exc = stripe.error.APIConnectionError("network error")
         with patch("stripe.Subscription.cancel", side_effect=exc):
             with self.assertRaises(GatewayNetworkError):
@@ -1480,6 +1550,7 @@ class CancelSubscriptionTests(SimpleTestCase):
 # _normalise_event_data / parse_event branch dispatch (lines 411, 416, 418)
 # ---------------------------------------------------------------------------
 
+
 @override_settings(STRIPE_SECRET_KEY="sk_test_fake")
 class NormaliseEventDataBranchTests(SimpleTestCase):
     """
@@ -1489,39 +1560,50 @@ class NormaliseEventDataBranchTests(SimpleTestCase):
 
     def setUp(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         self.gw = StripeGateway()
 
     def test_charge_refunded_dispatches_to_parse_charge_refunded(self):
         obj = {"id": "ch_001"}
-        with patch.object(self.gw, "_parse_charge_refunded", return_value={"dispatched": True}) as mock_parser:
+        with patch.object(
+            self.gw, "_parse_charge_refunded", return_value={"dispatched": True}
+        ) as mock_parser:
             result = self.gw._normalise_event_data("charge.refunded", obj)
         mock_parser.assert_called_once_with(obj)
         self.assertEqual(result, {"dispatched": True})
 
     def test_subscription_deleted_dispatches_to_parse_subscription_event(self):
         obj = {"id": "sub_001"}
-        with patch.object(self.gw, "_parse_subscription_event", return_value={"sub": True}) as mock_parser:
+        with patch.object(
+            self.gw, "_parse_subscription_event", return_value={"sub": True}
+        ) as mock_parser:
             result = self.gw._normalise_event_data("customer.subscription.deleted", obj)
         mock_parser.assert_called_once_with(obj)
         self.assertEqual(result, {"sub": True})
 
     def test_subscription_updated_dispatches_to_parse_subscription_event(self):
         obj = {"id": "sub_002"}
-        with patch.object(self.gw, "_parse_subscription_event", return_value={"sub": True}) as mock_parser:
-            result = self.gw._normalise_event_data("customer.subscription.updated", obj)
+        with patch.object(
+            self.gw, "_parse_subscription_event", return_value={"sub": True}
+        ) as mock_parser:
+            self.gw._normalise_event_data("customer.subscription.updated", obj)
         mock_parser.assert_called_once_with(obj)
 
     def test_invoice_event_dispatches_to_parse_invoice_event(self):
         obj = {"id": "in_001"}
-        with patch.object(self.gw, "_parse_invoice_event", return_value={"invoice": True}) as mock_parser:
+        with patch.object(
+            self.gw, "_parse_invoice_event", return_value={"invoice": True}
+        ) as mock_parser:
             result = self.gw._normalise_event_data("invoice.payment_succeeded", obj)
         mock_parser.assert_called_once_with(obj)
         self.assertEqual(result, {"invoice": True})
 
     def test_invoice_payment_failed_dispatches_to_parse_invoice_event(self):
         obj = {"id": "in_002"}
-        with patch.object(self.gw, "_parse_invoice_event", return_value={"invoice": True}) as mock_parser:
-            result = self.gw._normalise_event_data("invoice.payment_failed", obj)
+        with patch.object(
+            self.gw, "_parse_invoice_event", return_value={"invoice": True}
+        ) as mock_parser:
+            self.gw._normalise_event_data("invoice.payment_failed", obj)
         mock_parser.assert_called_once_with(obj)
 
 
@@ -1529,6 +1611,7 @@ class NormaliseEventDataBranchTests(SimpleTestCase):
 # _parse_payment_intent_succeeded — legacy charges.data fallback (lines 452, 471)
 # and empty-charges case
 # ---------------------------------------------------------------------------
+
 
 @override_settings(STRIPE_SECRET_KEY="sk_test_fake")
 class ParsePaymentIntentSucceededLegacyTests(SimpleTestCase):
@@ -1539,6 +1622,7 @@ class ParsePaymentIntentSucceededLegacyTests(SimpleTestCase):
 
     def setUp(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         self.gw = StripeGateway()
 
     def test_legacy_path_returns_charge_id_from_charges_data(self):
@@ -1570,9 +1654,7 @@ class ParsePaymentIntentSucceededLegacyTests(SimpleTestCase):
                     {
                         "id": "ch_legacy_002",
                         "created": 1700000001,
-                        "payment_method_details": {
-                            "card": {"last4": "5678", "brand": "amex"}
-                        },
+                        "payment_method_details": {"card": {"last4": "5678", "brand": "amex"}},
                     }
                 ]
             },
@@ -1647,12 +1729,14 @@ class ParsePaymentIntentSucceededLegacyTests(SimpleTestCase):
 # _parse_invoice_event (lines 530, 545-548)
 # ---------------------------------------------------------------------------
 
+
 @override_settings(STRIPE_SECRET_KEY="sk_test_fake")
 class ParseInvoiceEventTests(SimpleTestCase):
     """Test _parse_invoice_event with various invoice shapes."""
 
     def setUp(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         self.gw = StripeGateway()
 
     def test_returns_subscription_id(self):
@@ -1748,12 +1832,14 @@ class ParseInvoiceEventTests(SimpleTestCase):
 # _parse_subscription_event (line 530)
 # ---------------------------------------------------------------------------
 
+
 @override_settings(STRIPE_SECRET_KEY="sk_test_fake")
 class ParseSubscriptionEventTests(SimpleTestCase):
     """Test _parse_subscription_event produces correct output."""
 
     def setUp(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         self.gw = StripeGateway()
 
     def test_returns_all_expected_keys(self):
@@ -1768,6 +1854,7 @@ class ParseSubscriptionEventTests(SimpleTestCase):
         self.assertEqual(result["status"], "active")
         # M2 fix: current_period_end must be an ISO 8601 string, not a raw Unix timestamp.
         import datetime
+
         self.assertIsInstance(result["current_period_end"], str)
         dt = datetime.datetime.fromisoformat(result["current_period_end"])
         self.assertIsNotNone(dt)
@@ -1788,6 +1875,7 @@ class ParseSubscriptionEventTests(SimpleTestCase):
 # H1 — cancel_subscription: exc.code check replaces string matching (H1 fix)
 # ---------------------------------------------------------------------------
 
+
 @override_settings(STRIPE_SECRET_KEY="sk_test_fake")
 class CancelSubscriptionErrorCodeTest(SimpleTestCase):
     """
@@ -1797,11 +1885,13 @@ class CancelSubscriptionErrorCodeTest(SimpleTestCase):
 
     def setUp(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         self.gw = StripeGateway()
 
     def test_resource_missing_returns_false_not_raises(self):
         """exc.code == 'resource_missing' → treat as already-cancelled, return False."""
         import stripe
+
         err = stripe.error.InvalidRequestError(
             message="No such subscription: sub_xxx",
             param="subscription",
@@ -1814,7 +1904,9 @@ class CancelSubscriptionErrorCodeTest(SimpleTestCase):
     def test_other_invalid_request_error_code_raises(self):
         """Any other exc.code must propagate — not be silently swallowed."""
         import stripe
+
         from apps.payments.gateways.exceptions import GatewayError
+
         err = stripe.error.InvalidRequestError(
             message="Something else went wrong",
             param="x",
@@ -1827,7 +1919,9 @@ class CancelSubscriptionErrorCodeTest(SimpleTestCase):
     def test_none_code_invalid_request_error_raises(self):
         """exc.code is None (unrecognised) must also propagate."""
         import stripe
+
         from apps.payments.gateways.exceptions import GatewayError
+
         err = stripe.error.InvalidRequestError(
             message="Some unrecognised error",
             param=None,
@@ -1842,6 +1936,7 @@ class CancelSubscriptionErrorCodeTest(SimpleTestCase):
 # H2 — create_subscription: client_secret returned for 3DS/SCA (incomplete)
 # ---------------------------------------------------------------------------
 
+
 @override_settings(STRIPE_SECRET_KEY="sk_test_fake")
 class CreateSubscriptionSCATest(SimpleTestCase):
     """
@@ -1853,6 +1948,7 @@ class CreateSubscriptionSCATest(SimpleTestCase):
 
     def setUp(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         self.gw = StripeGateway()
 
     def _call(self, mock_sub):
@@ -1909,7 +2005,6 @@ class CreateSubscriptionSCATest(SimpleTestCase):
         If latest_invoice.payment_intent raises AttributeError (not expanded),
         the gateway must log a warning and return without crashing.
         """
-        import unittest.mock as umock
 
         mock_sub = MagicMock()
         mock_sub.id = "sub_no_pi"
@@ -1938,6 +2033,7 @@ class CreateSubscriptionSCATest(SimpleTestCase):
 # M1 — Serial number regex consistency (model vs migration 0001)
 # ---------------------------------------------------------------------------
 
+
 class SerialNumberRegexConsistencyTests(SimpleTestCase):
     """
     M1: The charity_registration_number RegexValidator in models.py must use
@@ -1953,18 +2049,18 @@ class SerialNumberRegexConsistencyTests(SimpleTestCase):
         r'^\\d{9}\\s+RR\\s+\\d{4}$' while the model used r'^\\d{9} RR \\d{4}$'
         (literal spaces vs. \\s+).  This test pins both to the same string.
         """
-        import django.core.validators as dv
         import importlib
+
+        import django.core.validators as dv
 
         # Pull the regex from the live model field.
         # The charity_registration_number RegexValidator lives on CharitySettings,
         # not OfficialDonationReceipt (which stores a plain copy without re-validating).
         from apps.payments.models import CharitySettings
+
         field = CharitySettings._meta.get_field("charity_registration_number")
         model_regex = next(
-            v.regex.pattern
-            for v in field.validators
-            if isinstance(v, dv.RegexValidator)
+            v.regex.pattern for v in field.validators if isinstance(v, dv.RegexValidator)
         )
 
         # Pull the regex from the 0001_initial migration's CreateModel operation.
@@ -1995,6 +2091,7 @@ class SerialNumberRegexConsistencyTests(SimpleTestCase):
 # M2 — current_period_end returned as ISO 8601 string
 # ---------------------------------------------------------------------------
 
+
 @override_settings(STRIPE_SECRET_KEY="sk_test_fake")
 class CurrentPeriodEndISO8601Tests(SimpleTestCase):
     """
@@ -2004,10 +2101,12 @@ class CurrentPeriodEndISO8601Tests(SimpleTestCase):
 
     def _make_gateway(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         return StripeGateway()
 
     def test_create_subscription_current_period_end_is_iso_string(self):
         import datetime
+
         gw = self._make_gateway()
         mock_sub = MagicMock()
         mock_sub.id = "sub_iso_001"
@@ -2027,7 +2126,7 @@ class CurrentPeriodEndISO8601Tests(SimpleTestCase):
         dt = datetime.datetime.fromisoformat(result["current_period_end"])
         self.assertIsNotNone(dt)
         # Confirm the value is UTC-aware and correct
-        self.assertEqual(dt, datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc))
+        self.assertEqual(dt, datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.UTC))
 
     def test_create_subscription_none_period_end_returns_none(self):
         """A cancelled/incomplete subscription may have no current_period_end."""
@@ -2050,7 +2149,9 @@ class CurrentPeriodEndISO8601Tests(SimpleTestCase):
 
     def test_parse_subscription_event_current_period_end_is_iso_string(self):
         import datetime
+
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         gw = StripeGateway()
         obj = {
             "id": "sub_evt_001",
@@ -2062,10 +2163,11 @@ class CurrentPeriodEndISO8601Tests(SimpleTestCase):
 
         self.assertIsInstance(result["current_period_end"], str)
         dt = datetime.datetime.fromisoformat(result["current_period_end"])
-        self.assertEqual(dt, datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc))
+        self.assertEqual(dt, datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.UTC))
 
     def test_parse_subscription_event_none_period_end_returns_none(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         gw = StripeGateway()
         obj = {
             "id": "sub_evt_002",
@@ -2080,6 +2182,7 @@ class CurrentPeriodEndISO8601Tests(SimpleTestCase):
 # ---------------------------------------------------------------------------
 # M3 — _BRAND_MAP values all present in CARD_BRAND_CHOICES
 # ---------------------------------------------------------------------------
+
 
 class BrandMapChoicesConsistencyTests(SimpleTestCase):
     """
@@ -2107,6 +2210,7 @@ class BrandMapChoicesConsistencyTests(SimpleTestCase):
 # H-A — stripe_version pinned on every Stripe API call
 # ---------------------------------------------------------------------------
 
+
 @override_settings(STRIPE_SECRET_KEY="sk_test_fake")
 class StripeApiVersionPinningTests(SimpleTestCase):
     """
@@ -2117,10 +2221,12 @@ class StripeApiVersionPinningTests(SimpleTestCase):
 
     def setUp(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         self.gateway = StripeGateway()
 
     def test_create_payment_intent_passes_stripe_version(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         mock_intent = MagicMock()
         mock_intent.id = "pi_test_ver"
         mock_intent.client_secret = "secret_ver"
@@ -2135,7 +2241,8 @@ class StripeApiVersionPinningTests(SimpleTestCase):
             )
         call_kwargs = mock_create.call_args[1]
         self.assertIn(
-            "stripe_version", call_kwargs,
+            "stripe_version",
+            call_kwargs,
             "stripe.PaymentIntent.create must pass stripe_version=",
         )
         self.assertEqual(
@@ -2145,6 +2252,7 @@ class StripeApiVersionPinningTests(SimpleTestCase):
 
     def test_retrieve_payment_intent_passes_stripe_version(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         mock_intent = MagicMock()
         mock_intent.id = "pi_test_ver"
         mock_intent.status = "succeeded"
@@ -2156,13 +2264,15 @@ class StripeApiVersionPinningTests(SimpleTestCase):
             self.gateway.retrieve_payment_intent("pi_test_ver")
         call_kwargs = mock_retrieve.call_args[1]
         self.assertIn(
-            "stripe_version", call_kwargs,
+            "stripe_version",
+            call_kwargs,
             "stripe.PaymentIntent.retrieve must pass stripe_version=",
         )
         self.assertEqual(call_kwargs["stripe_version"], StripeGateway._STRIPE_API_VERSION)
 
     def test_create_refund_passes_stripe_version(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         mock_refund = MagicMock()
         mock_refund.id = "re_test_ver"
         mock_refund.status = "succeeded"
@@ -2176,26 +2286,30 @@ class StripeApiVersionPinningTests(SimpleTestCase):
             )
         call_kwargs = mock_create.call_args[1]
         self.assertIn(
-            "stripe_version", call_kwargs,
+            "stripe_version",
+            call_kwargs,
             "stripe.Refund.create must pass stripe_version=",
         )
         self.assertEqual(call_kwargs["stripe_version"], StripeGateway._STRIPE_API_VERSION)
 
     def test_cancel_payment_intent_passes_stripe_version(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         mock_intent = MagicMock()
         mock_intent.status = "canceled"
         with patch("stripe.PaymentIntent.cancel", return_value=mock_intent) as mock_cancel:
             self.gateway.cancel_payment_intent("pi_test_ver")
         call_kwargs = mock_cancel.call_args[1]
         self.assertIn(
-            "stripe_version", call_kwargs,
+            "stripe_version",
+            call_kwargs,
             "stripe.PaymentIntent.cancel must pass stripe_version=",
         )
         self.assertEqual(call_kwargs["stripe_version"], StripeGateway._STRIPE_API_VERSION)
 
     def test_create_subscription_passes_stripe_version(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         mock_sub = MagicMock()
         mock_sub.id = "sub_test_ver"
         mock_sub.status = "active"
@@ -2210,20 +2324,23 @@ class StripeApiVersionPinningTests(SimpleTestCase):
             )
         call_kwargs = mock_create.call_args[1]
         self.assertIn(
-            "stripe_version", call_kwargs,
+            "stripe_version",
+            call_kwargs,
             "stripe.Subscription.create must pass stripe_version=",
         )
         self.assertEqual(call_kwargs["stripe_version"], StripeGateway._STRIPE_API_VERSION)
 
     def test_cancel_subscription_passes_stripe_version(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         mock_sub = MagicMock()
         mock_sub.status = "canceled"
         with patch("stripe.Subscription.cancel", return_value=mock_sub) as mock_cancel:
             self.gateway.cancel_subscription("sub_test_ver")
         call_kwargs = mock_cancel.call_args[1]
         self.assertIn(
-            "stripe_version", call_kwargs,
+            "stripe_version",
+            call_kwargs,
             "stripe.Subscription.cancel must pass stripe_version=",
         )
         self.assertEqual(call_kwargs["stripe_version"], StripeGateway._STRIPE_API_VERSION)
@@ -2233,7 +2350,10 @@ class StripeApiVersionPinningTests(SimpleTestCase):
 # M-A — retrieve_payment_intent expands latest_charge and returns card data
 # ---------------------------------------------------------------------------
 
-def _make_expanded_charge_dict(last4="4242", brand="visa", created=1700000000, amount_received=2000):
+
+def _make_expanded_charge_dict(
+    last4="4242", brand="visa", created=1700000000, amount_received=2000
+):
     """Return a plain dict representing an expanded Stripe Charge object."""
     return {
         "id": "ch_expanded_test",
@@ -2259,6 +2379,7 @@ class RetrievePaymentIntentExpandsLatestChargeTests(SimpleTestCase):
 
     def setUp(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         self.gw = StripeGateway()
 
     def _make_intent_with_expanded_charge(self, charge_dict):
@@ -2282,7 +2403,8 @@ class RetrievePaymentIntentExpandsLatestChargeTests(SimpleTestCase):
             self.gw.retrieve_payment_intent("pi_ma_test")
         call_kwargs = mock_retrieve.call_args[1]
         self.assertIn(
-            "expand", call_kwargs,
+            "expand",
+            call_kwargs,
             "retrieve_payment_intent must pass expand= to stripe.PaymentIntent.retrieve",
         )
         self.assertIn(
@@ -2308,7 +2430,8 @@ class RetrievePaymentIntentExpandsLatestChargeTests(SimpleTestCase):
             result = self.gw.retrieve_payment_intent("pi_ma_test")
         self.assertIsNotNone(result["card_last_four"])
         self.assertLessEqual(
-            len(result["card_last_four"]), 4,
+            len(result["card_last_four"]),
+            4,
             "card_last_four must never exceed 4 characters (PCI DSS)",
         )
         self.assertEqual(result["card_last_four"], "4111")
@@ -2322,7 +2445,9 @@ class RetrievePaymentIntentExpandsLatestChargeTests(SimpleTestCase):
 
     def test_card_brand_unknown_maps_to_other(self):
         """Unknown brand from Stripe falls back to 'other' via _BRAND_MAP.get default."""
-        intent = self._make_intent_with_expanded_charge(_make_expanded_charge_dict(brand="bogus_brand"))
+        intent = self._make_intent_with_expanded_charge(
+            _make_expanded_charge_dict(brand="bogus_brand")
+        )
         with patch("stripe.PaymentIntent.retrieve", return_value=intent):
             result = self.gw.retrieve_payment_intent("pi_ma_test")
         self.assertEqual(result["card_brand"], "other")
@@ -2330,7 +2455,10 @@ class RetrievePaymentIntentExpandsLatestChargeTests(SimpleTestCase):
     def test_paid_at_is_datetime_from_charge_created(self):
         """paid_at is a timezone-aware datetime derived from charge.created Unix timestamp."""
         import datetime
-        intent = self._make_intent_with_expanded_charge(_make_expanded_charge_dict(created=1700000000))
+
+        intent = self._make_intent_with_expanded_charge(
+            _make_expanded_charge_dict(created=1700000000)
+        )
         with patch("stripe.PaymentIntent.retrieve", return_value=intent):
             result = self.gw.retrieve_payment_intent("pi_ma_test")
         self.assertIsNotNone(result["paid_at"])
@@ -2338,15 +2466,18 @@ class RetrievePaymentIntentExpandsLatestChargeTests(SimpleTestCase):
         self.assertIsNotNone(result["paid_at"].tzinfo, "paid_at must be timezone-aware")
         self.assertEqual(
             result["paid_at"],
-            datetime.datetime.fromtimestamp(1700000000, tz=datetime.timezone.utc),
+            datetime.datetime.fromtimestamp(1700000000, tz=datetime.UTC),
         )
 
     def test_amount_received_returned_as_decimal(self):
         """amount_received is returned as a CAD Decimal converted from Stripe cents."""
-        intent = self._make_intent_with_expanded_charge(_make_expanded_charge_dict(amount_received=2000))
+        intent = self._make_intent_with_expanded_charge(
+            _make_expanded_charge_dict(amount_received=2000)
+        )
         with patch("stripe.PaymentIntent.retrieve", return_value=intent):
             result = self.gw.retrieve_payment_intent("pi_ma_test")
         from decimal import Decimal
+
         self.assertEqual(result["amount_received"], Decimal("20.00"))
 
     def test_no_latest_charge_returns_null_card_fields(self):
@@ -2366,7 +2497,9 @@ class RetrievePaymentIntentExpandsLatestChargeTests(SimpleTestCase):
 
     def test_mastercard_brand_mapped_correctly(self):
         """'mastercard' Stripe brand maps to 'mastercard' in our model."""
-        intent = self._make_intent_with_expanded_charge(_make_expanded_charge_dict(brand="mastercard"))
+        intent = self._make_intent_with_expanded_charge(
+            _make_expanded_charge_dict(brand="mastercard")
+        )
         with patch("stripe.PaymentIntent.retrieve", return_value=intent):
             result = self.gw.retrieve_payment_intent("pi_ma_test")
         self.assertEqual(result["card_brand"], "mastercard")

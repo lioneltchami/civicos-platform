@@ -24,14 +24,36 @@ import re
 # via Django's Sentry SDK integration (which includes request.POST there), and
 # financial fields (amount, eligible_amount, advantage_amount) that together with
 # a donor name constitute identifiable donation information under PIPEDA.
-PII_FIELDS = frozenset({
-    "email", "name", "legal_name", "donor_name", "donor_email", "donor_legal_name",
-    "full_name", "first_name", "last_name",
-    "address", "postal_code", "phone", "ip", "ip_address", "sin",
-    "card_number", "cvv", "secret", "token", "password", "api_key", "authorization",
-    "webhook_endpoint_secret",
-    "amount", "eligible_amount", "advantage_amount",
-})
+PII_FIELDS = frozenset(
+    {
+        "email",
+        "name",
+        "legal_name",
+        "donor_name",
+        "donor_email",
+        "donor_legal_name",
+        "full_name",
+        "first_name",
+        "last_name",
+        "address",
+        "postal_code",
+        "phone",
+        "ip",
+        "ip_address",
+        "sin",
+        "card_number",
+        "cvv",
+        "secret",
+        "token",
+        "password",
+        "api_key",
+        "authorization",
+        "webhook_endpoint_secret",
+        "amount",
+        "eligible_amount",
+        "advantage_amount",
+    }
+)
 
 # Match bare IPv4 addresses (e.g. 192.168.1.1) in strings.
 _IP_PATTERN = re.compile(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b")
@@ -40,18 +62,18 @@ _IP_PATTERN = re.compile(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b")
 # Covers: full (2001:db8:...), compressed (::1, fe80::1), IPv4-mapped (::ffff:x.x.x.x).
 # Pattern: a sequence of hex groups and colons with at least two colons OR 7 colons.
 _IPV6_PATTERN = re.compile(
-    r"(?:(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}"       # full 8-group
-    r"|(?:[0-9a-fA-F]{1,4}:){1,7}:"                        # trailing ::
-    r"|:(?::[0-9a-fA-F]{1,4}){1,7}"                        # leading ::
-    r"|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}"       # one :: in middle
+    r"(?:(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}"  # full 8-group
+    r"|(?:[0-9a-fA-F]{1,4}:){1,7}:"  # trailing ::
+    r"|:(?::[0-9a-fA-F]{1,4}){1,7}"  # leading ::
+    r"|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}"  # one :: in middle
     r"|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}"
     r"|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}"
     r"|(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}"
     r"|(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}"
     r"|[0-9a-fA-F]{1,4}:(?::[0-9a-fA-F]{1,4}){1,6}"
     r"|::(?:ffff(?::0{1,4})?:)?(?:25[0-5]|(?:2[0-4]|1?\d)?\d)"
-      r"(?:\.(?:25[0-5]|(?:2[0-4]|1?\d)?\d)){3}"           # IPv4-mapped ::ffff:x.x.x.x
-    r"|::)"                                                  # bare ::
+    r"(?:\.(?:25[0-5]|(?:2[0-4]|1?\d)?\d)){3}"  # IPv4-mapped ::ffff:x.x.x.x
+    r"|::)"  # bare ::
 )
 
 # Log categories from third-party libraries that may contain secrets or request
@@ -70,6 +92,7 @@ _SENSITIVE_HEADERS = frozenset({"Authorization", "Cookie", "X-Stripe-Signature"}
 # ---------------------------------------------------------------------------
 # Hooks
 # ---------------------------------------------------------------------------
+
 
 def _mask_ip(text: str) -> str:
     """
@@ -91,7 +114,7 @@ def _mask_ip(text: str) -> str:
     return text
 
 
-def before_breadcrumb(crumb, hint):
+def before_breadcrumb(crumb, hint):  # noqa: ANN001, ANN201
     """Strip PII from Sentry breadcrumbs before they leave the process.
 
     Registered as ``before_breadcrumb`` in ``sentry_sdk.init()``.
@@ -121,7 +144,7 @@ def before_breadcrumb(crumb, hint):
     return crumb
 
 
-def _scrub_dict(d, keys=None):
+def _scrub_dict(d, keys=None):  # noqa: ANN001, ANN202
     """Recursively scrub PII keys from a dict or list, replacing values with '[Filtered]'.
 
     Used by before_send to sanitise event["extra"] — Django's Sentry SDK places
@@ -141,15 +164,14 @@ def _scrub_dict(d, keys=None):
         keys = PII_FIELDS
     if isinstance(d, dict):
         return {
-            k: "[Filtered]" if k.lower() in keys else _scrub_dict(v, keys)
-            for k, v in d.items()
+            k: "[Filtered]" if k.lower() in keys else _scrub_dict(v, keys) for k, v in d.items()
         }
     if isinstance(d, list):
         return [_scrub_dict(item, keys) for item in d]
     return d
 
 
-def before_send(event, hint):
+def before_send(event, hint):  # noqa: ANN001, ANN201
     """Strip sensitive HTTP headers and PII from Sentry error events before transmission.
 
     Registered as ``before_send`` in ``sentry_sdk.init()``.
@@ -176,7 +198,7 @@ def before_send(event, hint):
     # 2. M-G: mask IP addresses in request.env fields
     env = request.get("env", {})
     for ip_field in ("REMOTE_ADDR", "HTTP_X_FORWARDED_FOR"):
-        if ip_field in env and env[ip_field]:
+        if env.get(ip_field):
             env[ip_field] = _mask_ip(env[ip_field])
 
     # 3. M-J: scrub PII from event["extra"] (contains request.POST under Django SDK)

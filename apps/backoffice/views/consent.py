@@ -10,6 +10,7 @@ URL names (namespace: backoffice):
   data-request-detail     GET/POST /backoffice/data-requests/<uuid>/
   citizen-consent-history GET  /backoffice/citizens/<int:pk>/consent/
 """
+
 from __future__ import annotations
 
 import logging
@@ -18,8 +19,6 @@ from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect
-from django.utils.translation import gettext_lazy as _
-from django.views import View
 from django.views.generic import DetailView, ListView, TemplateView
 
 from apps.backoffice.mixins import StaffRequiredMixin
@@ -39,11 +38,11 @@ class ConsentDataRequestListView(StaffRequiredMixin, ListView):
     context_object_name = "export_requests"
     paginate_by = 30
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         from apps.consent.models import DataExportRequest
 
         qs = DataExportRequest.objects.select_related("citizen").order_by("-requested_at")
-        VALID_STATUSES = {choice[0] for choice in DataExportRequest.STATUS_CHOICES}
+        VALID_STATUSES = {choice[0] for choice in DataExportRequest.STATUS_CHOICES}  # noqa: N806
         status_filter = self.request.GET.get("status", "").strip()
         if status_filter:
             if status_filter in VALID_STATUSES:
@@ -54,7 +53,7 @@ class ConsentDataRequestListView(StaffRequiredMixin, ListView):
         self.status_filter = status_filter
         return qs
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         from apps.consent.models import DataExportRequest
 
         ctx = super().get_context_data(**kwargs)
@@ -73,7 +72,7 @@ class ConsentDataRequestDetailView(StaffRequiredMixin, DetailView):
     template_name = "backoffice/consent/data_request_detail.html"
     context_object_name = "export_request"
 
-    def get_object(self, queryset=None):
+    def get_object(self, queryset=None):  # noqa: ANN001, ANN201
         from apps.consent.models import DataExportRequest
 
         return get_object_or_404(
@@ -81,22 +80,20 @@ class ConsentDataRequestDetailView(StaffRequiredMixin, DetailView):
             pk=self.kwargs["pk"],
         )
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         from apps.consent.models import ConsentAuditEntry
 
         ctx = super().get_context_data(**kwargs)
-        ctx["audit_trail"] = ConsentAuditEntry.objects.filter(
-            export_request=self.object
-        ).order_by("timestamp")
+        ctx["audit_trail"] = ConsentAuditEntry.objects.filter(export_request=self.object).order_by(
+            "timestamp"
+        )
         return ctx
 
-    def post(self, request, pk):
+    def post(self, request, pk):  # noqa: ANN001, ANN201
         from apps.consent.models import ConsentAuditEntry, DataExportRequest
 
         with transaction.atomic():
-            req = get_object_or_404(
-                DataExportRequest.objects.select_for_update(), pk=pk
-            )
+            req = get_object_or_404(DataExportRequest.objects.select_for_update(), pk=pk)
             if req.status != DataExportRequest.STATUS_READY:
                 messages.error(
                     request,
@@ -133,7 +130,7 @@ class CitizenConsentHistoryView(StaffRequiredMixin, TemplateView):
 
     template_name = "backoffice/consent/citizen_consent_history.html"
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         from apps.consent.models import ConsentAuditEntry, ConsentRecord
 
         ctx = super().get_context_data(**kwargs)

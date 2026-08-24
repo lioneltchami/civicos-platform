@@ -4,6 +4,7 @@ This boundary deliberately delegates provider I/O to the existing worker-only
 runtime. Subsequent increments must move every retry/replay/reconciliation
 caller through this command and prove token/generation fencing end to end.
 """
+
 from __future__ import annotations
 
 from .govstack_models import PaymentAttempt

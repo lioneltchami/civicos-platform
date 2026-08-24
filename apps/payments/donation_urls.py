@@ -5,13 +5,14 @@ Wave 4, Track A — CivicOS Payments Building Block.
 Namespace: donate
 Mount point: /donate/ (configured in config/urls.py)
 """
+
 from django.urls import path
 
 from apps.payments.views.donation import (
-    DonationSelectView,
-    DonationConfirmView,
-    DonationSuccessView,
     DonationCancelView,
+    DonationConfirmView,
+    DonationSelectView,
+    DonationSuccessView,
     RecurringGiftCancelView,
     create_donation_intent_api,
 )

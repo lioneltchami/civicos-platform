@@ -21,6 +21,7 @@ outer transaction commits — which in TestCase it never does.  We therefore
 assert on_commit behaviour by patching transaction.on_commit() and capturing
 the callback or by using TestCase.captureOnCommitCallbacks() (Django 4.1+).
 """
+
 from __future__ import annotations
 
 import datetime
@@ -70,27 +71,27 @@ def _make_user(email=None, password="testpass!", **kwargs):
 
 
 def _make_program(**kwargs):
-    defaults = dict(
-        name_en="Community Support",
-        name_fr="Soutien communautaire",
-        slug=f"prog-{_user_counter[0]}",
-        cra_category="welfare",
-    )
+    defaults = {
+        "name_en": "Community Support",
+        "name_fr": "Soutien communautaire",
+        "slug": f"prog-{_user_counter[0]}",
+        "cra_category": "welfare",
+    }
     defaults.update(kwargs)
     return Program.objects.create(**defaults)
 
 
 def _make_opportunity(program, *, slug=None, status="published", **kwargs):
     _user_counter[0] += 1
-    defaults = dict(
-        title_en="Drive Clients to Appointments",
-        title_fr="Conduire les clients",
-        slug=slug or f"opp-{_user_counter[0]}",
-        description_en="Drive elderly clients to appointments.",
-        description_fr="Conduire les clients.",
-        program=program,
-        status=status,
-    )
+    defaults = {
+        "title_en": "Drive Clients to Appointments",
+        "title_fr": "Conduire les clients",
+        "slug": slug or f"opp-{_user_counter[0]}",
+        "description_en": "Drive elderly clients to appointments.",
+        "description_fr": "Conduire les clients.",
+        "program": program,
+        "status": status,
+    }
     defaults.update(kwargs)
     return Opportunity.objects.create(**defaults)
 
@@ -118,6 +119,7 @@ def _grant_coordinator_permission(user):
 # ---------------------------------------------------------------------------
 # Base test case
 # ---------------------------------------------------------------------------
+
 
 class BaseApplicationTestCase(TestCase):
     """
@@ -182,8 +184,8 @@ class BaseApplicationTestCase(TestCase):
 # apply() tests
 # ===========================================================================
 
-class ApplyTests(BaseApplicationTestCase):
 
+class ApplyTests(BaseApplicationTestCase):
     def test_apply_creates_application(self):
         """Happy path: apply() returns a saved VolunteerApplication with status=pending."""
         app = apply(
@@ -254,9 +256,7 @@ class ApplyTests(BaseApplicationTestCase):
         We patch create_work_item at import time in the applications module
         and use captureOnCommitCallbacks(execute=True) to trigger on_commit.
         """
-        with mock.patch(
-            "apps.workflows.services.create_work_item"
-        ) as mock_create:
+        with mock.patch("apps.workflows.services.create_work_item") as mock_create:
             with self.captureOnCommitCallbacks(execute=True):
                 apply(
                     volunteer_profile=self.profile,
@@ -343,6 +343,7 @@ class ApplyTests(BaseApplicationTestCase):
                 password="x",
             )
             from apps.volunteers.models import VolunteerProfile
+
             other_profile = VolunteerProfile.objects.create(
                 user=other_user, preferred_name=f"Cap Vol {i}"
             )
@@ -364,7 +365,7 @@ class ApplyTests(BaseApplicationTestCase):
         self.assertEqual(app.status, VolunteerApplication.STATUS_PENDING)
 
     def test_apply_raises_if_approved_application_exists(self):
-        """apply() must raise when volunteer already has STATUS_APPROVED for the same opportunity."""
+        """apply() must raise when volunteer already has STATUS_APPROVED for the same opportunity."""  # noqa: E501
         VolunteerApplication.objects.create(
             volunteer=self.profile,
             opportunity=self.opportunity,
@@ -437,8 +438,8 @@ class ApplyTests(BaseApplicationTestCase):
 # withdraw() tests
 # ===========================================================================
 
-class WithdrawTests(BaseApplicationTestCase):
 
+class WithdrawTests(BaseApplicationTestCase):
     def _pending_application(self):
         return VolunteerApplication.objects.create(
             volunteer=self.profile,
@@ -547,8 +548,8 @@ class WithdrawTests(BaseApplicationTestCase):
 # approve_application() tests
 # ===========================================================================
 
-class ApproveApplicationTests(BaseApplicationTestCase):
 
+class ApproveApplicationTests(BaseApplicationTestCase):
     def _pending_application(self):
         return VolunteerApplication.objects.create(
             volunteer=self.profile,
@@ -700,8 +701,8 @@ class ApproveApplicationTests(BaseApplicationTestCase):
 # reject_application() tests
 # ===========================================================================
 
-class RejectApplicationTests(BaseApplicationTestCase):
 
+class RejectApplicationTests(BaseApplicationTestCase):
     def _pending_application(self):
         return VolunteerApplication.objects.create(
             volunteer=self.profile,
@@ -949,6 +950,7 @@ class RejectApplicationTests(BaseApplicationTestCase):
 # ===========================================================================
 # Screening service tests
 # ===========================================================================
+
 
 class RecordCheckTests(BaseApplicationTestCase):
     """Tests for screening.record_check()."""
@@ -1398,6 +1400,7 @@ class CheckExpiringSoonTests(BaseApplicationTestCase):
 # Additional edge-case / security tests
 # ---------------------------------------------------------------------------
 
+
 class ApplicationAtomicityTests(BaseApplicationTestCase):
     """
     Tests verifying that service functions behave correctly under the global
@@ -1416,9 +1419,7 @@ class ApplicationAtomicityTests(BaseApplicationTestCase):
         ApplicationRollbackTransactionTests below, which requires
         TransactionTestCase.
         """
-        with mock.patch(
-            "apps.workflows.services.create_work_item"
-        ) as mock_create:
+        with mock.patch("apps.workflows.services.create_work_item") as mock_create:
             with self.captureOnCommitCallbacks(execute=True):
                 apply(
                     volunteer_profile=self.profile,
@@ -1492,6 +1493,7 @@ class SuperuserPermissionTests(BaseApplicationTestCase):
 # Rollback transaction tests  (requires TransactionTestCase)
 # ===========================================================================
 
+
 class ApplicationRollbackTransactionTests(TransactionTestCase):
     """
     Tests verifying that on_commit() callbacks are suppressed when the outer
@@ -1529,7 +1531,7 @@ class ApplicationRollbackTransactionTests(TransactionTestCase):
         """
         from django.db import transaction
 
-        class _ForceRollback(Exception):
+        class _ForceRollback(Exception):  # noqa: N818
             pass
 
         initial_count = VolunteerApplication.objects.count()
@@ -1552,12 +1554,14 @@ class ApplicationRollbackTransactionTests(TransactionTestCase):
         # Because the transaction rolled back, on_commit() never fired, so
         # create_work_item() was never called and no WorkItem was created.
         from apps.workflows.models import WorkItem
+
         self.assertEqual(WorkItem.objects.count(), 0)
 
 
 # ===========================================================================
 # Race / concurrent-apply tests  (requires TransactionTestCase)
 # ===========================================================================
+
 
 class ApplyRaceConditionTests(TransactionTestCase):
     """

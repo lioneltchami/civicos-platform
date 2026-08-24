@@ -27,15 +27,17 @@ WebhookEvent field reference (actual model):
 - signature_verified BooleanField — must be True before processing
 - gateway         CharField   — "stripe" | "moneris"
 """
+
 import datetime
 import logging
 import types
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
-from celery import shared_task
 from django.db import transaction
 from django.db import transaction as db_transaction
 from django.utils import timezone
+
+from celery import shared_task
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +50,7 @@ logger = logging.getLogger(__name__)
     reject_on_worker_lost=True,
     queue="webhooks",  # H9: dedicated queue — must not be starved by receipt batch tasks
 )
-def process_stripe_webhook(self, webhook_event_pk: str) -> None:
+def process_stripe_webhook(self, webhook_event_pk: str) -> None:  # noqa: ANN001
     """
     Process a single Stripe webhook event.
 
@@ -58,9 +60,9 @@ def process_stripe_webhook(self, webhook_event_pk: str) -> None:
     Idempotency: Exits immediately if WebhookEvent.processed is True.
     All state changes are wrapped in a transaction — partial updates never persist.
     """
-    from apps.payments.models import WebhookEvent
     from apps.payments.gateway import get_gateway
     from apps.payments.gateways.exceptions import GatewayError
+    from apps.payments.models import WebhookEvent
 
     # ── Load the event ────────────────────────────────────────────────────────
     try:
@@ -75,8 +77,7 @@ def process_stripe_webhook(self, webhook_event_pk: str) -> None:
     # ── Idempotency gate ──────────────────────────────────────────────────────
     if webhook_event.processed:
         logger.info(
-            "payments.task.skipping_already_processed "
-            "gateway_event_id=%s",
+            "payments.task.skipping_already_processed " "gateway_event_id=%s",
             webhook_event.gateway_event_id,
         )
         return
@@ -84,8 +85,7 @@ def process_stripe_webhook(self, webhook_event_pk: str) -> None:
     # ── Safety gate: signature must have been verified by the view ────────────
     if not webhook_event.signature_verified:
         logger.error(
-            "payments.task.signature_not_verified "
-            "gateway_event_id=%s — refusing to process",
+            "payments.task.signature_not_verified " "gateway_event_id=%s — refusing to process",
             webhook_event.gateway_event_id,
         )
         webhook_event.error = "SignatureNotVerified: refusing to process unverified event"
@@ -93,8 +93,7 @@ def process_stripe_webhook(self, webhook_event_pk: str) -> None:
         return
 
     logger.info(
-        "payments.task.processing "
-        "gateway_event_id=%s event_type=%s",
+        "payments.task.processing " "gateway_event_id=%s event_type=%s",
         webhook_event.gateway_event_id,
         webhook_event.event_type,
     )
@@ -137,8 +136,7 @@ def process_stripe_webhook(self, webhook_event_pk: str) -> None:
             webhook_event.save(update_fields=["processed", "processed_at", "error", "updated_at"])
     except Exception as exc:
         logger.error(
-            "payments.task.handler_error "
-            "type=%s event_type=%s gateway_event_id=%s",
+            "payments.task.handler_error " "type=%s event_type=%s gateway_event_id=%s",
             type(exc).__name__,
             event_type,
             webhook_event.gateway_event_id,
@@ -150,14 +148,16 @@ def process_stripe_webhook(self, webhook_event_pk: str) -> None:
 
         # Retry on transient errors
         from apps.payments.gateways.exceptions import GatewayNetworkError, GatewayRateLimitError
-        if isinstance(exc, (GatewayNetworkError, GatewayRateLimitError)):
-            raise self.retry(exc=exc, countdown=60 * (2 ** self.request.retries))
+
+        if isinstance(exc, GatewayNetworkError | GatewayRateLimitError):
+            raise self.retry(exc=exc, countdown=60 * (2**self.request.retries))  # noqa: B904
         raise
 
 
 # ── Event handlers ─────────────────────────────────────────────────────────────
 
-def _handle_payment_intent_succeeded(event_data: dict, webhook_event) -> None:
+
+def _handle_payment_intent_succeeded(event_data: dict, webhook_event) -> None:  # noqa: ANN001
     """
     Create a Payment record and advance PaymentIntent to COMPLETED.
 
@@ -184,15 +184,14 @@ def _handle_payment_intent_succeeded(event_data: dict, webhook_event) -> None:
     Gap closed: without this, payment_completed had zero receivers and one-time
     donations never produced a Donation row or CRA receipt.
     """
-    from apps.payments.models import Payment, PaymentIntent, PaymentAuditEntry
+    from apps.payments.models import Payment, PaymentAuditEntry, PaymentIntent
 
     gateway_intent_id = event_data.get("gateway_intent_id", "")
     gateway_charge_id = event_data.get("gateway_charge_id", "")
 
     if not gateway_intent_id:
         logger.error(
-            "payments.handler.payment_intent_succeeded.missing_intent_id "
-            "gateway_event_id=%s",
+            "payments.handler.payment_intent_succeeded.missing_intent_id " "gateway_event_id=%s",
             webhook_event.gateway_event_id,
         )
         return
@@ -200,20 +199,16 @@ def _handle_payment_intent_succeeded(event_data: dict, webhook_event) -> None:
     # Idempotency: skip if Payment already exists for this charge (inside atomic)
     if gateway_charge_id and Payment.objects.filter(gateway_charge_id=gateway_charge_id).exists():
         logger.info(
-            "payments.handler.payment_intent_succeeded.already_processed "
-            "gateway_charge_id=%s",
+            "payments.handler.payment_intent_succeeded.already_processed " "gateway_charge_id=%s",
             gateway_charge_id,
         )
         return
 
     try:
-        intent = PaymentIntent.objects.select_for_update().get(
-            gateway_intent_id=gateway_intent_id
-        )
+        intent = PaymentIntent.objects.select_for_update().get(gateway_intent_id=gateway_intent_id)
     except PaymentIntent.DoesNotExist:
         logger.error(
-            "payments.handler.payment_intent_succeeded.intent_not_found "
-            "gateway_intent_id=%s",
+            "payments.handler.payment_intent_succeeded.intent_not_found " "gateway_intent_id=%s",
             gateway_intent_id,
         )
         return
@@ -233,11 +228,10 @@ def _handle_payment_intent_succeeded(event_data: dict, webhook_event) -> None:
     # FIX 5: Parse paid_at from Stripe charge.created (Unix timestamp integer as string)
     paid_at_raw = event_data.get("paid_at", "")
     try:
-        paid_at = datetime.datetime.fromtimestamp(int(paid_at_raw), tz=datetime.timezone.utc)
+        paid_at = datetime.datetime.fromtimestamp(int(paid_at_raw), tz=datetime.UTC)
     except (ValueError, TypeError):
         logger.warning(
-            "payments.handler.paid_at_parse_failed "
-            "gateway_event_id=%s paid_at_raw_type=%s",
+            "payments.handler.paid_at_parse_failed " "gateway_event_id=%s paid_at_raw_type=%s",
             webhook_event.gateway_event_id,
             type(paid_at_raw).__name__,
         )
@@ -268,7 +262,7 @@ def _handle_payment_intent_succeeded(event_data: dict, webhook_event) -> None:
         payment_intent=intent,
         payment=payment,
         action="payment_completed",
-        actor=None,      # system event
+        actor=None,  # system event
         actor_ip="",
         details={
             "gateway_event_id": webhook_event.gateway_event_id,
@@ -277,8 +271,7 @@ def _handle_payment_intent_succeeded(event_data: dict, webhook_event) -> None:
     )
 
     logger.info(
-        "payments.handler.payment_intent_succeeded.done "
-        "gateway_intent_id=%s payment_pk=%s",
+        "payments.handler.payment_intent_succeeded.done " "gateway_intent_id=%s payment_pk=%s",
         gateway_intent_id,
         str(payment.pk),
     )
@@ -291,15 +284,16 @@ def _handle_payment_intent_succeeded(event_data: dict, webhook_event) -> None:
     _intent_ref = intent
     _payment_ref = payment
 
-    def _send_payment_completed_signal():
+    def _send_payment_completed_signal() -> None:
         from apps.payments.signals import payment_completed
+
         try:
             payment_completed.send(
                 sender=type(_payment_ref),
                 payment_intent=_intent_ref,
                 payment=_payment_ref,
             )
-        except Exception:
+        except Exception:  # noqa: S110
             pass  # Never let signal errors crash post-commit hooks
 
     db_transaction.on_commit(_send_payment_completed_signal)
@@ -315,7 +309,7 @@ def _handle_payment_intent_succeeded(event_data: dict, webhook_event) -> None:
         _handle_one_time_donation(intent, payment, webhook_event)
 
 
-def _handle_one_time_donation(intent, payment, webhook_event) -> None:
+def _handle_one_time_donation(intent, payment, webhook_event) -> None:  # noqa: ANN001
     """
     Create a Donation row for a one-time (non-recurring) donation and emit
     donation_completed so that the receipt receiver fires.
@@ -331,11 +325,10 @@ def _handle_one_time_donation(intent, payment, webhook_event) -> None:
     - source       : "donation"
     """
     from apps.payments.models import (
+        DONATION_STATUS_COMPLETED,
         Donation,
         DonationCampaign,
-        DONATION_STATUS_COMPLETED,
     )
-    from apps.payments.signals import donation_completed
 
     # Skip subscription-initiated intents (handled by invoice handler)
     if intent.metadata.get("is_recurring") == "1":
@@ -344,8 +337,7 @@ def _handle_one_time_donation(intent, payment, webhook_event) -> None:
     # Idempotency: if a Donation already exists for this intent, skip
     if Donation.objects.filter(payment_intent=intent).exists():
         logger.info(
-            "payments.handler.one_time_donation.already_exists "
-            "intent_pk=%s",
+            "payments.handler.one_time_donation.already_exists " "intent_pk=%s",
             str(intent.pk),
         )
         return
@@ -356,6 +348,7 @@ def _handle_one_time_donation(intent, payment, webhook_event) -> None:
     if campaign_pk:
         try:
             import uuid as _uuid_mod
+
             campaign = DonationCampaign.objects.get(pk=_uuid_mod.UUID(campaign_pk))
         except (DonationCampaign.DoesNotExist, ValueError):
             logger.warning(
@@ -386,15 +379,16 @@ def _handle_one_time_donation(intent, payment, webhook_event) -> None:
         except (InvalidOperation, TypeError):
             advantage_amount = Decimal("0.00")
             logger.warning(
-                "payments.handler.one_time_donation.invalid_advantage_amount "
-                "intent_pk=%s",
+                "payments.handler.one_time_donation.invalid_advantage_amount " "intent_pk=%s",
                 str(intent.pk),
             )
     else:
         # Fallback: use campaign default (legacy intents created before this fix)
         advantage_amount = Decimal("0.00")
         if campaign:
-            advantage_amount = getattr(campaign, "advantage_amount", Decimal("0.00")) or Decimal("0.00")
+            advantage_amount = getattr(campaign, "advantage_amount", Decimal("0.00")) or Decimal(
+                "0.00"
+            )
 
     # eligible_amount: prefer metadata, otherwise compute from payment minus advantage.
     # M-K fix: floor at Decimal("0.00") on the happy path — a negative value from
@@ -449,7 +443,7 @@ def _handle_one_time_donation(intent, payment, webhook_event) -> None:
             donor_address_snapshot = donor.donor_profile.postal_address.strip()
         elif hasattr(donor, "profile"):
             donor_address_snapshot = getattr(donor.profile, "postal_address", "").strip()
-    except Exception:
+    except Exception:  # noqa: S110
         pass
 
     if not donor_address_snapshot:
@@ -479,8 +473,7 @@ def _handle_one_time_donation(intent, payment, webhook_event) -> None:
     )
 
     logger.info(
-        "payments.handler.one_time_donation.done "
-        "intent_pk=%s donation_pk=%s",
+        "payments.handler.one_time_donation.done " "intent_pk=%s donation_pk=%s",
         str(intent.pk),
         str(donation.pk),
     )
@@ -489,20 +482,22 @@ def _handle_one_time_donation(intent, payment, webhook_event) -> None:
     donation_pk = str(donation.pk)
     payment_pk = str(payment.pk)
 
-    def _send_donation_completed(donation_pk=donation_pk, payment_pk=payment_pk):
-        from apps.payments.models import Donation as _Donation, Payment as _Payment
+    def _send_donation_completed(donation_pk=donation_pk, payment_pk=payment_pk) -> None:  # noqa: ANN001
+        from apps.payments.models import Donation as _Donation
+        from apps.payments.models import Payment as _Payment
         from apps.payments.signals import donation_completed as _signal
+
         try:
             _donation = _Donation.objects.get(pk=donation_pk)
             _payment = _Payment.objects.get(pk=payment_pk)
             _signal.send(sender=_Donation, donation=_donation, payment=_payment)
-        except Exception:
+        except Exception:  # noqa: S110
             pass  # Never let signal errors crash post-commit hooks
 
     db_transaction.on_commit(_send_donation_completed)
 
 
-def _handle_payment_intent_failed(event_data: dict, webhook_event) -> None:
+def _handle_payment_intent_failed(event_data: dict, webhook_event) -> None:  # noqa: ANN001
     """
     Advance PaymentIntent to FAILED and log audit entry.
 
@@ -510,27 +505,23 @@ def _handle_payment_intent_failed(event_data: dict, webhook_event) -> None:
     PROCESSING → FAILED is also allowed. Both paths are handled below.
     Signal emission deferred to on_commit() so it fires only after DB commits.
     """
-    from apps.payments.models import PaymentIntent, PaymentAuditEntry
+    from apps.payments.models import PaymentAuditEntry, PaymentIntent
 
     gateway_intent_id = event_data.get("gateway_intent_id", "")
     failure_reason = event_data.get("failure_reason", "unknown")
 
     if not gateway_intent_id:
         logger.error(
-            "payments.handler.payment_intent_failed.missing_intent_id "
-            "gateway_event_id=%s",
+            "payments.handler.payment_intent_failed.missing_intent_id " "gateway_event_id=%s",
             webhook_event.gateway_event_id,
         )
         return
 
     try:
-        intent = PaymentIntent.objects.select_for_update().get(
-            gateway_intent_id=gateway_intent_id
-        )
+        intent = PaymentIntent.objects.select_for_update().get(gateway_intent_id=gateway_intent_id)
     except PaymentIntent.DoesNotExist:
         logger.error(
-            "payments.handler.payment_intent_failed.intent_not_found "
-            "gateway_intent_id=%s",
+            "payments.handler.payment_intent_failed.intent_not_found " "gateway_intent_id=%s",
             gateway_intent_id,
         )
         return
@@ -558,21 +549,22 @@ def _handle_payment_intent_failed(event_data: dict, webhook_event) -> None:
     _intent_ref = intent
     _failure_reason_ref = failure_reason
 
-    def _send_payment_failed_signal():
+    def _send_payment_failed_signal() -> None:
         from apps.payments.signals import payment_failed
+
         try:
             payment_failed.send(
                 sender=type(_intent_ref),
                 payment_intent=_intent_ref,
                 failure_reason=_failure_reason_ref,
             )
-        except Exception:
+        except Exception:  # noqa: S110
             pass  # Never let signal errors crash post-commit hooks
 
     db_transaction.on_commit(_send_payment_failed_signal)
 
 
-def _handle_charge_refunded(event_data: dict, webhook_event) -> None:
+def _handle_charge_refunded(event_data: dict, webhook_event) -> None:  # noqa: ANN001
     """
     Handle charge.refunded — covers both CivicOS-initiated refunds (already have
     a Refund row) and Stripe-dashboard-initiated refunds (no Refund row yet).
@@ -588,7 +580,7 @@ def _handle_charge_refunded(event_data: dict, webhook_event) -> None:
 
     Called inside an atomic transaction by process_stripe_webhook.
     """
-    from apps.payments.models import Payment, Refund, PaymentAuditEntry
+    from apps.payments.models import Payment, PaymentAuditEntry, Refund
 
     gateway_refund_id = event_data.get("gateway_refund_id", "")
     gateway_charge_id = event_data.get("gateway_charge_id", "")
@@ -596,29 +588,24 @@ def _handle_charge_refunded(event_data: dict, webhook_event) -> None:
 
     if not gateway_refund_id:
         logger.info(
-            "payments.handler.charge_refunded.no_refund_id "
-            "gateway_event_id=%s",
+            "payments.handler.charge_refunded.no_refund_id " "gateway_event_id=%s",
             webhook_event.gateway_event_id,
         )
         return
 
     if not gateway_charge_id:
         logger.warning(
-            "payments.handler.charge_refunded.no_charge_id "
-            "gateway_event_id=%s",
+            "payments.handler.charge_refunded.no_charge_id " "gateway_event_id=%s",
             webhook_event.gateway_event_id,
         )
         return
 
     # Find the Payment by charge ID
     try:
-        payment = Payment.objects.select_for_update().get(
-            gateway_charge_id=gateway_charge_id
-        )
+        payment = Payment.objects.select_for_update().get(gateway_charge_id=gateway_charge_id)
     except Payment.DoesNotExist:
         logger.warning(
-            "payments.handler.charge_refunded.payment_not_found "
-            "gateway_event_id=%s",
+            "payments.handler.charge_refunded.payment_not_found " "gateway_event_id=%s",
             webhook_event.gateway_event_id,
         )
         return
@@ -627,8 +614,7 @@ def _handle_charge_refunded(event_data: dict, webhook_event) -> None:
     # CivicOS-initiated refunds: Refund row exists → already recorded, just audit.
     if Refund.objects.filter(gateway_refund_id=gateway_refund_id).exists():
         logger.info(
-            "payments.handler.charge_refunded.already_recorded "
-            "gateway_event_id=%s",
+            "payments.handler.charge_refunded.already_recorded " "gateway_event_id=%s",
             webhook_event.gateway_event_id,
         )
         # Still create an audit entry so the webhook processing is traceable
@@ -656,7 +642,7 @@ def _handle_charge_refunded(event_data: dict, webhook_event) -> None:
         payment_intent=payment.intent,
         payment=payment,
         action="refund_requested",
-        actor=None,   # system event — no known staff user
+        actor=None,  # system event — no known staff user
         actor_ip="",
         details={
             "source": "stripe_dashboard",
@@ -678,16 +664,15 @@ def _handle_charge_refunded(event_data: dict, webhook_event) -> None:
     )
 
 
-def _handle_subscription_deleted(event_data: dict, webhook_event) -> None:
+def _handle_subscription_deleted(event_data: dict, webhook_event) -> None:  # noqa: ANN001
     """Mark RecurringGiftPlan as cancelled when Stripe subscription is deleted."""
-    from apps.payments.models import RecurringGiftPlan, PaymentAuditEntry, PLAN_STATUS_CANCELLED
+    from apps.payments.models import PLAN_STATUS_CANCELLED, PaymentAuditEntry, RecurringGiftPlan
 
     gateway_subscription_id = event_data.get("gateway_subscription_id", "")
 
     if not gateway_subscription_id:
         logger.error(
-            "payments.handler.subscription_deleted.missing_id "
-            "gateway_event_id=%s",
+            "payments.handler.subscription_deleted.missing_id " "gateway_event_id=%s",
             webhook_event.gateway_event_id,
         )
         return
@@ -700,8 +685,7 @@ def _handle_subscription_deleted(event_data: dict, webhook_event) -> None:
         )
     except RecurringGiftPlan.DoesNotExist:
         logger.warning(
-            "payments.handler.subscription_deleted.not_found "
-            "gateway_subscription_id=%s",
+            "payments.handler.subscription_deleted.not_found " "gateway_subscription_id=%s",
             gateway_subscription_id,
         )
         return
@@ -725,13 +709,13 @@ def _handle_subscription_deleted(event_data: dict, webhook_event) -> None:
     )
 
 
-def _handle_subscription_updated(event_data: dict, webhook_event) -> None:
+def _handle_subscription_updated(event_data: dict, webhook_event) -> None:  # noqa: ANN001
     """Update RecurringGiftPlan status when Stripe subscription status changes."""
     from apps.payments.models import (
-        RecurringGiftPlan,
         PLAN_STATUS_ACTIVE,
-        PLAN_STATUS_PAUSED,
         PLAN_STATUS_CANCELLED,
+        PLAN_STATUS_PAUSED,
+        RecurringGiftPlan,
     )
 
     gateway_subscription_id = event_data.get("gateway_subscription_id", "")
@@ -767,16 +751,17 @@ def _handle_subscription_updated(event_data: dict, webhook_event) -> None:
         update_fields["cancelled_at"] = timezone.now()
         update_fields["cancellation_reason"] = f"stripe_status_{new_status}"
 
-    updated = RecurringGiftPlan.objects.filter(
-        gateway_subscription_id=gateway_subscription_id
-    ).exclude(
-        status=our_status
-    ).exclude(
-        # Item 15: never reactivate a cancelled plan via subscription.updated.
-        # A plan cancelled via _handle_subscription_deleted or the staff portal
-        # must not be un-cancelled by a subsequent Stripe status event.
-        status=PLAN_STATUS_CANCELLED,
-    ).update(**update_fields)
+    updated = (
+        RecurringGiftPlan.objects.filter(gateway_subscription_id=gateway_subscription_id)
+        .exclude(status=our_status)
+        .exclude(
+            # Item 15: never reactivate a cancelled plan via subscription.updated.
+            # A plan cancelled via _handle_subscription_deleted or the staff portal
+            # must not be un-cancelled by a subsequent Stripe status event.
+            status=PLAN_STATUS_CANCELLED,
+        )
+        .update(**update_fields)
+    )
 
     if updated:
         logger.info(
@@ -787,7 +772,7 @@ def _handle_subscription_updated(event_data: dict, webhook_event) -> None:
         )
 
 
-def _handle_invoice_payment_succeeded(event_data: dict, webhook_event) -> None:
+def _handle_invoice_payment_succeeded(event_data: dict, webhook_event) -> None:  # noqa: ANN001
     """
     Create a Donation + Payment when a Stripe Subscription renews.
 
@@ -803,14 +788,13 @@ def _handle_invoice_payment_succeeded(event_data: dict, webhook_event) -> None:
     Signal emission deferred to on_commit() so it fires only after DB commits.
     """
     from apps.payments.models import (
-        Payment,
-        PaymentIntent,
-        Donation,
-        RecurringGiftPlan,
-        PaymentAuditEntry,
         DONATION_STATUS_COMPLETED,
+        Donation,
+        Payment,
+        PaymentAuditEntry,
+        PaymentIntent,
+        RecurringGiftPlan,
     )
-    from apps.payments.signals import donation_completed
 
     gateway_subscription_id = event_data.get("gateway_subscription_id", "")
     gateway_charge_id = event_data.get("gateway_charge_id", "")
@@ -818,8 +802,7 @@ def _handle_invoice_payment_succeeded(event_data: dict, webhook_event) -> None:
 
     if not gateway_subscription_id:
         logger.error(
-            "payments.handler.invoice_succeeded.missing_sub_id "
-            "gateway_event_id=%s",
+            "payments.handler.invoice_succeeded.missing_sub_id " "gateway_event_id=%s",
             webhook_event.gateway_event_id,
         )
         return
@@ -832,8 +815,7 @@ def _handle_invoice_payment_succeeded(event_data: dict, webhook_event) -> None:
     # Idempotency: skip if Payment already exists for this charge
     if gateway_charge_id and Payment.objects.filter(gateway_charge_id=gateway_charge_id).exists():
         logger.info(
-            "payments.handler.invoice_succeeded.already_processed "
-            "gateway_charge_id=%s",
+            "payments.handler.invoice_succeeded.already_processed " "gateway_charge_id=%s",
             gateway_charge_id,
         )
         return
@@ -845,8 +827,7 @@ def _handle_invoice_payment_succeeded(event_data: dict, webhook_event) -> None:
         )
     except RecurringGiftPlan.DoesNotExist:
         logger.warning(
-            "payments.handler.invoice_succeeded.plan_not_found "
-            "gateway_subscription_id=%s",
+            "payments.handler.invoice_succeeded.plan_not_found " "gateway_subscription_id=%s",
             gateway_subscription_id,
         )
         return
@@ -867,7 +848,7 @@ def _handle_invoice_payment_succeeded(event_data: dict, webhook_event) -> None:
                 donor_address_snapshot = donor_user.donor_profile.postal_address.strip()
             elif hasattr(donor_user, "profile"):
                 donor_address_snapshot = getattr(donor_user.profile, "postal_address", "").strip()
-    except Exception:
+    except Exception:  # noqa: S110
         pass
 
     if not donor_address_snapshot:
@@ -882,6 +863,7 @@ def _handle_invoice_payment_succeeded(event_data: dict, webhook_event) -> None:
 
     # Create a new PaymentIntent for this renewal
     import uuid as _uuid_module
+
     new_idempotency_key = _uuid_module.uuid4()
     intent = PaymentIntent.objects.create(
         payer=donor,
@@ -944,7 +926,7 @@ def _handle_invoice_payment_succeeded(event_data: dict, webhook_event) -> None:
 
     PaymentAuditEntry.objects.create(
         action="donation_created",
-        actor=None,          # system / webhook event
+        actor=None,  # system / webhook event
         actor_ip="",
         payment_intent=intent,
         payment=payment,
@@ -957,8 +939,7 @@ def _handle_invoice_payment_succeeded(event_data: dict, webhook_event) -> None:
     )
 
     logger.info(
-        "payments.handler.invoice_succeeded.done "
-        "sub_id=%s donation_pk=%s payment_pk=%s",
+        "payments.handler.invoice_succeeded.done " "sub_id=%s donation_pk=%s payment_pk=%s",
         gateway_subscription_id,
         str(donation.pk),
         str(payment.pk),
@@ -968,20 +949,22 @@ def _handle_invoice_payment_succeeded(event_data: dict, webhook_event) -> None:
     donation_pk = str(donation.pk)
     payment_pk = str(payment.pk)
 
-    def _send_donation_completed(donation_pk=donation_pk, payment_pk=payment_pk):
-        from apps.payments.models import Donation as _Donation, Payment as _Payment
+    def _send_donation_completed(donation_pk=donation_pk, payment_pk=payment_pk) -> None:  # noqa: ANN001
+        from apps.payments.models import Donation as _Donation
+        from apps.payments.models import Payment as _Payment
         from apps.payments.signals import donation_completed as _signal
+
         try:
             _donation = _Donation.objects.get(pk=donation_pk)
             _payment = _Payment.objects.get(pk=payment_pk)
             _signal.send(sender=_Donation, donation=_donation, payment=_payment)
-        except Exception:
+        except Exception:  # noqa: S110
             pass  # Never let signal errors crash post-commit hooks
 
     db_transaction.on_commit(_send_donation_completed)
 
 
-def _handle_charge_dispute_created(event_data: dict, webhook_event) -> None:
+def _handle_charge_dispute_created(event_data: dict, webhook_event) -> None:  # noqa: ANN001
     """
     Stripe has opened a dispute/chargeback. Staff must submit evidence within 7 days.
 
@@ -1001,12 +984,16 @@ def _handle_charge_dispute_created(event_data: dict, webhook_event) -> None:
         "payments.task.dispute_created "
         "charge_id=%s amount=%s currency=%s reason=%s due_by=%s — "
         "MANUAL REVIEW REQUIRED within 7 days",
-        charge_id, amount, currency, reason, due_by,
+        charge_id,
+        amount,
+        currency,
+        reason,
+        due_by,
     )
     # Future: create DisputeAlert, notify backoffice staff, pause refund eligibility
 
 
-def _handle_charge_dispute_updated(event_data: dict, webhook_event) -> None:
+def _handle_charge_dispute_updated(event_data: dict, webhook_event) -> None:  # noqa: ANN001
     """
     Stripe has updated a dispute. Log status change for ops visibility.
 
@@ -1017,11 +1004,12 @@ def _handle_charge_dispute_updated(event_data: dict, webhook_event) -> None:
     status = data.get("status", "")
     logger.warning(
         "payments.task.dispute_updated charge_id=%s status=%s",
-        charge_id, status,
+        charge_id,
+        status,
     )
 
 
-def _handle_charge_dispute_closed(event_data: dict, webhook_event) -> None:
+def _handle_charge_dispute_closed(event_data: dict, webhook_event) -> None:  # noqa: ANN001
     """
     Stripe has closed a dispute. Log outcome for ops visibility.
 
@@ -1032,11 +1020,12 @@ def _handle_charge_dispute_closed(event_data: dict, webhook_event) -> None:
     status = data.get("status", "")
     logger.warning(
         "payments.task.dispute_closed charge_id=%s outcome_status=%s",
-        charge_id, status,
+        charge_id,
+        status,
     )
 
 
-def _handle_invoice_payment_failed(event_data: dict, webhook_event) -> None:
+def _handle_invoice_payment_failed(event_data: dict, webhook_event) -> None:  # noqa: ANN001
     """
     Mark RecurringGiftPlan as past_due when a subscription renewal fails.
 
@@ -1045,14 +1034,13 @@ def _handle_invoice_payment_failed(event_data: dict, webhook_event) -> None:
     no STATUS_PAST_DUE exists. We use PLAN_STATUS_PAUSED as the closest match
     and record the reason in cancellation_reason for audit purposes.
     """
-    from apps.payments.models import RecurringGiftPlan, PLAN_STATUS_ACTIVE, PLAN_STATUS_PAUSED
+    from apps.payments.models import PLAN_STATUS_ACTIVE, PLAN_STATUS_PAUSED, RecurringGiftPlan
 
     gateway_subscription_id = event_data.get("gateway_subscription_id", "")
 
     if not gateway_subscription_id:
         logger.error(
-            "payments.handler.invoice_failed.missing_sub_id "
-            "gateway_event_id=%s",
+            "payments.handler.invoice_failed.missing_sub_id " "gateway_event_id=%s",
             webhook_event.gateway_event_id,
         )
         return
@@ -1073,8 +1061,7 @@ def _handle_invoice_payment_failed(event_data: dict, webhook_event) -> None:
 
     if updated:
         logger.info(
-            "payments.handler.invoice_failed.paused "
-            "gateway_subscription_id=%s",
+            "payments.handler.invoice_failed.paused " "gateway_subscription_id=%s",
             gateway_subscription_id,
         )
 
@@ -1083,15 +1070,17 @@ def _handle_invoice_payment_failed(event_data: dict, webhook_event) -> None:
 # FIX 8: Freeze the dispatch table to prevent runtime mutation bugs.
 # types.MappingProxyType is a read-only view — assignment raises TypeError.
 
-_HANDLERS = types.MappingProxyType({
-    "payment_intent.succeeded": _handle_payment_intent_succeeded,
-    "payment_intent.payment_failed": _handle_payment_intent_failed,
-    "charge.refunded": _handle_charge_refunded,
-    "charge.dispute.created": _handle_charge_dispute_created,
-    "charge.dispute.updated": _handle_charge_dispute_updated,
-    "charge.dispute.closed": _handle_charge_dispute_closed,
-    "customer.subscription.deleted": _handle_subscription_deleted,
-    "customer.subscription.updated": _handle_subscription_updated,
-    "invoice.payment_succeeded": _handle_invoice_payment_succeeded,
-    "invoice.payment_failed": _handle_invoice_payment_failed,
-})
+_HANDLERS = types.MappingProxyType(
+    {
+        "payment_intent.succeeded": _handle_payment_intent_succeeded,
+        "payment_intent.payment_failed": _handle_payment_intent_failed,
+        "charge.refunded": _handle_charge_refunded,
+        "charge.dispute.created": _handle_charge_dispute_created,
+        "charge.dispute.updated": _handle_charge_dispute_updated,
+        "charge.dispute.closed": _handle_charge_dispute_closed,
+        "customer.subscription.deleted": _handle_subscription_deleted,
+        "customer.subscription.updated": _handle_subscription_updated,
+        "invoice.payment_succeeded": _handle_invoice_payment_succeeded,
+        "invoice.payment_failed": _handle_invoice_payment_failed,
+    }
+)

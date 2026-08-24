@@ -37,7 +37,7 @@ class ServiceRequestStatusForm(forms.Form):
         help_text=_("Explain the status change to the citizen."),
     )
 
-    def clean_new_status(self):
+    def clean_new_status(self):  # noqa: ANN201
         value = self.cleaned_data.get("new_status", "")
         if value not in ServiceRequestStatus.values:
             raise forms.ValidationError(_("Select a valid status."))

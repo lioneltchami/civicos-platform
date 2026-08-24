@@ -23,11 +23,9 @@ Security invariants:
 from __future__ import annotations
 
 import io
-import struct
 import uuid
 import zipfile
-from datetime import timedelta
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -146,7 +144,6 @@ def _make_bomb_zip() -> bytes:
 
 
 class MakeStorageKeyTests(TestCase):
-
     def test_valid_prefix_quarantine(self):
         key = _make_storage_key("abc", prefix="quarantine")
         self.assertTrue(key.startswith("documents/quarantine/abc/"))
@@ -261,7 +258,6 @@ class ValidateMagicBytesTests(TestCase):
 
 @override_settings(CIVICOS=CIVICOS_OVERRIDES)
 class CheckZipBombTests(TestCase):
-
     def test_clean_zip_passes(self):
         """A small, clean ZIP does not trigger the bomb check."""
         zip_bytes = _make_zip_bytes(entries=1, ratio=1)
@@ -318,7 +314,6 @@ class CheckZipBombTests(TestCase):
     },
 )
 class ValidateUploadRequestTests(TestCase):
-
     def setUp(self):
         self.user = make_user()
         self.category = make_category()
@@ -387,7 +382,9 @@ class ValidateUploadRequestTests(TestCase):
         # Top-level response must not expose storage_key as a named key
         self.assertNotIn("storage_key", result)
         # Exact allowed top-level keys
-        self.assertEqual(set(result.keys()), {"doc_id", "upload_url", "upload_fields", "expires_at"})
+        self.assertEqual(
+            set(result.keys()), {"doc_id", "upload_url", "upload_fields", "expires_at"}
+        )
         # doc_id must be a UUID (not accidentally set to the storage key)
         self.assertNotEqual(result["doc_id"], sentinel_storage_key)
         uuid.UUID(result["doc_id"])  # raises ValueError if not a valid UUID
@@ -418,9 +415,7 @@ class ValidateUploadRequestTests(TestCase):
             "apps.documents.services.upload._generate_presigned_post",
             return_value={"url": "", "fields": {}, "expires_at": timezone.now().isoformat()},
         ):
-            with patch(
-                "apps.documents.services.retention.schedule_expiry"
-            ) as mock_expiry:
+            with patch("apps.documents.services.retention.schedule_expiry") as mock_expiry:
                 validate_upload_request(
                     user=self.user,
                     category_slug=self.category.slug,
@@ -438,6 +433,7 @@ class ValidateUploadRequestTests(TestCase):
             received_signals.append(kwargs)
 
         from apps.documents.signals import document_upload_initiated
+
         document_upload_initiated.connect(handler)
         try:
             result = self._call()
@@ -465,6 +461,7 @@ class ValidateUploadRequestTests(TestCase):
 
     def test_anonymous_user_raises_permission_denied(self):
         from django.contrib.auth.models import AnonymousUser
+
         anon = AnonymousUser()
         with self.assertRaises(PermissionDenied):
             validate_upload_request(
@@ -614,6 +611,7 @@ class ValidateUploadRequestTests(TestCase):
         cryptically rejecting every upload with 'Content type not permitted'.
         """
         from django.core.exceptions import ImproperlyConfigured
+
         # Category with no MIME override → falls back to CIVICOS → also empty
         empty_mime_cat = make_category(allowed_mime_types=[])
         with self.assertRaises(ImproperlyConfigured) as ctx:
@@ -623,6 +621,7 @@ class ValidateUploadRequestTests(TestCase):
     def test_no_document_created_on_empty_mime_error(self):
         """ImproperlyConfigured before Document.objects.create — DB must be clean."""
         from django.core.exceptions import ImproperlyConfigured
+
         with override_settings(CIVICOS={**CIVICOS_OVERRIDES, "ALLOWED_UPLOAD_MIME_TYPES": []}):
             empty_mime_cat = make_category(allowed_mime_types=[])
             count_before = Document.objects.count()
@@ -692,7 +691,7 @@ class ConfirmUploadTests(TransactionTestCase):
             ):
                 with patch(
                     "apps.documents.services.upload._validate_magic_bytes",
-                    return_value="application/pdf",  # M-3: must return str so doc.mime_type gets a valid value
+                    return_value="application/pdf",  # M-3: must return str so doc.mime_type gets a valid value  # noqa: E501
                 ):
                     # Layer 5b: PDF encryption check calls _read_full_file then
                     # _check_pdf_encryption.  Patch both so tests don't need real files.
@@ -748,12 +747,17 @@ class ConfirmUploadTests(TransactionTestCase):
     def test_happy_path_sets_scanning_status(self):
         doc = self._make_pending_doc()
         with patch("apps.documents.services.upload._verify_file_exists"):
-            with patch("apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"):
+            with patch(
+                "apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"
+            ):
                 with patch(
                     "apps.documents.services.upload._validate_magic_bytes",
                     return_value="application/pdf",  # H-4: must return str, not MagicMock
                 ):
-                    with patch("apps.documents.services.upload._read_full_file", return_value=b"%PDF-1.4 dummy"):
+                    with patch(
+                        "apps.documents.services.upload._read_full_file",
+                        return_value=b"%PDF-1.4 dummy",
+                    ):
                         with patch("apps.documents.services.upload._check_pdf_encryption"):
                             with patch("apps.documents.tasks.scan_document.apply_async"):
                                 result = confirm_upload(user=self.user, doc_id=str(doc.pk))
@@ -766,12 +770,17 @@ class ConfirmUploadTests(TransactionTestCase):
         """scan_document.apply_async() must be called on_commit with precise args."""
         doc = self._make_pending_doc()
         with patch("apps.documents.services.upload._verify_file_exists"):
-            with patch("apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"):
+            with patch(
+                "apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"
+            ):
                 with patch(
                     "apps.documents.services.upload._validate_magic_bytes",
                     return_value="application/pdf",
                 ):
-                    with patch("apps.documents.services.upload._read_full_file", return_value=b"%PDF-1.4 dummy"):
+                    with patch(
+                        "apps.documents.services.upload._read_full_file",
+                        return_value=b"%PDF-1.4 dummy",
+                    ):
                         with patch("apps.documents.services.upload._check_pdf_encryption"):
                             with patch(
                                 "apps.documents.tasks.scan_document.apply_async"
@@ -779,15 +788,14 @@ class ConfirmUploadTests(TransactionTestCase):
                                 confirm_upload(user=self.user, doc_id=str(doc.pk))
                                 # T-2: assert INSIDE the context with precise args/countdown
                                 # (on_commit fires synchronously in TransactionTestCase).
-                                mock_task.assert_called_once_with(
-                                    args=[str(doc.pk)], countdown=2
-                                )
+                                mock_task.assert_called_once_with(args=[str(doc.pk)], countdown=2)
 
     def test_happy_path_fires_document_confirmed_signal(self):
         doc = self._make_pending_doc()
         received = []
 
         from apps.documents.signals import document_confirmed
+
         # weak=False: Django stores receivers as weak references by default.
         # Anonymous lambdas have no strong reference and are GC'd before the
         # signal fires unless we opt into a strong reference.
@@ -795,12 +803,17 @@ class ConfirmUploadTests(TransactionTestCase):
         document_confirmed.connect(handler, weak=False)
         try:
             with patch("apps.documents.services.upload._verify_file_exists"):
-                with patch("apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"):
+                with patch(
+                    "apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"
+                ):
                     with patch(
                         "apps.documents.services.upload._validate_magic_bytes",
-                        return_value="application/pdf",  # H-4: must return str — MagicMock written to doc.mime_type otherwise
+                        return_value="application/pdf",  # H-4: must return str — MagicMock written to doc.mime_type otherwise  # noqa: E501
                     ):
-                        with patch("apps.documents.services.upload._read_full_file", return_value=b"%PDF-1.4 dummy"):
+                        with patch(
+                            "apps.documents.services.upload._read_full_file",
+                            return_value=b"%PDF-1.4 dummy",
+                        ):
                             with patch("apps.documents.services.upload._check_pdf_encryption"):
                                 with patch("apps.documents.tasks.scan_document.apply_async"):
                                     confirm_upload(user=self.user, doc_id=str(doc.pk))
@@ -811,7 +824,9 @@ class ConfirmUploadTests(TransactionTestCase):
         kwargs = received[0]
         self.assertEqual(kwargs["document_pk"], str(doc.pk))
         self.assertEqual(kwargs["size_bytes"], doc.size_bytes)
-        self.assertEqual(kwargs["mime_type"], "application/pdf")  # H-4: validates against known value
+        self.assertEqual(
+            kwargs["mime_type"], "application/pdf"
+        )  # H-4: validates against known value
 
     def test_document_confirmed_signal_no_storage_key_in_kwargs(self):
         """
@@ -823,16 +838,22 @@ class ConfirmUploadTests(TransactionTestCase):
         received = []
 
         from apps.documents.signals import document_confirmed
+
         handler = lambda sender, **kw: received.append(kw)  # noqa: E731
         document_confirmed.connect(handler, weak=False)
         try:
             with patch("apps.documents.services.upload._verify_file_exists"):
-                with patch("apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"):
+                with patch(
+                    "apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"
+                ):
                     with patch(
                         "apps.documents.services.upload._validate_magic_bytes",
                         return_value="application/pdf",
                     ):
-                        with patch("apps.documents.services.upload._read_full_file", return_value=b"%PDF-1.4 dummy"):
+                        with patch(
+                            "apps.documents.services.upload._read_full_file",
+                            return_value=b"%PDF-1.4 dummy",
+                        ):
                             with patch("apps.documents.services.upload._check_pdf_encryption"):
                                 with patch("apps.documents.tasks.scan_document.apply_async"):
                                     confirm_upload(user=self.user, doc_id=str(doc.pk))
@@ -846,7 +867,7 @@ class ConfirmUploadTests(TransactionTestCase):
         # T-3 / PIPEDA: original_filename must also be absent from signal kwargs (M-4 invariant)
         self.assertNotIn("original_filename", kwargs)
         # Positive assertion: exact expected key set — any new PII key would be caught immediately
-        # (Django dispatch adds 'signal'; document_confirmed adds document_pk, size_bytes, mime_type)
+        # (Django dispatch adds 'signal'; document_confirmed adds document_pk, size_bytes, mime_type)  # noqa: E501
         expected_keys = {"signal", "document_pk", "size_bytes", "mime_type"}
         self.assertEqual(
             set(kwargs.keys()),
@@ -865,19 +886,23 @@ class ConfirmUploadTests(TransactionTestCase):
         It MUST contain category_slug, mime_type, size_bytes, and event_type=RECORD_CREATED.
         """
         from apps.audit.models import AuditEventType
+
         doc = self._make_pending_doc()
         with patch("apps.documents.services.upload._verify_file_exists"):
-            with patch("apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"):
+            with patch(
+                "apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"
+            ):
                 with patch(
                     "apps.documents.services.upload._validate_magic_bytes",
                     return_value="application/pdf",  # H-4: must return str
                 ):
-                    with patch("apps.documents.services.upload._read_full_file", return_value=b"%PDF-1.4 dummy"):
+                    with patch(
+                        "apps.documents.services.upload._read_full_file",
+                        return_value=b"%PDF-1.4 dummy",
+                    ):
                         with patch("apps.documents.services.upload._check_pdf_encryption"):
                             with patch("apps.documents.tasks.scan_document.apply_async"):
-                                with patch(
-                                    "apps.audit.services.record_event"
-                                ) as mock_audit:
+                                with patch("apps.audit.services.record_event") as mock_audit:
                                     confirm_upload(user=self.user, doc_id=str(doc.pk))
 
         mock_audit.assert_called_once()
@@ -909,17 +934,20 @@ class ConfirmUploadTests(TransactionTestCase):
     def test_audit_actor_id_is_user_pk(self):
         doc = self._make_pending_doc()
         with patch("apps.documents.services.upload._verify_file_exists"):
-            with patch("apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"):
+            with patch(
+                "apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"
+            ):
                 with patch(
                     "apps.documents.services.upload._validate_magic_bytes",
                     return_value="application/pdf",  # H-4: must return str
                 ):
-                    with patch("apps.documents.services.upload._read_full_file", return_value=b"%PDF-1.4 dummy"):
+                    with patch(
+                        "apps.documents.services.upload._read_full_file",
+                        return_value=b"%PDF-1.4 dummy",
+                    ):
                         with patch("apps.documents.services.upload._check_pdf_encryption"):
                             with patch("apps.documents.tasks.scan_document.apply_async"):
-                                with patch(
-                                    "apps.audit.services.record_event"
-                                ) as mock_audit:
+                                with patch("apps.audit.services.record_event") as mock_audit:
                                     confirm_upload(user=self.user, doc_id=str(doc.pk))
 
         call_kwargs = mock_audit.call_args.kwargs
@@ -996,9 +1024,7 @@ class ConfirmUploadTests(TransactionTestCase):
             uploaded_by=self.user,
             original_filename="malicious.docx",
             _storage_key=_make_storage_key(str(uuid.uuid4()), prefix="quarantine"),
-            mime_type=(
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            ),
+            mime_type=("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
             size_bytes=1024,
             scan_status=Document.ScanStatus.PENDING_UPLOAD,
             security_classification=DocumentCategory.SecurityClassification.PROTECTED_B,
@@ -1017,8 +1043,7 @@ class ConfirmUploadTests(TransactionTestCase):
                 with patch(
                     "apps.documents.services.upload._validate_magic_bytes",
                     return_value=(
-                        "application/vnd.openxmlformats-officedocument."
-                        "wordprocessingml.document"
+                        "application/vnd.openxmlformats-officedocument." "wordprocessingml.document"
                     ),
                 ):
                     with patch(
@@ -1042,9 +1067,7 @@ class ConfirmUploadTests(TransactionTestCase):
             uploaded_by=self.user,
             original_filename="malicious.xlsx",
             _storage_key=_make_storage_key(str(uuid.uuid4()), prefix="quarantine"),
-            mime_type=(
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            ),
+            mime_type=("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
             size_bytes=1024,
             scan_status=Document.ScanStatus.PENDING_UPLOAD,
             security_classification=DocumentCategory.SecurityClassification.PROTECTED_B,
@@ -1060,8 +1083,7 @@ class ConfirmUploadTests(TransactionTestCase):
                 with patch(
                     "apps.documents.services.upload._validate_magic_bytes",
                     return_value=(
-                        "application/vnd.openxmlformats-officedocument."
-                        "spreadsheetml.sheet"
+                        "application/vnd.openxmlformats-officedocument." "spreadsheetml.sheet"
                     ),
                 ):
                     with patch(
@@ -1075,12 +1097,17 @@ class ConfirmUploadTests(TransactionTestCase):
         """PDFs are not ZIP containers — zip bomb check must not apply."""
         doc = self._make_pending_doc()  # original_filename="test.pdf"
         with patch("apps.documents.services.upload._verify_file_exists"):
-            with patch("apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"):
+            with patch(
+                "apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"
+            ):
                 with patch(
                     "apps.documents.services.upload._validate_magic_bytes",
                     return_value="application/pdf",  # H-4: must return str
                 ):
-                    with patch("apps.documents.services.upload._read_full_file", return_value=b"%PDF-1.4 dummy"):
+                    with patch(
+                        "apps.documents.services.upload._read_full_file",
+                        return_value=b"%PDF-1.4 dummy",
+                    ):
                         with patch("apps.documents.services.upload._check_pdf_encryption"):
                             with patch(
                                 "apps.documents.services.upload._check_zip_bomb"
@@ -1095,12 +1122,17 @@ class ConfirmUploadTests(TransactionTestCase):
         doc = self._make_pending_doc()
         original_classification = doc.security_classification
         with patch("apps.documents.services.upload._verify_file_exists"):
-            with patch("apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"):
+            with patch(
+                "apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"
+            ):
                 with patch(
                     "apps.documents.services.upload._validate_magic_bytes",
                     return_value="application/pdf",  # H-4: must return str
                 ):
-                    with patch("apps.documents.services.upload._read_full_file", return_value=b"%PDF-1.4 dummy"):
+                    with patch(
+                        "apps.documents.services.upload._read_full_file",
+                        return_value=b"%PDF-1.4 dummy",
+                    ):
                         with patch("apps.documents.services.upload._check_pdf_encryption"):
                             with patch("apps.documents.tasks.scan_document.apply_async"):
                                 confirm_upload(user=self.user, doc_id=str(doc.pk))
@@ -1172,6 +1204,7 @@ class StaffOnlyCategoryTests(TestCase):
         """Staff with documents.upload_staff_document may upload to staff-only categories."""
         from django.contrib.auth.models import Permission
         from django.contrib.contenttypes.models import ContentType
+
         staff_user = make_user(is_staff=True)
         content_type = ContentType.objects.get_for_model(Document)
         perm = Permission.objects.get(codename="upload_staff_document", content_type=content_type)
@@ -1185,6 +1218,7 @@ class StaffOnlyCategoryTests(TestCase):
         """upload_document permission alone is not sufficient for staff-only categories."""
         from django.contrib.auth.models import Permission
         from django.contrib.contenttypes.models import ContentType
+
         regular_user = make_user()
         content_type = ContentType.objects.get_for_model(Document)
         perm = Permission.objects.get(codename="upload_document", content_type=content_type)
@@ -1317,22 +1351,26 @@ class LocalFilePathContainmentTests(TestCase):
     def test_verify_local_file_exists_rejects_traversal(self):
         """storage_key containing '../' must be rejected before any file access."""
         from apps.documents.services.upload import _verify_local_file_exists
+
         with self.assertRaises(ValidationError):
             _verify_local_file_exists("../../etc/passwd")
 
     def test_read_local_first_bytes_rejects_traversal(self):
         from apps.documents.services.upload import _read_local_first_bytes
+
         with self.assertRaises(ValidationError):
             _read_local_first_bytes("../../etc/passwd", length=8192)
 
     def test_read_full_local_file_rejects_traversal(self):
         from apps.documents.services.upload import _read_full_local_file
+
         with self.assertRaises(ValidationError):
             _read_full_local_file("../../etc/passwd")
 
     def test_verify_local_file_exists_rejects_absolute_path(self):
         """An absolute path key (e.g. '/etc/passwd') must also be rejected."""
         from apps.documents.services.upload import _verify_local_file_exists
+
         with self.assertRaises(ValidationError):
             _verify_local_file_exists("/etc/passwd")
 
@@ -1434,7 +1472,9 @@ class AuditWriteFailureTests(TransactionTestCase):
         """
         doc = self._make_pending_doc()
         with patch("apps.documents.services.upload._verify_file_exists"):
-            with patch("apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"):
+            with patch(
+                "apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"
+            ):
                 with patch(
                     "apps.documents.services.upload._validate_magic_bytes",
                     return_value="application/pdf",
@@ -1445,7 +1485,7 @@ class AuditWriteFailureTests(TransactionTestCase):
                             side_effect=Exception("DB write failed"),
                         ):
                             # MUST raise — audit failure rolls back the atomic block
-                            with self.assertRaises(Exception):
+                            with self.assertRaises(Exception):  # noqa: B017
                                 confirm_upload(user=self.user, doc_id=str(doc.pk))
 
     def test_audit_failure_rolls_back_to_pending_upload(self):
@@ -1455,7 +1495,9 @@ class AuditWriteFailureTests(TransactionTestCase):
         """
         doc = self._make_pending_doc()
         with patch("apps.documents.services.upload._verify_file_exists"):
-            with patch("apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"):
+            with patch(
+                "apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"
+            ):
                 with patch(
                     "apps.documents.services.upload._validate_magic_bytes",
                     return_value="application/pdf",
@@ -1465,7 +1507,7 @@ class AuditWriteFailureTests(TransactionTestCase):
                             "apps.audit.services.record_event",
                             side_effect=Exception("DB write failed"),
                         ):
-                            with self.assertRaises(Exception):
+                            with self.assertRaises(Exception):  # noqa: B017
                                 confirm_upload(user=self.user, doc_id=str(doc.pk))
 
         doc.refresh_from_db()
@@ -1483,8 +1525,6 @@ class AppsReadyImportErrorTests(TestCase):
         must propagate — not be silently swallowed.
         """
         import importlib.util
-        from apps.documents.apps import DocumentsConfig
-        from unittest.mock import MagicMock
 
         # Simulate: find_spec returns a spec (module file exists) but import fails
         mock_spec = MagicMock()
@@ -1509,6 +1549,7 @@ class AppsReadyImportErrorTests(TestCase):
         and no error is raised. This is the Wave 1 / Wave 2 case.
         """
         import importlib.util
+
         with patch("importlib.util.find_spec", return_value=None):
             # Should not raise
             _receivers_spec = importlib.util.find_spec("apps.documents.receivers")

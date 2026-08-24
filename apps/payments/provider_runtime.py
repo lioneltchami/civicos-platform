@@ -1,16 +1,23 @@
 """Durable, status-first provider execution boundary."""
+
 from __future__ import annotations
 
 import secrets
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Mapping
+from typing import Any
 
 from django.db import transaction
 from django.utils import timezone
 
 from .govstack_failure_services import PaymentLifecycleService
-from .govstack_models import PaymentAttempt, PaymentExecutionIntent, ProviderObservation, ProviderRegistration
+from .govstack_models import (
+    PaymentAttempt,
+    PaymentExecutionIntent,
+    ProviderObservation,
+    ProviderRegistration,
+)
 from .govstack_provider import PaymentProvider, ProviderOutcome, ProviderResult
 from .provider_registry import (
     FACTORY_DETERMINISTIC,
@@ -20,7 +27,7 @@ from .provider_registry import (
 )
 
 
-class ProviderUnavailable(RuntimeError):
+class ProviderUnavailable(RuntimeError):  # noqa: N818
     pass
 
 
@@ -70,7 +77,9 @@ class ProviderRuntime:
         )
 
     @classmethod
-    def configure(cls, *, tenant_id: str, operation: str, provider: PaymentProvider) -> ProviderRegistration:
+    def configure(
+        cls, *, tenant_id: str, operation: str, provider: PaymentProvider
+    ) -> ProviderRegistration:
         """Register only a durable, worker-resolvable adapter factory configuration.
 
         ``configure`` exists for local deterministic tests. Production registration
@@ -87,12 +96,18 @@ class ProviderRuntime:
         # Persist bounded result metadata so a fresh worker does not share
         # request-process state or execute arbitrary import paths.
         configuration: dict[str, Any] = {
-            "outcomes": [cls._serialize_result(item) for item in getattr(provider, "_outcomes", ())],
-            "statuses": {str(key): cls._serialize_result(item) for key, item in getattr(provider, "_statuses", {}).items()},
+            "outcomes": [
+                cls._serialize_result(item) for item in getattr(provider, "_outcomes", ())
+            ],
+            "statuses": {
+                str(key): cls._serialize_result(item)
+                for key, item in getattr(provider, "_statuses", {}).items()
+            },
         }
         with transaction.atomic():
             registration, _ = ProviderRegistration.objects.update_or_create(
-                tenant_id=tenant_id, operation=operation,
+                tenant_id=tenant_id,
+                operation=operation,
                 defaults={
                     "provider_name": provider_type.__name__[:80],
                     "factory_key": FACTORY_DETERMINISTIC,
@@ -133,16 +148,22 @@ class ProviderRuntime:
         token = secrets.token_urlsafe(32)
         with transaction.atomic():
             attempt = PaymentAttempt.objects.select_for_update().get(pk=attempt_id)
-            if not attempt.tenant_id or attempt.is_terminal or attempt.status == PaymentAttempt.STATUS_REVIEW:
+            if (
+                not attempt.tenant_id
+                or attempt.is_terminal
+                or attempt.status == PaymentAttempt.STATUS_REVIEW
+            ):
                 return ProviderResult(ProviderOutcome.UNCERTAIN, code="NOOP_TERMINAL")
             now = timezone.now()
             if attempt.claim_token and attempt.claim_expires_at and attempt.claim_expires_at > now:
                 return ProviderResult(ProviderOutcome.UNCERTAIN, code="CLAIMED")
             provider = cls.resolve(tenant_id=attempt.tenant_id, operation=attempt.operation)
             generation = attempt.claim_generation + 1
-            execution_intent = PaymentExecutionIntent.objects.select_for_update().filter(
-                attempt_id=attempt.pk
-            ).first()
+            execution_intent = (
+                PaymentExecutionIntent.objects.select_for_update()
+                .filter(attempt_id=attempt.pk)
+                .first()
+            )
             durable_correlation = execution_intent.provider_correlation if execution_intent else ""
             evidence = attempt.recovery_evidence or {}
             # Reservation alone is not evidence of provider acceptance. Poll only
@@ -175,20 +196,54 @@ class ProviderRuntime:
                         "updated_at",
                     ]
                 )
-            intent = {"kind": "poll" if should_poll else "submit", "request_id": attempt.request_id, "generation": generation}
+            intent = {
+                "kind": "poll" if should_poll else "submit",
+                "request_id": attempt.request_id,
+                "generation": generation,
+            }
             attempt.claim_token, attempt.claim_generation = token, generation
             attempt.claim_expires_at = now + timedelta(minutes=5)
             attempt.claim_heartbeat_at = now
             attempt.submission_intent = intent
             attempt.attempt_count += 1
-            attempt.save(update_fields=["claim_token", "claim_generation", "claim_expires_at", "claim_heartbeat_at", "submission_intent", "attempt_count", "updated_at"])
+            attempt.save(
+                update_fields=[
+                    "claim_token",
+                    "claim_generation",
+                    "claim_expires_at",
+                    "claim_heartbeat_at",
+                    "submission_intent",
+                    "attempt_count",
+                    "updated_at",
+                ]
+            )
             request_id, provider_attempt_id = attempt.request_id, attempt.provider_attempt_id
             external_transaction_id = durable_correlation or attempt.external_transaction_id
-            payload = {"request_id": request_id, "amount": str(attempt.amount or ""), "currency": attempt.currency}
+            payload = {
+                "request_id": request_id,
+                "amount": str(attempt.amount or ""),
+                "currency": attempt.currency,
+            }
         try:
-            result = provider.get_status(request_id=request_id, provider_attempt_id=provider_attempt_id, external_transaction_id=external_transaction_id) if should_poll else provider.submit(request_id=request_id, payment=payload)
+            result = (
+                provider.get_status(
+                    request_id=request_id,
+                    provider_attempt_id=provider_attempt_id,
+                    external_transaction_id=external_transaction_id,
+                )
+                if should_poll
+                else provider.submit(request_id=request_id, payment=payload)
+            )
         except Exception:
-            result = ProviderResult(ProviderOutcome.NETWORK, provider_attempt_id=provider_attempt_id, external_transaction_id=external_transaction_id, code="PROVIDER_RUNTIME_ERROR", message="Provider invocation failed; authoritative status is required.", observation_id=f"runtime-error:{attempt_id}:{generation}", event_id=f"runtime-error:{attempt_id}:{generation}")
+            result = ProviderResult(
+                ProviderOutcome.NETWORK,
+                provider_attempt_id=provider_attempt_id,
+                external_transaction_id=external_transaction_id,
+                code="PROVIDER_RUNTIME_ERROR",
+                message="Provider invocation failed; authoritative status is required.",
+                observation_id=f"runtime-error:{attempt_id}:{generation}",
+                event_id=f"runtime-error:{attempt_id}:{generation}",
+            )
         if not isinstance(result, ProviderResult):
             raise TypeError("provider must return ProviderResult")
         cls.worker_test_seam(
@@ -210,7 +265,11 @@ class ProviderRuntime:
             if attempt.claim_token != token or attempt.claim_generation != generation:
                 return ProviderResult(ProviderOutcome.UNCERTAIN, code="STALE_CLAIM")
             PaymentLifecycleService.record_provider_result(attempt, result)
-            if result.outcome in (ProviderOutcome.NETWORK, ProviderOutcome.TIMEOUT, ProviderOutcome.UNCERTAIN):
+            if result.outcome in (
+                ProviderOutcome.NETWORK,
+                ProviderOutcome.TIMEOUT,
+                ProviderOutcome.UNCERTAIN,
+            ):
                 attempt.recovery_evidence = {
                     "ambiguous_outcome": True,
                     "code": result.code[:50],
@@ -226,7 +285,16 @@ class ProviderRuntime:
             attempt.claim_expires_at = None
             attempt.claim_heartbeat_at = None
             attempt.submission_intent = {}
-            attempt.save(update_fields=["claim_token", "claim_expires_at", "claim_heartbeat_at", "submission_intent", "recovery_evidence", "updated_at"])
+            attempt.save(
+                update_fields=[
+                    "claim_token",
+                    "claim_expires_at",
+                    "claim_heartbeat_at",
+                    "submission_intent",
+                    "recovery_evidence",
+                    "updated_at",
+                ]
+            )
         return result
 
     @classmethod
@@ -234,8 +302,21 @@ class ProviderRuntime:
         with transaction.atomic():
             attempt = PaymentAttempt.objects.select_for_update().get(pk=attempt_id)
             observation_id = f"configuration-unavailable:{attempt.pk}"
-            result = ProviderResult(ProviderOutcome.UNCERTAIN, code="PROVIDER_UNAVAILABLE", message="Provider configuration is unavailable", observation_id=observation_id, event_id=observation_id, verification_method="configuration")
-            if not attempt.is_terminal and not ProviderObservation.objects.filter(observation_kind=ProviderObservation.KIND_PROVIDER, observation_id=observation_id).exists():
+            result = ProviderResult(
+                ProviderOutcome.UNCERTAIN,
+                code="PROVIDER_UNAVAILABLE",
+                message="Provider configuration is unavailable",
+                observation_id=observation_id,
+                event_id=observation_id,
+                verification_method="configuration",
+            )
+            if (
+                not attempt.is_terminal
+                and not ProviderObservation.objects.filter(
+                    observation_kind=ProviderObservation.KIND_PROVIDER,
+                    observation_id=observation_id,
+                ).exists()
+            ):
                 PaymentLifecycleService.record_provider_result(attempt, result)
             return result
 
@@ -253,9 +334,17 @@ def orchestrate_attempt(attempt_id: str) -> ProviderResult:
 
 def enqueue_attempt(attempt: PaymentAttempt) -> Any:
     from django.db import transaction as db_transaction
+
     from .provider_runtime_tasks import orchestrate_attempt_task
+
     db_transaction.on_commit(lambda: orchestrate_attempt_task.delay(str(attempt.pk)))
     return attempt
 
 
-__all__ = ["ProviderRuntime", "ProviderUnavailable", "ProviderKey", "enqueue_attempt", "orchestrate_attempt"]
+__all__ = [
+    "ProviderKey",
+    "ProviderRuntime",
+    "ProviderUnavailable",
+    "enqueue_attempt",
+    "orchestrate_attempt",
+]

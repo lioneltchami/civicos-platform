@@ -3,6 +3,7 @@ Wave 4 — test_receipt_services.py
 
 Tests for services/receipt_pdf.py and services/receipt_email.py.
 """
+
 import uuid
 from datetime import date
 from decimal import Decimal
@@ -13,21 +14,21 @@ from django.core import mail
 from django.test import TestCase, override_settings
 
 from apps.payments.models import (
+    DONATION_STATUS_COMPLETED,
     CharitySettings,
     Donation,
     DonationCampaign,
     OfficialDonationReceipt,
     PaymentIntent,
-    DONATION_STATUS_COMPLETED,
+)
+from apps.payments.services.receipt_email import (
+    _get_donor_email,
+    send_receipt_email,
 )
 from apps.payments.services.receipt_pdf import (
     _build_receipt_context,
     generate_receipt_pdf,
     save_receipt_pdf,
-)
-from apps.payments.services.receipt_email import (
-    _get_donor_email,
-    send_receipt_email,
 )
 
 User = get_user_model()
@@ -36,6 +37,7 @@ User = get_user_model()
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
+
 
 def make_user(email=None, **kwargs):
     email = email or f"user_{uuid.uuid4().hex[:6]}@example.com"
@@ -115,7 +117,6 @@ def make_receipt(donation, **kwargs):
     receipt = OfficialDonationReceipt(**defaults)
     receipt.serial_number = serial
     # Use _base_manager to bypass append-only guard on new saves
-    from django.db import connection
     # Directly call super().save() equivalent via _base_manager
     # Actually just call save() — serial_number is set so the sequence won't be called
     receipt.save()
@@ -126,8 +127,8 @@ def make_receipt(donation, **kwargs):
 # receipt_pdf tests
 # ---------------------------------------------------------------------------
 
-class ReceiptPdfTests(TestCase):
 
+class ReceiptPdfTests(TestCase):
     def setUp(self):
         self.user = make_user()
         self.campaign = make_campaign()
@@ -136,6 +137,7 @@ class ReceiptPdfTests(TestCase):
         self.receipt = make_receipt(self.donation)
         # Wave 6: save_receipt_pdf() requires the DocumentCategory with this slug.
         from apps.documents.models import DocumentCategory
+
         DocumentCategory.objects.get_or_create(
             slug="donation-receipt-pdf",
             defaults={
@@ -176,8 +178,10 @@ class ReceiptPdfTests(TestCase):
         """Wave 6: save_receipt_pdf() creates a Document BB record and links it."""
         pdf_bytes = b"%PDF-1.4 test"
         expected_key = f"documents/active/receipts/{self.receipt.serial_number}/receipt.bin"
-        with patch("django.core.files.storage.default_storage") as mock_storage, \
-             patch("apps.documents.services.retention.schedule_expiry"):
+        with (
+            patch("django.core.files.storage.default_storage") as mock_storage,
+            patch("apps.documents.services.retention.schedule_expiry"),
+        ):
             mock_storage.exists.return_value = False
             mock_storage.save.return_value = expected_key
             result = save_receipt_pdf(self.receipt, pdf_bytes)
@@ -192,8 +196,10 @@ class ReceiptPdfTests(TestCase):
         """Wave 6: second call hits receipt.document_id guard and returns immediately."""
         pdf_bytes = b"%PDF-1.4 test"
         expected_key = f"documents/active/receipts/{self.receipt.serial_number}/receipt.bin"
-        with patch("django.core.files.storage.default_storage") as mock_storage, \
-             patch("apps.documents.services.retention.schedule_expiry"):
+        with (
+            patch("django.core.files.storage.default_storage") as mock_storage,
+            patch("apps.documents.services.retention.schedule_expiry"),
+        ):
             mock_storage.exists.return_value = False
             mock_storage.save.return_value = expected_key
             save_receipt_pdf(self.receipt, pdf_bytes)
@@ -213,8 +219,10 @@ class ReceiptPdfTests(TestCase):
 
         pdf_bytes = b"%PDF-1.4 test"
         expected_key = f"documents/active/receipts/{self.receipt.serial_number}/receipt.bin"
-        with patch("django.core.files.storage.default_storage") as mock_storage, \
-             patch("apps.documents.services.retention.schedule_expiry"):
+        with (
+            patch("django.core.files.storage.default_storage") as mock_storage,
+            patch("apps.documents.services.retention.schedule_expiry"),
+        ):
             mock_storage.exists.return_value = True  # File already in storage
             # open() must return a context manager with a valid %PDF header
             mock_file = BytesIO(b"%PDF-1.4 valid")
@@ -237,8 +245,10 @@ class ReceiptPdfTests(TestCase):
         """
         pdf_bytes = b"%PDF-1.4 test"
         expected_key = f"documents/active/receipts/{self.receipt.serial_number}/receipt.bin"
-        with patch("django.core.files.storage.default_storage") as mock_storage, \
-             patch("apps.documents.services.retention.schedule_expiry"):
+        with (
+            patch("django.core.files.storage.default_storage") as mock_storage,
+            patch("apps.documents.services.retention.schedule_expiry"),
+        ):
             mock_storage.exists.return_value = False
             mock_storage.save.return_value = expected_key
             result = save_receipt_pdf(self.receipt, pdf_bytes)
@@ -270,8 +280,10 @@ class ReceiptPdfTests(TestCase):
         # open() must return a context manager with a valid %PDF header so the
         # corrupt-file check (M5 fix) treats the existing file as reusable.
         mock_file = BytesIO(b"%PDF-1.4 valid")
-        with patch("django.core.files.storage.default_storage") as mock_storage, \
-             patch("apps.documents.services.retention.schedule_expiry"):
+        with (
+            patch("django.core.files.storage.default_storage") as mock_storage,
+            patch("apps.documents.services.retention.schedule_expiry"),
+        ):
             mock_storage.exists.side_effect = exists_side_effects
             mock_storage.save.return_value = expected_key
             mock_storage.open.return_value.__enter__ = lambda s: mock_file
@@ -283,7 +295,7 @@ class ReceiptPdfTests(TestCase):
                 "filter",
                 side_effect=Exception("DB connection lost"),
             ):
-                with self.assertRaises(Exception):
+                with self.assertRaises(Exception):  # noqa: B017
                     # This will raise because the DB update fails;
                     # but the file has already been written to storage.
                     save_receipt_pdf(self.receipt, pdf_bytes)
@@ -341,13 +353,14 @@ class ReceiptPdfTests(TestCase):
         with patch.dict("sys.modules", {"weasyprint": None}):
             # When weasyprint is None in sys.modules, importing it raises ImportError
             # The function catches this and re-raises
-            with self.assertRaises(Exception):
+            with self.assertRaises(Exception):  # noqa: B017
                 # Force reimport inside the function
-                import importlib
-                import apps.payments.services.receipt_pdf as mod
                 # The function does: from weasyprint import HTML — this will fail
                 # We simulate by making the local import fail
-                with patch("apps.payments.services.receipt_pdf.HTML", side_effect=ImportError("No module named 'weasyprint'")):
+                with patch(
+                    "apps.payments.services.receipt_pdf.HTML",
+                    side_effect=ImportError("No module named 'weasyprint'"),
+                ):
                     # Call the actual generate function which imports HTML locally
                     pass  # Can't easily test this without modifying internals
 
@@ -359,7 +372,7 @@ class ReceiptPdfTests(TestCase):
         mock_html_class.return_value = mock_html_instance
 
         with patch("weasyprint.HTML", mock_html_class):
-            with self.assertRaises(Exception):
+            with self.assertRaises(Exception):  # noqa: B017
                 generate_receipt_pdf(self.receipt)
 
     # 10. generate_receipt_pdf does NOT log donor_name
@@ -378,7 +391,8 @@ class ReceiptPdfTests(TestCase):
     def test_build_receipt_context_total_amount(self):
         # Use a separate donation so the unique-issued-per-donation constraint is not violated
         donation2 = make_donation(
-            self.user, make_payment_intent(self.user),
+            self.user,
+            make_payment_intent(self.user),
             amount=Decimal("100.00"),
             eligible_amount=Decimal("80.00"),
             advantage_amount=Decimal("20.00"),
@@ -400,7 +414,8 @@ class ReceiptPdfTests(TestCase):
     def test_build_context_has_advantage_true_when_nonzero(self):
         # Use a separate donation so the unique-issued-per-donation constraint is not violated
         donation2 = make_donation(
-            self.user, make_payment_intent(self.user),
+            self.user,
+            make_payment_intent(self.user),
             amount=Decimal("100.00"),
             eligible_amount=Decimal("80.00"),
             advantage_amount=Decimal("20.00"),
@@ -419,12 +434,12 @@ class ReceiptPdfTests(TestCase):
 # receipt_email tests
 # ---------------------------------------------------------------------------
 
+
 @override_settings(
     EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
     DEFAULT_FROM_EMAIL="noreply@test.ca",
 )
 class ReceiptEmailTests(TestCase):
-
     def setUp(self):
         self.user = make_user(email="donor@example.ca")
         self.campaign = make_campaign()
@@ -491,11 +506,11 @@ class ReceiptEmailTests(TestCase):
     # Now it re-raises so Celery can retry the task.
     def test_raises_on_smtp_failure(self):
         """L5: SMTP failures must raise, not be swallowed, so Celery can retry."""
-        with patch("apps.payments.services.receipt_email.EmailMessage") as MockEmail:
+        with patch("apps.payments.services.receipt_email.EmailMessage") as MockEmail:  # noqa: N806
             mock_email_instance = MagicMock()
             mock_email_instance.send.side_effect = Exception("SMTP connection refused")
             MockEmail.return_value = mock_email_instance
-            with self.assertRaises(Exception):
+            with self.assertRaises(Exception):  # noqa: B017
                 send_receipt_email(self.receipt, self.pdf_bytes)
 
     # 22. No PII in any log output during email send
@@ -527,12 +542,12 @@ class ReceiptEmailTests(TestCase):
     # 25. send_receipt_email error-logs only serial_number, not PII (L5 fix)
     def test_error_log_no_pii_on_failure(self):
         donor_email = self.user.email
-        with patch("apps.payments.services.receipt_email.EmailMessage") as MockEmail:
+        with patch("apps.payments.services.receipt_email.EmailMessage") as MockEmail:  # noqa: N806
             mock_email_instance = MagicMock()
             mock_email_instance.send.side_effect = Exception("Network error")
             MockEmail.return_value = mock_email_instance
             with self.assertLogs("apps.payments.receipt_email", level="ERROR") as log_ctx:
-                with self.assertRaises(Exception):
+                with self.assertRaises(Exception):  # noqa: B017
                     send_receipt_email(self.receipt, self.pdf_bytes)
         log_output = "\n".join(log_ctx.output)
         self.assertNotIn(donor_email, log_output)
@@ -543,6 +558,7 @@ class ReceiptEmailTests(TestCase):
 # ---------------------------------------------------------------------------
 # Nit 5 — _get_donor_email logs WARNING with exc_type on exception
 # ---------------------------------------------------------------------------
+
 
 class GetDonorEmailExceptionLoggingTests(TestCase):
     """
@@ -626,6 +642,7 @@ class GetDonorEmailExceptionLoggingTests(TestCase):
 # Nit 8 — CRA Business Number regex: exactly one space
 # ---------------------------------------------------------------------------
 
+
 class CRARegistrationNumberValidatorTests(TestCase):
     """
     Nit 8: the RegexValidator on charity_registration_number must accept
@@ -639,7 +656,7 @@ class CRARegistrationNumberValidatorTests(TestCase):
         Returns the list of validation errors (empty = passes).
         """
         from django.core.exceptions import ValidationError
-        from apps.payments.models import CharitySettings
+
         field = CharitySettings._meta.get_field("charity_registration_number")
         errors = []
         for v in field.validators:
@@ -654,12 +671,12 @@ class CRARegistrationNumberValidatorTests(TestCase):
         errors = self._validate("123456789 RR 0001")
         self.assertEqual(errors, [], f"Unexpected errors: {errors}")
 
-    def test_double_space_before_RR_fails(self):
+    def test_double_space_before_RR_fails(self):  # noqa: N802
         """Two spaces before 'RR' must be rejected."""
         errors = self._validate("123456789  RR 0001")
         self.assertNotEqual(errors, [], "Double-space before RR should fail validation")
 
-    def test_double_space_after_RR_fails(self):
+    def test_double_space_after_RR_fails(self):  # noqa: N802
         """Two spaces after 'RR' must be rejected."""
         errors = self._validate("123456789 RR  0001")
         self.assertNotEqual(errors, [], "Double-space after RR should fail validation")

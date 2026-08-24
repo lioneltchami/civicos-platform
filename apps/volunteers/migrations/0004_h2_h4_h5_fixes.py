@@ -16,13 +16,12 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("volunteers", "0003_wave1_review_fixes"),
         ("consent", "0001_initial"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         # H-4: VolunteerApplication.consent_record SET_NULL → PROTECT
         # Reverts the M-2 change from 0002 that introduced SET_NULL for PIPEDA
         # right-to-erasure. The correct design is anonymization-in-place; hard

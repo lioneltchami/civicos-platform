@@ -8,20 +8,30 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('appointments', '0015_appointmenttype_is_govstack_managed'),
+    dependencies = [  # noqa: RUF012
+        ("appointments", "0015_appointmenttype_is_govstack_managed"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddField(
-            model_name='booking',
-            name='govstack_exclusive',
-            field=models.BooleanField(db_index=True, default=False, help_text="True if this appointment was created/modified with the GovStack 'exclusive' flag, which blocks the underlying Slot to further bookings (Slot.status set to 'blocked'). Not the same as slot capacity — capacity is left untouched so the block can be reversed.", verbose_name='GovStack exclusive'),
+            model_name="booking",
+            name="govstack_exclusive",
+            field=models.BooleanField(
+                db_index=True,
+                default=False,
+                help_text="True if this appointment was created/modified with the GovStack 'exclusive' flag, which blocks the underlying Slot to further bookings (Slot.status set to 'blocked'). Not the same as slot capacity — capacity is left untouched so the block can be reversed.",
+                verbose_name="GovStack exclusive",
+            ),
         ),
         migrations.AddField(
-            model_name='booking',
-            name='govstack_participant_entity_id',
-            field=models.CharField(blank=True, db_index=True, help_text='Optional GovStack Entity (Organization) acting on behalf of the participant, e.g. an organization booking for a citizen. Plain string reference (str(Organization.pk)) — no FK, matching the work_item_id/service_request_id pattern used elsewhere on this model.', max_length=32, verbose_name='GovStack participant entity ID'),
+            model_name="booking",
+            name="govstack_participant_entity_id",
+            field=models.CharField(
+                blank=True,
+                db_index=True,
+                help_text="Optional GovStack Entity (Organization) acting on behalf of the participant, e.g. an organization booking for a citizen. Plain string reference (str(Organization.pk)) — no FK, matching the work_item_id/service_request_id pattern used elsewhere on this model.",
+                max_length=32,
+                verbose_name="GovStack participant entity ID",
+            ),
         ),
     ]

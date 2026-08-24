@@ -28,7 +28,7 @@ Run it periodically (e.g. via a Celery beat task) and alert on non-zero exit.
 
 import sys
 
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand
 
 from apps.audit.models import AuditLogEntry
 
@@ -40,7 +40,7 @@ class Command(BaseCommand):
         "prev_hash linkage is broken."
     )
 
-    def add_arguments(self, parser) -> None:
+    def add_arguments(self, parser) -> None:  # noqa: ANN001
         parser.add_argument(
             "--start-id",
             type=int,
@@ -68,7 +68,7 @@ class Command(BaseCommand):
             help="Suppress all output; use exit code only.",
         )
 
-    def handle(self, *args, **options) -> None:
+    def handle(self, *args, **options) -> None:  # noqa: ANN002, ANN003
         start_id = options["start_id"]
         end_id = options["end_id"]
         batch_size = options["batch_size"]
@@ -90,18 +90,12 @@ class Command(BaseCommand):
         )
 
         if not quiet:
-            self.stdout.write(
-                f"  Entries checked : {result.entries_checked:,}"
-            )
-            self.stdout.write(
-                f"  Violations found: {len(result.violations):,}"
-            )
+            self.stdout.write(f"  Entries checked : {result.entries_checked:,}")
+            self.stdout.write(f"  Violations found: {len(result.violations):,}")
 
         if result.ok:
             if not quiet:
-                self.stdout.write(
-                    self.style.SUCCESS("✓ Audit chain is intact.")
-                )
+                self.stdout.write(self.style.SUCCESS("✓ Audit chain is intact."))
             return
 
         # Violations — print details and exit non-zero.
@@ -113,10 +107,6 @@ class Command(BaseCommand):
                 )
             )
             for v in result.violations:
-                self.stderr.write(
-                    self.style.ERROR(
-                        f"  entry_id={v['entry_id']}  {v['reason']}"
-                    )
-                )
+                self.stderr.write(self.style.ERROR(f"  entry_id={v['entry_id']}  {v['reason']}"))
 
         sys.exit(1)

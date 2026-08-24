@@ -5,16 +5,18 @@ the durable ``BatchLease`` row, and the authoritative RB-02.2 child-finality
 projection. They do not test policy, durable decisions, or broader
 competing-worker behavior.
 """
+
 from __future__ import annotations
 
+import threading
 from datetime import timedelta
 from decimal import Decimal
-import threading
 
 from django.db import close_old_connections
 from django.test import TransactionTestCase, override_settings
 from django.utils import timezone
 
+from apps.payments import govstack_tasks
 from apps.payments.govstack_batch_lease import (
     BatchLeaseHandle,
     BatchLeaseOwnershipLost,
@@ -32,7 +34,6 @@ from apps.payments.govstack_models import (
     PaymentAttempt,
     PaymentOutcome,
 )
-from apps.payments import govstack_tasks
 from apps.payments.govstack_tasks import process_bulk_payment_batch
 
 

@@ -78,6 +78,7 @@ PIPEDA:
   - StaffProfile.user.email is never returned from resource list/availability.
   - Only gs_phone (explicitly set by staff for GovStack callbacks) is exposed.
 """
+
 from __future__ import annotations
 
 import json
@@ -87,16 +88,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import ProtectedError
-
 from rest_framework.response import Response
-# Bug 7 fix: aliased import — this is NOT the real DRF ScopedRateThrottle.
-# GovStackBBIdentityThrottle keys the throttle cache on the calling BB's
-# resolved identity (request.META["_gs_requestor_id"]) instead of client IP,
-# falling back to stock ScopedRateThrottle behaviour when no BB identity is
-# resolved. Aliasing lets all ~37 `throttle_classes = [ScopedRateThrottle]`
-# usages below pick up the fix without editing each view. See
-# apps/appointments/govstack_throttling.py for the full rationale.
-from apps.appointments.govstack_throttling import GovStackBBIdentityThrottle as ScopedRateThrottle
 from rest_framework.views import APIView
 
 from apps.appointments.govstack_auth import (
@@ -134,6 +126,15 @@ from apps.appointments.govstack_serializers import (
     SubscriberListQrySerializer,
     SubscriberModifySerializer,
 )
+
+# Bug 7 fix: aliased import — this is NOT the real DRF ScopedRateThrottle.
+# GovStackBBIdentityThrottle keys the throttle cache on the calling BB's
+# resolved identity (request.META["_gs_requestor_id"]) instead of client IP,
+# falling back to stock ScopedRateThrottle behaviour when no BB identity is
+# resolved. Aliasing lets all ~37 `throttle_classes = [ScopedRateThrottle]`
+# usages below pick up the fix without editing each view. See
+# apps/appointments/govstack_throttling.py for the full rationale.
+from apps.appointments.govstack_throttling import GovStackBBIdentityThrottle as ScopedRateThrottle
 from apps.appointments.models import (
     Booking,
     GovStackAffiliation,
@@ -143,6 +144,16 @@ from apps.appointments.models import (
     Organization,
     Resource,
     Slot,
+)
+from apps.appointments.services.booking import (
+    BookingError,
+    CitizenSuspendedError,
+    FrequencyWindowError,
+    InvalidStatusTransitionError,
+    MaxActiveBookingsError,
+    RescheduleCountError,
+    RescheduleWindowError,
+    SlotFullError,
 )
 from apps.appointments.services.govstack_affiliation import (
     affiliation_create,
@@ -163,27 +174,11 @@ from apps.appointments.services.govstack_appointment import (
     appointment_list,
     appointment_modify,
 )
-from apps.appointments.services.booking import (
-    BookingError,
-    CitizenSuspendedError,
-    FrequencyWindowError,
-    InvalidStatusTransitionError,
-    MaxActiveBookingsError,
-    RescheduleCountError,
-    RescheduleWindowError,
-    SlotFullError,
-)
 from apps.appointments.services.govstack_entity import (
     entity_create,
     entity_delete,
     entity_list,
     entity_modify,
-)
-from apps.appointments.services.govstack_log import (
-    LogDataParseError,
-    LogEntityMismatchError,
-    log_create,
-    log_list,
 )
 from apps.appointments.services.govstack_event import (
     event_create,
@@ -191,17 +186,17 @@ from apps.appointments.services.govstack_event import (
     event_list,
     event_modify,
 )
+from apps.appointments.services.govstack_log import (
+    LogDataParseError,
+    LogEntityMismatchError,
+    log_create,
+    log_list,
+)
 from apps.appointments.services.govstack_message import (
     message_create,
     message_delete,
     message_list,
     message_modify,
-)
-from apps.appointments.services.govstack_subscriber import (
-    subscriber_create,
-    subscriber_delete,
-    subscriber_list,
-    subscriber_modify,
 )
 from apps.appointments.services.govstack_resource import (
     resource_create,
@@ -209,6 +204,12 @@ from apps.appointments.services.govstack_resource import (
     resource_get_availability,
     resource_list,
     resource_modify,
+)
+from apps.appointments.services.govstack_subscriber import (
+    subscriber_create,
+    subscriber_delete,
+    subscriber_list,
+    subscriber_modify,
 )
 from apps.appointments.tasks import dispatch_alert_schedule
 
@@ -219,7 +220,8 @@ logger = logging.getLogger("civicos.appointments.services.govstack_views")
 # Shared helpers
 # ---------------------------------------------------------------------------
 
-def _parse_qry(request) -> tuple[dict | None, Response | None]:
+
+def _parse_qry(request) -> tuple[dict | None, Response | None]:  # noqa: ANN001
     """
     Parse the `qry` query parameter as JSON.
 
@@ -243,7 +245,7 @@ def _parse_qry(request) -> tuple[dict | None, Response | None]:
         )
 
 
-def _validation_error(ser) -> Response:
+def _validation_error(ser) -> Response:  # noqa: ANN001
     """Return a 400 response containing serializer validation errors."""
     return Response(
         {
@@ -331,6 +333,7 @@ def _parse_resource_only_pk(raw: str) -> tuple[int | None, Response | None]:
 # Entity views (4 endpoints)
 # ===========================================================================
 
+
 class EntityNewView(APIView):
     """
     POST /govstack/scheduler/entity/new
@@ -352,14 +355,14 @@ class EntityNewView(APIView):
     fetched spec's components.responses for POST /entity/new.
     """
 
-    gs_actor_role = "admin"                           # visible during check_permissions()
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    gs_actor_role = "admin"  # visible during check_permissions()
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def post(self, request):
-        request.META["_gs_actor_role"] = "admin"     # belt-and-suspenders for middleware
+    def post(self, request):  # noqa: ANN001, ANN201
+        request.META["_gs_actor_role"] = "admin"  # belt-and-suspenders for middleware
 
         qry_data, err = _parse_qry(request)
         if err:
@@ -423,12 +426,12 @@ class EntityModificationsView(APIView):
     """
 
     gs_actor_role = "admin"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def put(self, request):
+    def put(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "admin"
 
         entity_id_str = request.query_params.get("entity_id", "").strip()
@@ -502,12 +505,12 @@ class EntityDeleteView(APIView):
     """
 
     gs_actor_role = "admin"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def delete(self, request):
+    def delete(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "admin"
 
         entity_id_str = request.query_params.get("entity_id", "").strip()
@@ -578,12 +581,12 @@ class EntityListDetailsView(APIView):
     """
 
     gs_actor_role = "admin"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def get(self, request):
+    def get(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "admin"
 
         qry_data, err = _parse_qry(request)
@@ -623,6 +626,7 @@ class EntityListDetailsView(APIView):
 # Resource views (5 endpoints)
 # ===========================================================================
 
+
 class ResourceNewView(APIView):
     """
     POST /govstack/scheduler/resource/new
@@ -655,12 +659,12 @@ class ResourceNewView(APIView):
     """
 
     gs_actor_role = "admin"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def post(self, request):
+    def post(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "admin"
 
         qry_data, err = _parse_qry(request)
@@ -723,12 +727,12 @@ class ResourceModificationsView(APIView):
     """
 
     gs_actor_role = "admin"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def put(self, request):
+    def put(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "admin"
 
         resource_id_str = request.query_params.get("resource_id", "").strip()
@@ -814,12 +818,12 @@ class ResourceDeleteView(APIView):
     """
 
     gs_actor_role = "admin"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def delete(self, request):
+    def delete(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "admin"
 
         resource_id_str = request.query_params.get("resource_id", "").strip()
@@ -891,12 +895,12 @@ class ResourceListDetailsView(APIView):
     """
 
     gs_actor_role = "organizer"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def get(self, request):
+    def get(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "organizer"
 
         qry_data, err = _parse_qry(request)
@@ -965,12 +969,12 @@ class ResourceAvailabilityView(APIView):
     """
 
     gs_actor_role = "resource"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def get(self, request):
+    def get(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "resource"
 
         qry_data, err = _parse_qry(request)
@@ -1023,6 +1027,7 @@ class ResourceAvailabilityView(APIView):
 # Affiliation views (4 endpoints)
 # ===========================================================================
 
+
 class AffiliationNewView(APIView):
     """
     POST /govstack/scheduler/affiliation/new
@@ -1046,12 +1051,12 @@ class AffiliationNewView(APIView):
     """
 
     gs_actor_role = "admin"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def post(self, request):
+    def post(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "admin"
 
         qry_data, err = _parse_qry(request)
@@ -1175,12 +1180,12 @@ class AffiliationModificationsView(APIView):
     """
 
     gs_actor_role = "admin"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def put(self, request):
+    def put(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "admin"
 
         affiliation_id_str = request.query_params.get("affiliation_id", "").strip()
@@ -1256,12 +1261,12 @@ class AffiliationDeleteView(APIView):
     """
 
     gs_actor_role = "admin"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def delete(self, request):
+    def delete(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "admin"
 
         affiliation_id_str = request.query_params.get("affiliation_id", "").strip()
@@ -1342,12 +1347,12 @@ class AffiliationListDetailsView(APIView):
     """
 
     gs_actor_role = "admin"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def get(self, request):
+    def get(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "admin"
 
         qry_data, err = _parse_qry(request)
@@ -1405,6 +1410,7 @@ class AffiliationListDetailsView(APIView):
 # Subscriber views (4 endpoints)  — Wave C
 # ===========================================================================
 
+
 class SubscriberNewView(APIView):
     """
     POST /govstack/scheduler/subscriber/new
@@ -1431,12 +1437,12 @@ class SubscriberNewView(APIView):
     """
 
     gs_actor_role = "admin"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def post(self, request):
+    def post(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "admin"
 
         qry_data, err = _parse_qry(request)
@@ -1500,12 +1506,12 @@ class SubscriberModificationsView(APIView):
     """
 
     gs_actor_role = "admin"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def put(self, request):
+    def put(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "admin"
 
         subscriber_id_str = request.query_params.get("subscriber_id", "").strip()
@@ -1593,12 +1599,12 @@ class SubscriberDeleteView(APIView):
     """
 
     gs_actor_role = "admin"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def delete(self, request):
+    def delete(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "admin"
 
         subscriber_id_str = request.query_params.get("subscriber_id", "").strip()
@@ -1667,12 +1673,12 @@ class SubscriberListDetailsView(APIView):
     """
 
     gs_actor_role = "organizer"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def get(self, request):
+    def get(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "organizer"
 
         qry_data, err = _parse_qry(request)
@@ -1720,6 +1726,7 @@ class SubscriberListDetailsView(APIView):
 # Event views (4 endpoints) — Wave D
 # ===========================================================================
 
+
 class EventNewView(APIView):
     """
     POST /govstack/scheduler/event/new
@@ -1753,12 +1760,12 @@ class EventNewView(APIView):
     """
 
     gs_actor_role = "organizer"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def post(self, request):
+    def post(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "organizer"
 
         qry_data, err = _parse_qry(request)
@@ -1828,12 +1835,12 @@ class EventModificationsView(APIView):
     """
 
     gs_actor_role = "organizer"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def put(self, request):
+    def put(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "organizer"
 
         event_id_str = request.query_params.get("event_id", "").strip()
@@ -1917,12 +1924,12 @@ class EventDeleteView(APIView):
     """
 
     gs_actor_role = "organizer"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def delete(self, request):
+    def delete(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "organizer"
 
         event_id_str = request.query_params.get("event_id", "").strip()
@@ -1985,12 +1992,12 @@ class EventListDetailsView(APIView):
     """
 
     gs_actor_role = "organizer"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def get(self, request):
+    def get(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "organizer"
 
         qry_data, err = _parse_qry(request)
@@ -2042,6 +2049,7 @@ class EventListDetailsView(APIView):
 # Appointment views (4 endpoints) — Wave E
 # ===========================================================================
 
+
 class AppointmentNewView(APIView):
     """
     POST /govstack/scheduler/appointment/new
@@ -2085,12 +2093,12 @@ class AppointmentNewView(APIView):
     """
 
     gs_actor_role = "organizer"
-    authentication_classes = [GovStackCitizenAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackCitizenAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def post(self, request):
+    def post(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "organizer"
 
         qry_data, err = _parse_qry(request)
@@ -2250,12 +2258,12 @@ class AppointmentModificationsView(APIView):
     """
 
     gs_actor_role = "organizer"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def put(self, request):
+    def put(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "organizer"
 
         appointment_id_str = request.query_params.get("appointment_id", "").strip()
@@ -2357,14 +2365,12 @@ class AppointmentModificationsView(APIView):
                 {
                     "status": "error",
                     "code": "APPOINTMENT_MODIFY_FAILED",
-                    "message": "Appointment modification failed. Please check the supplied details.",
+                    "message": "Appointment modification failed. Please check the supplied details.",  # noqa: E501
                 },
                 status=400,
             )
         except Exception:
-            logger.exception(
-                "appointment_modify failed for appointment_id=%s", appointment_id_str
-            )
+            logger.exception("appointment_modify failed for appointment_id=%s", appointment_id_str)
             return Response(
                 {
                     "status": "error",
@@ -2398,12 +2404,12 @@ class AppointmentDeleteView(APIView):
     """
 
     gs_actor_role = "organizer"
-    authentication_classes = [GovStackCitizenAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackCitizenAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def delete(self, request):
+    def delete(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "organizer"
 
         appointment_id_str = request.query_params.get("appointment_id", "").strip()
@@ -2422,7 +2428,9 @@ class AppointmentDeleteView(APIView):
         )
 
         try:
-            appointment_delete(appointment_id=appointment_id_str, caller_citizen_id=caller_citizen_id)
+            appointment_delete(
+                appointment_id=appointment_id_str, caller_citizen_id=caller_citizen_id
+            )
         except AppointmentOwnershipError:
             return Response(
                 {
@@ -2451,9 +2459,7 @@ class AppointmentDeleteView(APIView):
                 status=400,
             )
         except Exception:
-            logger.exception(
-                "appointment_delete failed for appointment_id=%s", appointment_id_str
-            )
+            logger.exception("appointment_delete failed for appointment_id=%s", appointment_id_str)
             return Response(
                 {
                     "status": "error",
@@ -2463,9 +2469,7 @@ class AppointmentDeleteView(APIView):
                 status=400,
             )
 
-        return Response(
-            {"status": "success", "appointment_id": appointment_id_str}, status=200
-        )
+        return Response({"status": "success", "appointment_id": appointment_id_str}, status=200)
 
 
 class AppointmentListDetailsView(APIView):
@@ -2500,12 +2504,12 @@ class AppointmentListDetailsView(APIView):
     """
 
     gs_actor_role = "organizer"
-    authentication_classes = [GovStackCitizenAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackCitizenAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def get(self, request):
+    def get(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "organizer"
 
         qry_data, err = _parse_qry(request)
@@ -2567,7 +2571,8 @@ class AppointmentListDetailsView(APIView):
 # AlertSchedule views (4 endpoints) — Wave F
 # ===========================================================================
 
-def _enqueue_alert_dispatch(alert_schedule_pk: str, eta) -> None:
+
+def _enqueue_alert_dispatch(alert_schedule_pk: str, eta) -> None:  # noqa: ANN001
     """
     Schedule the Celery ETA dispatch task for a newly created AlertSchedule
     and persist the resulting AsyncResult.id back onto the row.
@@ -2596,7 +2601,7 @@ def _enqueue_alert_dispatch(alert_schedule_pk: str, eta) -> None:
     GovStackAlertSchedule.objects.filter(pk=alert_schedule_pk).update(celery_task_id=result.id)
 
 
-def _reschedule_alert_dispatch(alert_schedule_pk: str, eta, old_task_id: str) -> None:
+def _reschedule_alert_dispatch(alert_schedule_pk: str, eta, old_task_id: str) -> None:  # noqa: ANN001
     """
     Revoke a previously scheduled Celery ETA task (best-effort, non-fatal)
     and enqueue + persist a replacement — used by AlertScheduleModificationsView
@@ -2608,6 +2613,7 @@ def _reschedule_alert_dispatch(alert_schedule_pk: str, eta, old_task_id: str) ->
     if old_task_id:
         try:
             from celery.result import AsyncResult
+
             AsyncResult(old_task_id).revoke()
         except Exception as exc:
             # Non-fatal: the old task may have already fired, already been
@@ -2616,7 +2622,8 @@ def _reschedule_alert_dispatch(alert_schedule_pk: str, eta, old_task_id: str) ->
             logger.warning(
                 "alert_schedule_modify: could not revoke old Celery task for "
                 "alert_schedule pk=%s: %s",
-                alert_schedule_pk, type(exc).__name__,
+                alert_schedule_pk,
+                type(exc).__name__,
             )
     _enqueue_alert_dispatch(alert_schedule_pk, eta)
 
@@ -2649,12 +2656,12 @@ class AlertScheduleNewView(APIView):
     """
 
     gs_actor_role = "organizer"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def post(self, request):
+    def post(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "organizer"
 
         qry_data, err = _parse_qry(request)
@@ -2743,12 +2750,12 @@ class AlertScheduleModificationsView(APIView):
     """
 
     gs_actor_role = "organizer"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def put(self, request):
+    def put(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "organizer"
 
         alert_schedule_id_str = request.query_params.get("alert_schedule_id", "").strip()
@@ -2820,7 +2827,7 @@ class AlertScheduleModificationsView(APIView):
                 {
                     "status": "error",
                     "code": "ALERT_SCHEDULE_MODIFY_FAILED",
-                    "message": "Alert schedule modification failed. Please check the supplied details.",
+                    "message": "Alert schedule modification failed. Please check the supplied details.",  # noqa: E501
                 },
                 status=400,
             )
@@ -2841,9 +2848,7 @@ class AlertScheduleModificationsView(APIView):
             _pk = str(alert_schedule.pk)
             _eta = alert_schedule.alert_datetime
             _old_task_id = old_task_id
-            transaction.on_commit(
-                lambda: _reschedule_alert_dispatch(_pk, _eta, _old_task_id)
-            )
+            transaction.on_commit(lambda: _reschedule_alert_dispatch(_pk, _eta, _old_task_id))
 
         return Response(
             {"status": "success", "alert_schedule_id": str(alert_schedule.pk)}, status=200
@@ -2869,12 +2874,12 @@ class AlertScheduleDeleteView(APIView):
     """
 
     gs_actor_role = "organizer"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def delete(self, request):
+    def delete(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "organizer"
 
         alert_schedule_id_str = request.query_params.get("alert_schedule_id", "").strip()
@@ -2944,12 +2949,12 @@ class AlertScheduleListDetailsView(APIView):
     """
 
     gs_actor_role = "organizer"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def get(self, request):
+    def get(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "organizer"
 
         qry_data, err = _parse_qry(request)
@@ -3008,6 +3013,7 @@ class AlertScheduleListDetailsView(APIView):
 # Message views (4 endpoints) — Wave F
 # ===========================================================================
 
+
 class MessageNewView(APIView):
     """
     POST /govstack/scheduler/message/new
@@ -3031,12 +3037,12 @@ class MessageNewView(APIView):
     """
 
     gs_actor_role = "organizer"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def post(self, request):
+    def post(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "organizer"
 
         qry_data, err = _parse_qry(request)
@@ -3083,9 +3089,7 @@ class MessageNewView(APIView):
                 status=400,
             )
 
-        return Response(
-            {"status": "success", "message_id": str(message.pk)}, status=200
-        )
+        return Response({"status": "success", "message_id": str(message.pk)}, status=200)
 
 
 class MessageModificationsView(APIView):
@@ -3106,12 +3110,12 @@ class MessageModificationsView(APIView):
     """
 
     gs_actor_role = "organizer"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def put(self, request):
+    def put(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "organizer"
 
         message_id_str = request.query_params.get("message_id", "").strip()
@@ -3177,9 +3181,7 @@ class MessageModificationsView(APIView):
                 status=400,
             )
 
-        return Response(
-            {"status": "success", "message_id": str(message.pk)}, status=200
-        )
+        return Response({"status": "success", "message_id": str(message.pk)}, status=200)
 
 
 class MessageDeleteView(APIView):
@@ -3196,12 +3198,12 @@ class MessageDeleteView(APIView):
     """
 
     gs_actor_role = "organizer"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def delete(self, request):
+    def delete(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "organizer"
 
         message_id_str = request.query_params.get("message_id", "").strip()
@@ -3255,9 +3257,7 @@ class MessageDeleteView(APIView):
                 status=400,
             )
 
-        return Response(
-            {"status": "success", "message_id": message_id_str}, status=200
-        )
+        return Response({"status": "success", "message_id": message_id_str}, status=200)
 
 
 class MessageListDetailsView(APIView):
@@ -3284,12 +3284,12 @@ class MessageListDetailsView(APIView):
     """
 
     gs_actor_role = "organizer"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def get(self, request):
+    def get(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "organizer"
 
         qry_data, err = _parse_qry(request)
@@ -3354,6 +3354,7 @@ class MessageListDetailsView(APIView):
 # for modify/delete — this is a hard model invariant, not merely a view-layer
 # policy choice). Neither view calls into the service layer at all.
 
+
 class LogNewView(APIView):
     """
     POST /govstack/scheduler/log/new
@@ -3392,12 +3393,12 @@ class LogNewView(APIView):
     """
 
     gs_actor_role = "admin"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def post(self, request):
+    def post(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "admin"
 
         qry_data, err = _parse_qry(request)
@@ -3443,9 +3444,7 @@ class LogNewView(APIView):
                 {
                     "status": "error",
                     "code": "BOOKING_NOT_FOUND",
-                    "message": (
-                        "No booking matches the event_id/subscriber_id given in log_data."
-                    ),
+                    "message": ("No booking matches the event_id/subscriber_id given in log_data."),
                 },
                 status=404,
             )
@@ -3490,12 +3489,12 @@ class LogModificationsView(APIView):
     """
 
     gs_actor_role = "admin"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def put(self, request):
+    def put(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "admin"
 
         return Response(
@@ -3522,12 +3521,12 @@ class LogDeleteView(APIView):
     """
 
     gs_actor_role = "admin"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def delete(self, request):
+    def delete(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "admin"
 
         return Response(
@@ -3572,12 +3571,12 @@ class LogListDetailsView(APIView):
     """
 
     gs_actor_role = "admin"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
-    throttle_classes = [ScopedRateThrottle]
+    authentication_classes = [GovStackSchedulerAuth]  # noqa: RUF012
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
-    def get(self, request):
+    def get(self, request):  # noqa: ANN001, ANN201
         request.META["_gs_actor_role"] = "admin"
 
         qry_data, err = _parse_qry(request)

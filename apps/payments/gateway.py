@@ -10,10 +10,10 @@ Usage:
     gw = get_gateway()
     result = gw.create_payment_intent(amount=Decimal("50.00"), ...)
 """
+
 import abc
 import functools
 from decimal import Decimal
-from typing import Optional
 
 
 class PaymentGateway(abc.ABC):
@@ -32,7 +32,7 @@ class PaymentGateway(abc.ABC):
         idempotency_key: str,
         metadata: dict,
         description: str = "",
-        connect_account_id: Optional[str] = None,
+        connect_account_id: str | None = None,
     ) -> dict:
         """
         Create a payment intent on the gateway.
@@ -132,7 +132,7 @@ class PaymentGateway(abc.ABC):
         payment_method_id: str,
         idempotency_key: str,
         metadata: dict,
-        connect_account_id: Optional[str] = None,
+        connect_account_id: str | None = None,
     ) -> dict:
         """
         Create a recurring subscription (recurring gift plan).
@@ -258,10 +258,12 @@ def get_gateway() -> PaymentGateway:
         gw = get_gateway()
     """
     from django.conf import settings
+
     gateway_name = getattr(settings, "PAYMENT_GATEWAY", "stripe")
 
     if gateway_name == "stripe":
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         return StripeGateway()
     else:
         raise ValueError(f"Unknown payment gateway: {gateway_name!r}")

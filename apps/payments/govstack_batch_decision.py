@@ -4,12 +4,14 @@ This module persists an outcome only.  It never submits a provider operation,
 executes a refund, sends a callback, or replaces the RB-02.2 child-finality
 materializer.
 """
+
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import json
-from typing import Any, Iterable
+from collections.abc import Iterable
+from dataclasses import dataclass
+from typing import Any
 
 from django.db import IntegrityError, transaction
 
@@ -18,7 +20,7 @@ from apps.payments.govstack_batch_policy import BatchDecision, evaluate
 from apps.payments.govstack_models import BulkPaymentBatch, GovStackBatchDecision
 
 
-class BatchDecisionConflict(ValueError):
+class BatchDecisionConflict(ValueError):  # noqa: N818
     """A live lease generation attempted to persist changed policy inputs."""
 
 

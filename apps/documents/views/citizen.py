@@ -26,6 +26,7 @@ Security invariants (must never be violated):
     unauthenticated requests are redirected to the login page.
 7.  PII (names, email) is never written to log records — only ``.pk`` values.
 """
+
 from __future__ import annotations
 
 import logging
@@ -37,7 +38,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.storage import default_storage
 from django.http import FileResponse, Http404, HttpRequest, HttpResponse
-from django.shortcuts import get_object_or_404, redirect, render
+from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from django.views import View
@@ -60,7 +61,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _record_access_denied(*, requested_pk, requesting_user) -> None:
+def _record_access_denied(*, requested_pk, requesting_user) -> None:  # noqa: ANN001
     """
     Write an AuditEventType.ACCESS_DENIED entry for a denied (IDOR) access
     attempt — spec §13.1 "Access denied (non-owned PK)".
@@ -141,7 +142,7 @@ def _download_redirect_url(storage_key: str) -> str:
 
     PIPEDA: the raw storage key is passed in but never logged or returned to
     the caller in unsigned form.
-    """
+    """  # noqa: RUF002
     from apps.documents.services.upload import _is_s3_storage
 
     if _is_s3_storage():
@@ -175,7 +176,7 @@ class DocumentListView(LoginRequiredMixin, ListView):
     context_object_name = "documents"
     paginate_by = 20
 
-    def get_queryset(self):  # type: ignore[override]
+    def get_queryset(self):  # type: ignore[override]  # noqa: ANN201
         return (
             Document.objects.active()
             .latest_versions()
@@ -355,7 +356,7 @@ class DocumentUploadConfirmView(LoginRequiredMixin, View):
             confirm_upload(user=request.user, doc_id=str(pk))
         except Http404:
             # doc_id not found or not owned by this user (IDOR guard from service).
-            raise Http404
+            raise Http404  # noqa: B904
         except ValidationError as exc:
             _exc_msg = exc.messages[0] if exc.messages else str(exc)
             logger.info(
@@ -428,9 +429,11 @@ class DocumentDownloadView(LoginRequiredMixin, View):
             # owned by someone else) is audit-worthy — a bare "doesn't exist"
             # 404 (or a not-yet-ACTIVE own document) carries no such signal.
             # Audit-only; response unchanged.
-            if Document.objects.filter(pk=pk, deleted_at__isnull=True).exclude(
-                uploaded_by=request.user
-            ).exists():
+            if (
+                Document.objects.filter(pk=pk, deleted_at__isnull=True)
+                .exclude(uploaded_by=request.user)
+                .exists()
+            ):
                 _record_access_denied(requested_pk=pk, requesting_user=request.user)
             raise Http404
 
@@ -441,14 +444,14 @@ class DocumentDownloadView(LoginRequiredMixin, View):
                 ip_address=_get_client_ip(request),
             )
         except Http404:
-            raise Http404
+            raise Http404  # noqa: B904
         except Exception:
             logger.exception(
                 "DocumentDownloadView: failed to issue token for user pk=%s, doc pk=%s",
                 request.user.pk,
                 pk,
             )
-            raise Http404
+            raise Http404  # noqa: B904
 
         redeem_url = reverse("documents:token-redeem", args=[token.token])
         return redirect(redeem_url)
@@ -497,13 +500,13 @@ class DocumentTokenRedeemView(LoginRequiredMixin, View):
                 ip_address=_get_client_ip(request),
             )
         except Http404:
-            raise Http404
+            raise Http404  # noqa: B904
         except Exception:
             logger.exception(
                 "TokenRedeemView: unexpected error for user pk=%s",
                 request.user.pk,
             )
-            raise Http404
+            raise Http404  # noqa: B904
 
         # H-2: Re-verify scan status and soft-delete state AFTER redemption.
         #
@@ -516,10 +519,7 @@ class DocumentTokenRedeemView(LoginRequiredMixin, View):
         #
         # 404 (the established failure convention for every other failure in
         # this view) rather than 403 — a 403 would confirm the document exists.
-        if (
-            doc.scan_status != Document.ScanStatus.ACTIVE
-            or doc.deleted_at is not None
-        ):
+        if doc.scan_status != Document.ScanStatus.ACTIVE or doc.deleted_at is not None:
             logger.info(
                 "TokenRedeemView: doc pk=%s no longer downloadable "
                 "(scan_status=%s, deleted=%s); refusing to serve.",
@@ -538,16 +538,14 @@ class DocumentTokenRedeemView(LoginRequiredMixin, View):
                 f = default_storage.open(doc.storage_key, "rb")
                 response = FileResponse(f, content_type=doc.mime_type)
                 safe_name = f"document-{doc.pk}.bin"
-                response["Content-Disposition"] = (
-                    f'attachment; filename="{safe_name}"'
-                )
+                response["Content-Disposition"] = f'attachment; filename="{safe_name}"'
                 return response
             except Exception:
                 logger.exception(
                     "TokenRedeemView: failed to open storage for doc pk=%s",
                     doc.pk,
                 )
-                raise Http404
+                raise Http404  # noqa: B904
         else:
             # Large files: redirect to a storage-generated URL.
             # In S3-backed environments this is a freshly signed GET URL whose
@@ -562,6 +560,6 @@ class DocumentTokenRedeemView(LoginRequiredMixin, View):
                     "TokenRedeemView: failed to generate storage URL for doc pk=%s",
                     doc.pk,
                 )
-                raise Http404
+                raise Http404  # noqa: B904
 
             return redirect(storage_url)

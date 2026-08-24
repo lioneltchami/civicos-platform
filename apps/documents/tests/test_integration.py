@@ -58,13 +58,12 @@ from __future__ import annotations
 
 import uuid
 from datetime import timedelta
-from io import BytesIO
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
-from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.exceptions import PermissionDenied
 from django.http import Http404
 from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
@@ -428,9 +427,7 @@ class FullUploadScanDownloadPipelineTests(TransactionTestCase):
         doc_id = result["doc_id"]
 
         with (
-            patch(
-                "apps.documents.tasks.scan_document.apply_async"
-            ) as mock_apply_async,
+            patch("apps.documents.tasks.scan_document.apply_async") as mock_apply_async,
             patch("apps.documents.services.upload._verify_file_exists"),
             patch(
                 "apps.documents.services.upload._read_first_bytes",
@@ -544,7 +541,9 @@ class FullUploadScanDownloadPipelineTests(TransactionTestCase):
 
         token.refresh_from_db()
         self.assertIsNotNone(token.used_at, "Token must be marked used after consumption.")
-        self.assertEqual(returned_doc.pk, doc.pk, "consume_access_token must return the linked Document.")
+        self.assertEqual(
+            returned_doc.pk, doc.pk, "consume_access_token must return the linked Document."
+        )
 
     def test_consumed_token_cannot_be_reused(self) -> None:
         """
@@ -594,7 +593,9 @@ class FullUploadScanDownloadPipelineTests(TransactionTestCase):
             expires_at=timezone.now() - timedelta(minutes=1)
         )
 
-        with self.assertRaises(TokenExpiredError, msg="Expired token must raise TokenExpiredError."):
+        with self.assertRaises(
+            TokenExpiredError, msg="Expired token must raise TokenExpiredError."
+        ):
             consume_access_token(
                 token_value=token.token,
                 user=self.user,
@@ -616,7 +617,9 @@ class FullUploadScanDownloadPipelineTests(TransactionTestCase):
             ip_address="10.0.0.1",
         )
 
-        with self.assertRaises(Http404, msg="Token issued to User A must not be consumable by User B."):
+        with self.assertRaises(
+            Http404, msg="Token issued to User A must not be consumable by User B."
+        ):
             consume_access_token(
                 token_value=token.token,
                 user=other_user,
@@ -698,7 +701,9 @@ class LegalHoldDisposalIntegrationTests(TestCase):
         soft_delete(document=doc, deleted_by=self.user)
 
         doc.refresh_from_db()
-        self.assertIsNotNone(doc.deleted_at, "soft_delete must set deleted_at after legal hold released.")
+        self.assertIsNotNone(
+            doc.deleted_at, "soft_delete must set deleted_at after legal hold released."
+        )
         self.assertEqual(doc.scan_status, Document.ScanStatus.DELETED)
 
     def test_apply_legal_hold_twice_raises_value_error(self) -> None:
@@ -720,7 +725,9 @@ class LegalHoldDisposalIntegrationTests(TestCase):
         doc = _make_document(user=self.user, category=self.category)
         # legal_hold defaults to False — no hold to release.
 
-        with self.assertRaises(ValueError, msg="release_legal_hold on unheld doc must raise ValueError."):
+        with self.assertRaises(
+            ValueError, msg="release_legal_hold on unheld doc must raise ValueError."
+        ):
             release_legal_hold(document=doc, released_by=self.legal_officer, reason="spurious")
 
     def test_apply_legal_hold_requires_permission(self) -> None:
@@ -908,9 +915,7 @@ class VersionChainIntegrationTests(TestCase):
         v2 = self._make_v2(v1)
 
         chain_pks = [v1.pk, v2.pk]
-        latest_count = Document.objects.filter(
-            pk__in=chain_pks, is_latest_version=True
-        ).count()
+        latest_count = Document.objects.filter(pk__in=chain_pks, is_latest_version=True).count()
         self.assertEqual(
             latest_count,
             1,
@@ -1063,7 +1068,9 @@ class TransitoryDocumentIntegrationTests(TestCase):
         soft-delete. This closes the TOCTOU window between separate atomic blocks.
         """
         doc = _make_document(user=self.user, category=self.transitory_cat)
-        self.assertIsNone(doc.expires_at, "Pre-condition: transitory doc starts with no expires_at.")
+        self.assertIsNone(
+            doc.expires_at, "Pre-condition: transitory doc starts with no expires_at."
+        )
 
         mark_purpose_fulfilled(document=doc, actor=self.user)
 
@@ -1111,7 +1118,9 @@ class TransitoryDocumentIntegrationTests(TestCase):
             deleted_at=timezone.now(),
         )
 
-        with self.assertRaises(ValueError, msg="Already-deleted transitory doc must raise ValueError."):
+        with self.assertRaises(
+            ValueError, msg="Already-deleted transitory doc must raise ValueError."
+        ):
             mark_purpose_fulfilled(document=doc, actor=self.user)
 
     def test_non_transitory_document_has_expires_at_after_schedule_expiry(self) -> None:

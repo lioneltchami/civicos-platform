@@ -4,10 +4,11 @@ The inventory deliberately records the actual Django resolver output rather than
 assuming that only the GovStack URL prefix can initiate provider work. A later
 strict admission increment must assign every mutation a verified boundary policy.
 """
+
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 from django.urls import URLPattern, URLResolver, get_resolver
 
@@ -25,7 +26,7 @@ class PaymentRoute:
     kind: str
 
 
-def _walk(patterns: Iterable[object], prefix: str = ""):
+def _walk(patterns: Iterable[object], prefix: str = ""):  # noqa: ANN202
     for pattern in patterns:
         if isinstance(pattern, URLResolver):
             yield from _walk(pattern.url_patterns, prefix + str(pattern.pattern))

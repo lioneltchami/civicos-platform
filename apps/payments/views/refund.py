@@ -24,6 +24,7 @@ Security:
   On Stripe failure the Refund row is marked FAILED and gateway_refund_id cleared so the
   row is excluded from _compute_already_refunded(), preventing phantom debt.
 """
+
 import logging
 import uuid
 from decimal import Decimal
@@ -31,14 +32,12 @@ from decimal import Decimal
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.core.cache import cache
-from django.db import transaction
 from django.db.models import Sum
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
 from django.views.generic import FormView, TemplateView
 
 from apps.payments.gateway import get_gateway
-from apps.payments.gateways.exceptions import GatewayError
 from apps.payments.models import Payment, PaymentAuditEntry, Refund
 
 logger = logging.getLogger(__name__)
@@ -51,7 +50,7 @@ except ImportError:  # pragma: no cover
     _ipware_get_client_ip = None
 
 
-def _get_client_ip(request) -> str:
+def _get_client_ip(request) -> str:  # noqa: ANN001
     """Return the real client IP, honouring the configured proxy chain.
 
     Uses django-ipware which respects IPWARE_META_PRECEDENCE_ORDER / NUM_PROXIES
@@ -65,9 +64,10 @@ def _get_client_ip(request) -> str:
             ip, _ = _ipware_get_client_ip(request)
             if ip:
                 return ip
-        except Exception:
+        except Exception:  # noqa: S110
             pass
     return request.META.get("REMOTE_ADDR", "")
+
 
 # Session key for storing validated refund data between form and confirmation
 REFUND_SESSION_KEY = "payments_pending_refund"
@@ -77,7 +77,8 @@ REFUND_SESSION_KEY = "payments_pending_refund"
 # Rate limiter for RefundConfirmView
 # ---------------------------------------------------------------------------
 
-def _check_refund_rate_limit(request) -> bool:
+
+def _check_refund_rate_limit(request) -> bool:  # noqa: ANN001
     """Returns True if limit exceeded (3 confirms per minute per staff user).
 
     Uses atomic cache.add + cache.incr so there is no TOCTOU window between
@@ -94,6 +95,7 @@ def _check_refund_rate_limit(request) -> bool:
 # ---------------------------------------------------------------------------
 # Shared helpers (module-level — used by both Create and Confirm views)
 # ---------------------------------------------------------------------------
+
 
 def _mask_ip(ip: str) -> str:
     """
@@ -117,7 +119,7 @@ def _mask_ip(ip: str) -> str:
         return ""
 
 
-def _compute_already_refunded(payment) -> Decimal:
+def _compute_already_refunded(payment) -> Decimal:  # noqa: ANN001
     """
     Sum all non-failed refunds on this payment.
 
@@ -125,22 +127,20 @@ def _compute_already_refunded(payment) -> Decimal:
     failed after the DB row was committed. Counting them would make the payment appear
     partially refunded even though no money was returned to the customer.
     """
-    return (
-        Refund.objects.filter(payment=payment)
-        .exclude(gateway_status=Refund.GATEWAY_STATUS_FAILED)
-        .aggregate(total=Sum("amount"))["total"]
-        or Decimal("0.00")
-    )
+    return Refund.objects.filter(payment=payment).exclude(
+        gateway_status=Refund.GATEWAY_STATUS_FAILED
+    ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
 
 
 # ---------------------------------------------------------------------------
 # Mixins
 # ---------------------------------------------------------------------------
 
+
 class StaffRequiredMixin(UserPassesTestMixin):
     """Restrict view to active staff users only."""
 
-    def test_func(self):
+    def test_func(self):  # noqa: ANN201
         u = self.request.user
         return bool(u and u.is_authenticated and u.is_active and u.is_staff)
 
@@ -148,6 +148,7 @@ class StaffRequiredMixin(UserPassesTestMixin):
 # ---------------------------------------------------------------------------
 # RefundCreateView — FIX 1, 2, 3, 4, 7
 # ---------------------------------------------------------------------------
+
 
 class RefundCreateView(LoginRequiredMixin, StaffRequiredMixin, FormView):
     """
@@ -160,26 +161,28 @@ class RefundCreateView(LoginRequiredMixin, StaffRequiredMixin, FormView):
 
     template_name = "payments/refund_create.html"
 
-    def setup(self, request, *args, **kwargs):
+    def setup(self, request, *args, **kwargs) -> None:  # noqa: ANN001, ANN002, ANN003
         super().setup(request, *args, **kwargs)
         # FIX 3: Guard — only load completed payments; 404 for anything else
         from apps.payments.models import PaymentIntent
+
         self.payment = get_object_or_404(
             Payment.objects.select_related("intent"),
             pk=kwargs["payment_pk"],
             intent__status=PaymentIntent.STATUS_COMPLETED,
         )
 
-    def get_form_class(self):
+    def get_form_class(self):  # noqa: ANN201
         from apps.payments.forms import RefundForm
+
         return RefundForm
 
-    def get_form_kwargs(self):
+    def get_form_kwargs(self):  # noqa: ANN201
         kwargs = super().get_form_kwargs()
         kwargs["payment"] = self.payment
         return kwargs
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
         ctx["payment"] = self.payment
         already_refunded = _compute_already_refunded(self.payment)
@@ -190,7 +193,7 @@ class RefundCreateView(LoginRequiredMixin, StaffRequiredMixin, FormView):
         ctx["fully_refunded"] = max_refundable <= Decimal("0.00")
         return ctx
 
-    def form_valid(self, form):
+    def form_valid(self, form):  # noqa: ANN001, ANN201
         # FIX 4: Store validated data in session; redirect to confirmation page
         cd = form.cleaned_data
         self.request.session[REFUND_SESSION_KEY] = {
@@ -206,6 +209,7 @@ class RefundCreateView(LoginRequiredMixin, StaffRequiredMixin, FormView):
 # RefundConfirmView — FIX 1, 4
 # ---------------------------------------------------------------------------
 
+
 class RefundConfirmView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
     """
     Confirmation step before issuing a refund.
@@ -215,14 +219,14 @@ class RefundConfirmView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
 
     template_name = "payments/refund_confirm.html"
 
-    def setup(self, request, *args, **kwargs):
+    def setup(self, request, *args, **kwargs) -> None:  # noqa: ANN001, ANN002, ANN003
         super().setup(request, *args, **kwargs)
         self.payment = get_object_or_404(
             Payment.objects.select_related("intent"),
             pk=kwargs["payment_pk"],
         )
 
-    def _get_session_data(self):
+    def _get_session_data(self):  # noqa: ANN202
         data = self.request.session.get(REFUND_SESSION_KEY)
         if not data:
             return None
@@ -231,12 +235,12 @@ class RefundConfirmView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
             return None
         return data
 
-    def get(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         if not self._get_session_data():
             return redirect("payments:refund_create", payment_pk=self.payment.pk)
         return super().get(request, *args, **kwargs)
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
         session_data = self._get_session_data() or {}
         ctx["payment"] = self.payment
@@ -245,9 +249,10 @@ class RefundConfirmView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
         ctx["notes"] = session_data.get("notes", "")
         return ctx
 
-    def post(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         """Execute the refund after confirmation — serialized under DB lock."""
         from django.db import transaction as db_transaction
+
         from apps.payments.models import PaymentIntent
 
         if _check_refund_rate_limit(request):
@@ -297,18 +302,16 @@ class RefundConfirmView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
             # A FAILED refund means Stripe was never charged — it must not count toward
             # already_refunded or it permanently reduces max_refundable (phantom debt).
             from django.db.models import Sum as _Sum
-            already_refunded = (
-                existing_refunds
-                .exclude(gateway_status=Refund.GATEWAY_STATUS_FAILED)
-                .aggregate(total=_Sum("amount"))["total"]
-                or Decimal("0.00")
-            )
+
+            already_refunded = existing_refunds.exclude(
+                gateway_status=Refund.GATEWAY_STATUS_FAILED
+            ).aggregate(total=_Sum("amount"))["total"] or Decimal("0.00")
             max_refundable = payment.amount_paid - already_refunded
             if refund_amount > max_refundable:
                 messages.error(
                     request,
-                    f"Refund amount ${refund_amount.quantize(Decimal('0.01'))} now exceeds maximum refundable "
-                    f"${max_refundable.quantize(Decimal('0.01'))} (another refund may have been issued). "
+                    f"Refund amount ${refund_amount.quantize(Decimal('0.01'))} now exceeds maximum refundable "  # noqa: E501
+                    f"${max_refundable.quantize(Decimal('0.01'))} (another refund may have been issued). "  # noqa: E501
                     "Please start over.",
                 )
                 request.session.pop(REFUND_SESSION_KEY, None)
@@ -355,12 +358,12 @@ class RefundConfirmView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
             _refund_ref = refund
 
             def _do_stripe_refund(
-                _payment=_payment_ref,
-                _refund=_refund_ref,
-                _amount=refund_amount,
-                _reason=reason,
-                _key=idempotency_key,
-            ):
+                _payment=_payment_ref,  # noqa: ANN001
+                _refund=_refund_ref,  # noqa: ANN001
+                _amount=refund_amount,  # noqa: ANN001
+                _reason=reason,  # noqa: ANN001
+                _key=idempotency_key,  # noqa: ANN001
+            ) -> None:
                 """
                 Execute Stripe refund after DB transaction commits.
 
@@ -430,12 +433,13 @@ class RefundConfirmView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
 # RefundDetailView — FIX 6
 # ---------------------------------------------------------------------------
 
+
 class RefundDetailView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
     """Show refund details. Staff-only."""
 
     template_name = "payments/refund_detail.html"
 
-    def _scoped_queryset(self, request):
+    def _scoped_queryset(self, request):  # noqa: ANN001, ANN202
         """
         Return a Refund queryset scoped to the requesting staff user.
 
@@ -457,7 +461,7 @@ class RefundDetailView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
             return qs
         return qs.filter(authorized_by=user)
 
-    def setup(self, request, *args, **kwargs):
+    def setup(self, request, *args, **kwargs) -> None:  # noqa: ANN001, ANN002, ANN003
         # FIX 6: Load refund in setup() so it is available to any method,
         # not just get() — prevents AttributeError if middleware or mixins
         # call get_context_data() before get().
@@ -478,7 +482,7 @@ class RefundDetailView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
             # template or get_context_data() is reached.
             self.refund = None
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
         ctx["refund"] = self.refund
         return ctx

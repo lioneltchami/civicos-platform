@@ -8,11 +8,11 @@ class Migration(migrations.Migration):
     Safe to drop the legacy storage_path CharField.
     """
 
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("consent", "0004_add_data_export_request_document_fk"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.RemoveField(
             model_name="dataexportrequest",
             name="storage_path",

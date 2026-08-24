@@ -4,8 +4,8 @@ Wave 3 — test_refund_form.py
 Tests for RefundForm.  Payment and Refund model fixtures are created with
 exact fields from introspection.
 """
+
 import uuid
-from datetime import date
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
@@ -21,6 +21,7 @@ User = get_user_model()
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
+
 
 def make_user(email=None, **kwargs):
     email = email or f"user_{uuid.uuid4().hex[:6]}@example.com"
@@ -88,8 +89,8 @@ def _valid_data(**overrides):
 # RefundForm tests
 # ---------------------------------------------------------------------------
 
-class RefundFormValidTests(TestCase):
 
+class RefundFormValidTests(TestCase):
     def setUp(self):
         self.user = make_user()
         self.payment = make_completed_payment(self.user)
@@ -132,7 +133,7 @@ class RefundFormValidTests(TestCase):
         self.assertIn("amount", form.errors)
 
     def test_all_reason_choices_are_valid(self):
-        for value, label in Refund.REASON_CHOICES:
+        for value, _label in Refund.REASON_CHOICES:
             form = RefundForm(data=_valid_data(reason=value), payment=self.payment)
             self.assertTrue(form.is_valid(), f"Reason {value!r} failed: {form.errors}")
 
@@ -172,7 +173,7 @@ class RefundFormValidTests(TestCase):
     def test_payment_none_does_not_crash(self):
         """Form with payment=None instantiates without AttributeError."""
         try:
-            form = RefundForm(data=_valid_data(), payment=None)
+            RefundForm(data=_valid_data(), payment=None)
             # max_value is not set when payment is None; form is still usable
         except AttributeError as exc:
             self.fail(f"RefundForm(payment=None) raised AttributeError: {exc}")

@@ -15,9 +15,11 @@ Signal → Receiver mapping:
   appt_booking_completed  → on_booking_completed (log only)
   appt_no_show_marked     → on_no_show_marked    (staff notification stub)
 """
+
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from .signals import (
     appt_booking_cancelled,
@@ -35,8 +37,15 @@ logger = logging.getLogger("civicos.appointments.receivers")
 # Booking created
 # ---------------------------------------------------------------------------
 
+
 def on_booking_created(
-    sender, *, booking_id: str, slot_id: str, citizen_id: str, channel: str, **kwargs
+    sender: Any,
+    *,
+    booking_id: str,
+    slot_id: str,
+    citizen_id: str,
+    channel: str,
+    **kwargs,  # noqa: ANN003
 ) -> None:
     """
     Fired after a new Booking is created.
@@ -46,14 +55,18 @@ def on_booking_created(
     """
     logger.info(
         "on_booking_created: booking_id=%s slot_id=%s citizen_id=%s channel=%s",
-        booking_id, slot_id, citizen_id, channel,
+        booking_id,
+        slot_id,
+        citizen_id,
+        channel,
     )
     try:
         _create_work_item_for_booking(booking_id=booking_id, slot_id=slot_id)
     except Exception as exc:
         logger.error(
             "on_booking_created: WorkItem creation failed booking_id=%s: %s",
-            booking_id, type(exc).__name__,
+            booking_id,
+            type(exc).__name__,
         )
 
 
@@ -70,9 +83,10 @@ def _create_work_item_for_booking(*, booking_id: str, slot_id: str) -> None:
 
     try:
         from apps.appointments.models import Booking
-        booking = Booking.objects.select_related(
-            "slot", "slot__appointment_type"
-        ).get(pk=booking_id)
+
+        booking = Booking.objects.select_related("slot", "slot__appointment_type").get(
+            pk=booking_id
+        )
     except Exception:
         logger.warning(
             "_create_work_item_for_booking: booking %s not found — WorkItem not created",
@@ -103,7 +117,8 @@ def _create_work_item_for_booking(*, booking_id: str, slot_id: str) -> None:
     except Exception as exc:
         logger.error(
             "_create_work_item_for_booking: failed booking_id=%s: %s",
-            booking_id, type(exc).__name__,
+            booking_id,
+            type(exc).__name__,
         )
 
 
@@ -111,11 +126,13 @@ def _create_work_item_for_booking(*, booking_id: str, slot_id: str) -> None:
 # Booking confirmed
 # ---------------------------------------------------------------------------
 
-def on_booking_confirmed(sender, *, booking_id: str, slot_id: str, **kwargs) -> None:
+
+def on_booking_confirmed(sender, *, booking_id: str, slot_id: str, **kwargs) -> None:  # noqa: ANN001, ANN003
     """Fired when booking transitions PENDING → CONFIRMED."""
     logger.info(
         "on_booking_confirmed: booking_id=%s slot_id=%s",
-        booking_id, slot_id,
+        booking_id,
+        slot_id,
     )
     # Wave 6: _schedule_reminder_tasks(booking_id=booking_id)
 
@@ -124,13 +141,23 @@ def on_booking_confirmed(sender, *, booking_id: str, slot_id: str, **kwargs) -> 
 # Booking cancelled
 # ---------------------------------------------------------------------------
 
+
 def on_booking_cancelled(
-    sender, *, booking_id: str, slot_id: str, cancelled_by_id: str, late: bool, **kwargs
+    sender: Any,
+    *,
+    booking_id: str,
+    slot_id: str,
+    cancelled_by_id: str,
+    late: bool,
+    **kwargs,  # noqa: ANN003
 ) -> None:
     """Fired when a booking is cancelled."""
     logger.info(
         "on_booking_cancelled: booking_id=%s slot_id=%s cancelled_by_id=%s late=%s",
-        booking_id, slot_id, cancelled_by_id, late,
+        booking_id,
+        slot_id,
+        cancelled_by_id,
+        late,
     )
     # Wave 4: promote_waitlist(slot_id=slot_id)
 
@@ -139,11 +166,13 @@ def on_booking_cancelled(
 # Booking rejected
 # ---------------------------------------------------------------------------
 
-def on_booking_rejected(sender, *, booking_id: str, slot_id: str, **kwargs) -> None:
+
+def on_booking_rejected(sender, *, booking_id: str, slot_id: str, **kwargs) -> None:  # noqa: ANN001, ANN003
     """Fired when a booking is rejected by staff."""
     logger.info(
         "on_booking_rejected: booking_id=%s slot_id=%s",
-        booking_id, slot_id,
+        booking_id,
+        slot_id,
     )
     # Wave 6: send_rejection_notification(booking_id=booking_id)
 
@@ -152,7 +181,8 @@ def on_booking_rejected(sender, *, booking_id: str, slot_id: str, **kwargs) -> N
 # Booking completed
 # ---------------------------------------------------------------------------
 
-def on_booking_completed(sender, *, booking_id: str, **kwargs) -> None:
+
+def on_booking_completed(sender, *, booking_id: str, **kwargs) -> None:  # noqa: ANN001, ANN003
     """Fired when a booking is marked completed."""
     logger.info("on_booking_completed: booking_id=%s", booking_id)
 
@@ -161,13 +191,21 @@ def on_booking_completed(sender, *, booking_id: str, **kwargs) -> None:
 # No-show marked
 # ---------------------------------------------------------------------------
 
+
 def on_no_show_marked(
-    sender, *, booking_id: str, citizen_id: str, no_show_count: int, **kwargs
+    sender: Any,
+    *,
+    booking_id: str,
+    citizen_id: str,
+    no_show_count: int,
+    **kwargs,  # noqa: ANN003
 ) -> None:
     """Fired when a booking is marked as a no-show."""
     logger.info(
         "on_no_show_marked: booking_id=%s citizen_id=%s no_show_count=%d",
-        booking_id, citizen_id, no_show_count,
+        booking_id,
+        citizen_id,
+        no_show_count,
     )
     # Wave 6: if suspended, send staff notification
 
@@ -176,14 +214,13 @@ def on_no_show_marked(
 # Signal connection
 # ---------------------------------------------------------------------------
 
+
 def connect_receivers() -> None:
     """
     Connect all Wave 3 receivers to their signals.
     Called from AppointmentsConfig.ready().
     """
-    appt_booking_created.connect(
-        on_booking_created, dispatch_uid="appt_booking_created_receiver"
-    )
+    appt_booking_created.connect(on_booking_created, dispatch_uid="appt_booking_created_receiver")
     appt_booking_confirmed.connect(
         on_booking_confirmed, dispatch_uid="appt_booking_confirmed_receiver"
     )
@@ -196,6 +233,4 @@ def connect_receivers() -> None:
     appt_booking_completed.connect(
         on_booking_completed, dispatch_uid="appt_booking_completed_receiver"
     )
-    appt_no_show_marked.connect(
-        on_no_show_marked, dispatch_uid="appt_no_show_marked_receiver"
-    )
+    appt_no_show_marked.connect(on_no_show_marked, dispatch_uid="appt_no_show_marked_receiver")

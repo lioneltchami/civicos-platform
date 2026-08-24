@@ -5,24 +5,73 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('consent', '0019_alter_consentrevision_serialized_hash'),
+    dependencies = [  # noqa: RUF012
+        ("consent", "0019_alter_consentrevision_serialized_hash"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.RemoveConstraint(
-            model_name='consentauditentry',
-            name='consent_audit_valid_action',
+            model_name="consentauditentry",
+            name="consent_audit_valid_action",
         ),
         migrations.AlterField(
-            model_name='consentauditentry',
-            name='action',
-            field=models.CharField(choices=[('granted', 'Granted'), ('withdrawn', 'Withdrawn'), ('export_requested', 'Export Requested'), ('export_ready', 'Export Ready'), ('export_delivered', 'Export Delivered'), ('export_expired', 'Export Expired'), ('export_failed', 'Export Failed'), ('export_downloaded', 'Export Downloaded by Citizen'), ('export_marked_delivered', 'Marked Delivered by Staff'), ('rtbf_requested', 'Right to Be Forgotten Requested'), ('rtbf_completed', 'Right to Be Forgotten Completed'), ('policy_created', 'Policy Created'), ('policy_updated', 'Policy Updated'), ('data_agreement_created', 'Data Agreement Created'), ('data_agreement_updated', 'Data Agreement Updated'), ('webhook_created', 'Webhook Created'), ('webhook_updated', 'Webhook Updated'), ('webhook_deleted', 'Webhook Deleted')], db_index=True, max_length=30),
+            model_name="consentauditentry",
+            name="action",
+            field=models.CharField(
+                choices=[
+                    ("granted", "Granted"),
+                    ("withdrawn", "Withdrawn"),
+                    ("export_requested", "Export Requested"),
+                    ("export_ready", "Export Ready"),
+                    ("export_delivered", "Export Delivered"),
+                    ("export_expired", "Export Expired"),
+                    ("export_failed", "Export Failed"),
+                    ("export_downloaded", "Export Downloaded by Citizen"),
+                    ("export_marked_delivered", "Marked Delivered by Staff"),
+                    ("rtbf_requested", "Right to Be Forgotten Requested"),
+                    ("rtbf_completed", "Right to Be Forgotten Completed"),
+                    ("policy_created", "Policy Created"),
+                    ("policy_updated", "Policy Updated"),
+                    ("data_agreement_created", "Data Agreement Created"),
+                    ("data_agreement_updated", "Data Agreement Updated"),
+                    ("webhook_created", "Webhook Created"),
+                    ("webhook_updated", "Webhook Updated"),
+                    ("webhook_deleted", "Webhook Deleted"),
+                ],
+                db_index=True,
+                max_length=30,
+            ),
         ),
         migrations.AddConstraint(
-            model_name='consentauditentry',
-            constraint=models.CheckConstraint(condition=models.Q(('action__in', ['granted', 'withdrawn', 'export_requested', 'export_ready', 'export_delivered', 'export_expired', 'export_failed', 'export_downloaded', 'export_marked_delivered', 'rtbf_requested', 'rtbf_completed', 'policy_created', 'policy_updated', 'data_agreement_created', 'data_agreement_updated', 'webhook_created', 'webhook_updated', 'webhook_deleted'])), name='consent_audit_valid_action'),
+            model_name="consentauditentry",
+            constraint=models.CheckConstraint(
+                condition=models.Q(
+                    (
+                        "action__in",
+                        [
+                            "granted",
+                            "withdrawn",
+                            "export_requested",
+                            "export_ready",
+                            "export_delivered",
+                            "export_expired",
+                            "export_failed",
+                            "export_downloaded",
+                            "export_marked_delivered",
+                            "rtbf_requested",
+                            "rtbf_completed",
+                            "policy_created",
+                            "policy_updated",
+                            "data_agreement_created",
+                            "data_agreement_updated",
+                            "webhook_created",
+                            "webhook_updated",
+                            "webhook_deleted",
+                        ],
+                    )
+                ),
+                name="consent_audit_valid_action",
+            ),
         ),
     ]

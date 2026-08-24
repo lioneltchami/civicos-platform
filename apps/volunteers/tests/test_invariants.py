@@ -16,6 +16,7 @@ Design rules enforced here:
   - ProfilePK-only PIPEDA references in assertions.
   - setUp() (not setUpTestData) for TransactionTestCase.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -30,7 +31,13 @@ from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMix
 from django.contrib.auth.models import Permission
 from django.core.exceptions import ValidationError
 from django.db import connection
-from django.test import RequestFactory, SimpleTestCase, TestCase, TransactionTestCase, override_settings
+from django.test import (
+    RequestFactory,
+    SimpleTestCase,
+    TestCase,
+    TransactionTestCase,
+    override_settings,
+)
 from django.utils import timezone
 
 User = get_user_model()
@@ -56,35 +63,38 @@ def _make_user(email=None, password="testpass!", **kwargs):
 
 def _make_program(**kwargs):
     from apps.volunteers.models import Program
+
     n = _uid()
-    defaults = dict(
-        name_en=f"InvProgram {n}",
-        name_fr=f"InvProgramme {n}",
-        slug=f"invprog-{n}",
-        cra_category="welfare",
-    )
+    defaults = {
+        "name_en": f"InvProgram {n}",
+        "name_fr": f"InvProgramme {n}",
+        "slug": f"invprog-{n}",
+        "cra_category": "welfare",
+    }
     defaults.update(kwargs)
     return Program.objects.create(**defaults)
 
 
 def _make_opportunity(program, *, slug=None, status="published", **kwargs):
     from apps.volunteers.models import Opportunity
+
     n = _uid()
-    defaults = dict(
-        title_en=f"Opportunity EN {n}",
-        title_fr=f"Opportunité FR {n}",
-        slug=slug or f"invopp-{n}",
-        description_en="English description",
-        description_fr="Description en français",
-        program=program,
-        status=status,
-    )
+    defaults = {
+        "title_en": f"Opportunity EN {n}",
+        "title_fr": f"Opportunité FR {n}",
+        "slug": slug or f"invopp-{n}",
+        "description_en": "English description",
+        "description_fr": "Description en français",
+        "program": program,
+        "status": status,
+    }
     defaults.update(kwargs)
     return Opportunity.objects.create(**defaults)
 
 
 def _make_profile(user):
     from apps.volunteers.models import VolunteerProfile
+
     return VolunteerProfile.objects.create(user=user)
 
 
@@ -103,6 +113,7 @@ def _grant_perm(user, codename):
 def _make_honorarium(volunteer, amount, payment_type=None, payment_date=None, created_by=None):
     """Create an Honorarium directly, bypassing CRA clean() for test setup."""
     from apps.volunteers.models import Honorarium
+
     if payment_type is None:
         payment_type = Honorarium.PAYMENT_TYPE_HONORARIUM
     if payment_date is None:
@@ -122,18 +133,19 @@ def _make_honorarium(volunteer, amount, payment_type=None, payment_date=None, cr
 def _make_shift(opportunity, *, minutes_from_now=60, duration_minutes=120, capacity=1, **kwargs):
     """Create a future Shift for an Opportunity."""
     from apps.volunteers.models import Shift
+
     n = _uid()
     now = timezone.now()
     start = now + timedelta(minutes=minutes_from_now)
     end = start + timedelta(minutes=duration_minutes)
-    defaults = dict(
-        opportunity=opportunity,
-        start_datetime=start,
-        end_datetime=end,
-        location_override=f"Location {n}",
-        capacity=capacity,
-        waitlist_enabled=False,
-    )
+    defaults = {
+        "opportunity": opportunity,
+        "start_datetime": start,
+        "end_datetime": end,
+        "location_override": f"Location {n}",
+        "capacity": capacity,
+        "waitlist_enabled": False,
+    }
     defaults.update(kwargs)
     return Shift.objects.create(**defaults)
 
@@ -141,6 +153,7 @@ def _make_shift(opportunity, *, minutes_from_now=60, duration_minutes=120, capac
 def _make_approved_application(volunteer_profile, opportunity):
     """Create an approved VolunteerApplication (required precondition for book_shift)."""
     from apps.volunteers.models import VolunteerApplication
+
     app = VolunteerApplication(
         volunteer=volunteer_profile,
         opportunity=opportunity,
@@ -154,6 +167,7 @@ def _make_approved_application(volunteer_profile, opportunity):
 # ===========================================================================
 # Class 1: MRO Invariant (static introspection, no DB)
 # ===========================================================================
+
 
 class CBVMROInvariantTests(SimpleTestCase):
     """
@@ -203,7 +217,9 @@ class CBVMROInvariantTests(SimpleTestCase):
                     ),
                 )
                 checked += 1
-        self.assertGreater(checked, 0, "No coordinator CBVs with both mixins found — check import path")
+        self.assertGreater(
+            checked, 0, "No coordinator CBVs with both mixins found — check import path"
+        )
 
     def test_portal_views_login_before_permission_in_mro(self):
         """
@@ -261,7 +277,8 @@ class CBVMROInvariantTests(SimpleTestCase):
         """
         classes = self._collect_view_classes("apps.volunteers.views.coordinator")
         both = [
-            cls for cls in classes
+            cls
+            for cls in classes
             if LoginRequiredMixin in cls.__mro__ and PermissionRequiredMixin in cls.__mro__
         ]
         self.assertGreater(
@@ -275,6 +292,7 @@ class CBVMROInvariantTests(SimpleTestCase):
 # ===========================================================================
 # Class 2: PIPEDA Audit Log Tests
 # ===========================================================================
+
 
 class PIPEDAAuditLogTests(TestCase):
     """
@@ -293,6 +311,7 @@ class PIPEDAAuditLogTests(TestCase):
 
     def setUp(self):
         from apps.audit.models import AuditLogEntry
+
         self.AuditLogEntry = AuditLogEntry
 
         # Coordinator with audit-writing permissions.
@@ -340,6 +359,7 @@ class PIPEDAAuditLogTests(TestCase):
         Tests the contract at the audit-write callsite.
         """
         from apps.volunteers.admin import _write_volunteer_audit
+
         factory = RequestFactory()
         request = factory.post("/admin/volunteers/")
         request.user = self.coordinator
@@ -361,14 +381,13 @@ class PIPEDAAuditLogTests(TestCase):
         reference the volunteer by PK only — not email.
         """
         from apps.volunteers.admin import _write_volunteer_audit
+
         factory = RequestFactory()
         request = factory.post("/admin/volunteers/honorarium/add/")
         request.user = self.coordinator
         request.META["REMOTE_ADDR"] = "127.0.0.1"
         request.session = {}  # RequestFactory requests have no session by default
-        hon = _make_honorarium(
-            self.volunteer_profile, "100.00", created_by=self.coordinator
-        )
+        hon = _make_honorarium(self.volunteer_profile, "100.00", created_by=self.coordinator)
         _write_volunteer_audit(
             request=request,
             event_type="honorarium.created",
@@ -387,6 +406,7 @@ class PIPEDAAuditLogTests(TestCase):
         and must not be scrubbed.
         """
         from apps.volunteers.admin import _write_volunteer_audit
+
         factory = RequestFactory()
         request = factory.post("/admin/volunteers/")
         request.user = self.coordinator
@@ -411,6 +431,7 @@ class PIPEDAAuditLogTests(TestCase):
         principle: only authentication events snapshot the email).
         """
         from apps.volunteers.admin import _write_volunteer_audit
+
         factory = RequestFactory()
         request = factory.post("/admin/volunteers/")
         request.user = self.coordinator
@@ -428,8 +449,7 @@ class PIPEDAAuditLogTests(TestCase):
             entry.actor_email,
             "",
             msg=(
-                "actor_email must be blank for data.viewed events. "
-                f"Found: {entry.actor_email!r}"
+                "actor_email must be blank for data.viewed events. " f"Found: {entry.actor_email!r}"
             ),
         )
 
@@ -461,9 +481,7 @@ class PIPEDAAuditLogTests(TestCase):
         # Verify no AuditLogEntry event_detail contains the sin_last4 value.
         # JSONField supports __icontains on the serialised JSON text in PostgreSQL.
         self.assertFalse(
-            self.AuditLogEntry.objects.filter(
-                event_detail__icontains=sin_value
-            ).exists(),
+            self.AuditLogEntry.objects.filter(event_detail__icontains=sin_value).exists(),
             f"sin_last4 '{sin_value}' found in AuditLogEntry.event_detail — "
             "PIPEDA violation: SIN digits must never be written to audit logs.",
         )
@@ -472,6 +490,7 @@ class PIPEDAAuditLogTests(TestCase):
 # ===========================================================================
 # Class 3: CRA Honorarium Threshold Boundary Tests
 # ===========================================================================
+
 
 @override_settings(
     VOLUNTEER_CRA_ALERT_THRESHOLD=450,
@@ -510,10 +529,9 @@ class CRAThresholdBoundaryTests(TestCase):
         (not yet saved if it raises — use in assertRaises context).
         """
         from apps.volunteers.models import Honorarium
+
         if Decimal(str(existing_ytd)) > Decimal("0"):
-            _make_honorarium(
-                self.volunteer_profile, existing_ytd, created_by=self.coordinator
-            )
+            _make_honorarium(self.volunteer_profile, existing_ytd, created_by=self.coordinator)
         h = Honorarium(
             volunteer=self.volunteer_profile,
             payment_type=Honorarium.PAYMENT_TYPE_HONORARIUM,
@@ -604,7 +622,9 @@ class CRAThresholdBoundaryTests(TestCase):
         """
         # $900 existing + $100 new = $1000
         h = self._new_honorarium("900.00", "100.00")
-        with self.assertRaises(ValidationError, msg="Hard block at exactly $1000 must raise ValidationError."):
+        with self.assertRaises(
+            ValidationError, msg="Hard block at exactly $1000 must raise ValidationError."
+        ):
             h.full_clean()
 
     # ---- Above hard block ----
@@ -616,7 +636,9 @@ class CRAThresholdBoundaryTests(TestCase):
         """
         # $900 existing + $100.01 new = $1000.01
         h = self._new_honorarium("900.00", "100.01")
-        with self.assertRaises(ValidationError, msg="Hard block above $1000 must still raise ValidationError."):
+        with self.assertRaises(
+            ValidationError, msg="Hard block above $1000 must still raise ValidationError."
+        ):
             h.full_clean()
 
     def test_expense_reimbursement_exempt_from_hard_block(self):
@@ -625,6 +647,7 @@ class CRAThresholdBoundaryTests(TestCase):
         $999.99 expense + $100 honorarium → only $100 honorarium YTD; no block.
         """
         from apps.volunteers.models import Honorarium
+
         _make_honorarium(
             self.volunteer_profile,
             "999.99",
@@ -644,9 +667,10 @@ class CRAThresholdBoundaryTests(TestCase):
 # Class 4: Concurrent Overbooking (TransactionTestCase)
 # ===========================================================================
 
+
 @unittest.skipIf(
     connection.vendor == "sqlite",
-    "select_for_update() requires PostgreSQL row-level locking; SQLite cannot serialise concurrent threads",
+    "select_for_update() requires PostgreSQL row-level locking; SQLite cannot serialise concurrent threads",  # noqa: E501
 )
 class ConcurrentOverbookingTests(TransactionTestCase):
     """
@@ -665,8 +689,6 @@ class ConcurrentOverbookingTests(TransactionTestCase):
     """
 
     def setUp(self):
-        from apps.volunteers.models import Opportunity, Program, VolunteerApplication
-
         # Two volunteer users for the two concurrent booking attempts.
         self.vol1_user = _make_user("race-vol1@example.gc.ca")
         self.vol1_profile = _make_profile(self.vol1_user)
@@ -790,12 +812,15 @@ class ConcurrentOverbookingTests(TransactionTestCase):
         )
         self.assertEqual(confirmed_count, 1, "Exactly 1 confirmed booking expected.")
         self.assertEqual(waitlisted_count, 1, "Exactly 1 waitlisted booking expected.")
-        self.assertEqual(len(errors), 0, f"No ValidationErrors expected with waitlist; got: {errors}")
+        self.assertEqual(
+            len(errors), 0, f"No ValidationErrors expected with waitlist; got: {errors}"
+        )
 
 
 # ===========================================================================
 # Class 5: VSC Expiry Edge Cases
 # ===========================================================================
+
 
 class VSCExpiryTests(TestCase):
     """
@@ -816,7 +841,7 @@ class VSCExpiryTests(TestCase):
     """
 
     def setUp(self):
-        from apps.volunteers.models import Opportunity, Program, ScreeningRecord
+        from apps.volunteers.models import ScreeningRecord
 
         self.ScreeningRecord = ScreeningRecord
         self.volunteer_user = _make_user("vsc-vol@example.gc.ca")
@@ -910,6 +935,7 @@ class VSCExpiryTests(TestCase):
 # Class 6: Bilingual Response Tests
 # ===========================================================================
 
+
 class BilingualResponseTests(TestCase):
     """
     Key portal views must serve French content when Accept-Language: fr is set.
@@ -961,12 +987,14 @@ class BilingualResponseTests(TestCase):
     def test_opportunity_list_fr_contains_french_title(self):
         """Opportunity list served in French must contain the French opportunity title."""
         import html as html_module
+
         client = self._fr_client()
         response = client.get(
             "/fr/volunteers/volunteer/opportunities/",
             HTTP_ACCEPT_LANGUAGE="fr",
         )
-        # Unescape HTML entities (e.g. &#x27; → ‘) before checking for the French title.
+        # Unescape HTML entities (for example, &#x27; -> apostrophe) before checking
+        # the French title.
         content = html_module.unescape(response.content.decode())
         self.assertIn(
             "Titre d'opportunité en français",
@@ -978,6 +1006,7 @@ class BilingualResponseTests(TestCase):
         """Opportunity list served in English must contain the English opportunity title."""
         from django.urls import reverse
         from django.utils.translation import override as lang_override
+
         client = self._fr_client()
         # Clear any session language that may have been set by prior FR requests in this test.
         session = client.session
@@ -1010,6 +1039,7 @@ class BilingualResponseTests(TestCase):
     def test_opportunity_detail_fr_contains_french_title(self):
         """Opportunity detail served in French must contain the French title."""
         import html as html_module
+
         client = self._fr_client()
         response = client.get(
             f"/fr/volunteers/volunteer/opportunities/{self.opportunity.pk}/",
@@ -1027,6 +1057,7 @@ class BilingualResponseTests(TestCase):
         """Opportunity detail served in English must contain the English title."""
         from django.urls import reverse
         from django.utils.translation import override as lang_override
+
         client = self._fr_client()
         # Clear any session language that may have been set by prior FR requests in this test.
         session = client.session
@@ -1066,6 +1097,7 @@ class BilingualResponseTests(TestCase):
         Tests the model method directly without a full HTTP round-trip.
         """
         from django.utils.translation import override as lang_override
+
         with lang_override("fr"):
             title = self.opportunity.get_title()
         self.assertEqual(
@@ -1079,6 +1111,7 @@ class BilingualResponseTests(TestCase):
         Opportunity.get_title() returns title_en when the active language is 'en'.
         """
         from django.utils.translation import override as lang_override
+
         with lang_override("en"):
             title = self.opportunity.get_title()
         self.assertEqual(
@@ -1092,6 +1125,7 @@ class BilingualResponseTests(TestCase):
         Opportunity.get_title() falls back to title_en when title_fr is blank.
         """
         from django.utils.translation import override as lang_override
+
         opp = _make_opportunity(
             self.program,
             title_en="Fallback English Title",

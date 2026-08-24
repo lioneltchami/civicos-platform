@@ -10,12 +10,11 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("volunteers", "0002_wave1_fixes"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         # C-NEW-2: ScreeningRecord — partial unique on opportunity-specific checks.
         # Prevents a coordinator from creating a second VSC record for the same
         # volunteer+opportunity and overriding a prior verified_clear=False result.
@@ -52,7 +51,7 @@ class Migration(migrations.Migration):
                     django.core.validators.MaxValueValidator(Decimal("24")),
                 ],
                 verbose_name="Hours",
-                help_text="Hours volunteered (0.01 – 24.00).",
+                help_text="Hours volunteered (0.01 – 24.00).",  # noqa: RUF001
             ),
         ),
     ]

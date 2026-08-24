@@ -47,18 +47,14 @@ def load_json(path: Path) -> dict:
 
 def git_revision() -> str | None:
     try:
-        return subprocess.check_output(
-            ["git", "-C", ROOT, "rev-parse", "HEAD"], text=True
-        ).strip()
+        return subprocess.check_output(["git", "-C", ROOT, "rev-parse", "HEAD"], text=True).strip()  # noqa: S603, S607
     except (FileNotFoundError, subprocess.CalledProcessError):
         return None
 
 
 def working_tree_status() -> list[str] | None:
     try:
-        output = subprocess.check_output(
-            ["git", "-C", ROOT, "status", "--porcelain"], text=True
-        )
+        output = subprocess.check_output(["git", "-C", ROOT, "status", "--porcelain"], text=True)  # noqa: S603, S607
     except (FileNotFoundError, subprocess.CalledProcessError):
         return None
     return output.splitlines()

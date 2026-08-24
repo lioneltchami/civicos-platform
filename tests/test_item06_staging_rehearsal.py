@@ -7,7 +7,7 @@ MANIFEST = ROOT / "docs/staging/rehearsal-manifest.example.json"
 CONTROLS = ROOT / "docs/staging/CONTROL_TEMPLATES_AND_REGRESSION_MATRIX.md"
 
 
-def _module():
+def _module():  # noqa: ANN202
     spec = importlib.util.spec_from_file_location("item06_validator", VALIDATOR)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
@@ -15,13 +15,13 @@ def _module():
     return module
 
 
-def test_example_manifest_fails_closed_until_authorised_fields_are_completed():
+def test_example_manifest_fails_closed_until_authorised_fields_are_completed() -> None:
     errors = _module().validate(MANIFEST)
     assert errors
     assert any("unresolved" in error for error in errors)
 
 
-def test_repository_safe_controls_preserve_non_execution_boundary():
+def test_repository_safe_controls_preserve_non_execution_boundary() -> None:
     text = CONTROLS.read_text(encoding="utf-8")
-    for marker in ("NOT RUN", "BLOCKED", "Items 1–5 regression matrix", "Do not retain secrets"):
+    for marker in ("NOT RUN", "BLOCKED", "Items 1–5 regression matrix", "Do not retain secrets"):  # noqa: RUF001
         assert marker in text

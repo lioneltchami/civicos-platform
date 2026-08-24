@@ -4,11 +4,13 @@ Adapters are injected by callers and must never persist credentials.  Only a
 provider/source outcome can establish settlement finality; local validation is
 not settlement evidence.
 """
+
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Mapping, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 
 class ProviderOutcome(StrEnum):
@@ -42,7 +44,13 @@ class ProviderResult:
 
     @property
     def is_final(self) -> bool:
-        return self.outcome in {ProviderOutcome.SETTLED, ProviderOutcome.REJECTED, ProviderOutcome.INVALID_ACCOUNT, ProviderOutcome.INSUFFICIENT_FUNDS, ProviderOutcome.COMPENSATED}
+        return self.outcome in {
+            ProviderOutcome.SETTLED,
+            ProviderOutcome.REJECTED,
+            ProviderOutcome.INVALID_ACCOUNT,
+            ProviderOutcome.INSUFFICIENT_FUNDS,
+            ProviderOutcome.COMPENSATED,
+        }
 
     @property
     def is_settled(self) -> bool:
@@ -52,7 +60,9 @@ class ProviderResult:
 @runtime_checkable
 class PaymentProvider(Protocol):
     def submit(self, *, request_id: str, payment: Mapping[str, Any]) -> ProviderResult: ...
-    def get_status(self, *, request_id: str, provider_attempt_id: str = "", external_transaction_id: str = "") -> ProviderResult: ...
+    def get_status(
+        self, *, request_id: str, provider_attempt_id: str = "", external_transaction_id: str = ""
+    ) -> ProviderResult: ...
     def compensate(self, *, request_id: str, external_transaction_id: str) -> ProviderResult: ...
 
 

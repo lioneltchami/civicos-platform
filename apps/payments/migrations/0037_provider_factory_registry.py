@@ -2,9 +2,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("payments", "0036_payment_command_boundary")]
+    dependencies = [("payments", "0036_payment_command_boundary")]  # noqa: RUF012
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddField(
             model_name="providerregistration",
             name="factory_key",

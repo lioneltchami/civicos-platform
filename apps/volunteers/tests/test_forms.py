@@ -19,14 +19,14 @@ Covers:
     - approve without reason is valid
     - invalid action fails validation
 """
+
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Permission
 from django.test import TestCase
 
 from apps.volunteers.forms import ApplicationForm, ApplicationReviewForm
-from apps.volunteers.models import Opportunity, Program, VolunteerApplication, VolunteerProfile
+from apps.volunteers.models import Opportunity, Program, VolunteerProfile
 
 User = get_user_model()
 
@@ -51,15 +51,15 @@ def _make_program(slug=None):
 
 def _make_opportunity(program, *, slug=None, status="published", **kwargs):
     _counter[0] += 1
-    defaults = dict(
-        title_en="Community Event Helper",
-        title_fr="Aide aux événements communautaires",
-        slug=slug or f"opp-{_counter[0]}",
-        description_en="Help with community events.",
-        description_fr="Aidez lors des événements communautaires.",
-        program=program,
-        status=status,
-    )
+    defaults = {
+        "title_en": "Community Event Helper",
+        "title_fr": "Aide aux événements communautaires",
+        "slug": slug or f"opp-{_counter[0]}",
+        "description_en": "Help with community events.",
+        "description_fr": "Aidez lors des événements communautaires.",
+        "program": program,
+        "status": status,
+    }
     defaults.update(kwargs)
     return Opportunity.objects.create(**defaults)
 
@@ -71,6 +71,7 @@ def _make_profile(user):
 # ===========================================================================
 # ApplicationForm tests
 # ===========================================================================
+
 
 class ApplicationFormTests(TestCase):
     """Unit tests for ApplicationForm — direct instantiation, no HTTP."""
@@ -208,6 +209,7 @@ class ApplicationFormTests(TestCase):
 # ApplicationReviewForm tests
 # ===========================================================================
 
+
 class ApplicationReviewFormTests(TestCase):
     """Unit tests for ApplicationReviewForm — especially M-4 enforcement."""
 
@@ -262,10 +264,8 @@ class ApplicationReviewFormTests(TestCase):
         self.assertTrue(form.is_valid(), form.errors)
 
     def test_approve_with_reason_is_still_valid(self):
-        """action=approve with a rejection_reason present is also valid (coordinator may add notes)."""
-        form = ApplicationReviewForm(
-            data={"action": "approve", "rejection_reason": "Extra notes"}
-        )
+        """action=approve with a rejection_reason present is also valid (coordinator may add notes)."""  # noqa: E501
+        form = ApplicationReviewForm(data={"action": "approve", "rejection_reason": "Extra notes"})
         self.assertTrue(form.is_valid(), form.errors)
 
     # -----------------------------------------------------------------------

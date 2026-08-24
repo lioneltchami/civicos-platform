@@ -16,7 +16,7 @@ from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schem
 class GovStackAutoSchema(AutoSchema):
     """Add the BB credential pair required by GovStack authenticators."""
 
-    def _get_parameters(self):
+    def _get_parameters(self):  # noqa: ANN202
         parameters = super()._get_parameters()
         authentication_classes = getattr(self.view, "authentication_classes", ())
         target_names = {"GovStackSchedulerAuth", "GovStackCitizenAuth"}
@@ -55,7 +55,7 @@ class GovStackAutoSchema(AutoSchema):
         return parameters
 
 
-def preprocess_include_consent_endpoints(endpoints, **kwargs):
+def preprocess_include_consent_endpoints(endpoints, **kwargs):  # noqa: ANN001, ANN003, ANN201
     """
     Limit a generated schema to the GovStack consent submission surface.
 
@@ -88,7 +88,7 @@ class CivicOSTokenAuthScheme(OpenApiAuthenticationExtension):
     target_class = "apps.api.authentication.CivicOSTokenAuthentication"
     name = "TokenAuth"
 
-    def get_security_definition(self, auto_schema):
+    def get_security_definition(self, auto_schema):  # noqa: ANN001, ANN201
         return {
             "type": "apiKey",
             "in": "header",

@@ -1159,123 +1159,118 @@ apps/documents/tests/test_services_upload.py::AuditWriteFailureTests::test_audit
 apps/documents/tests/test_services_upload.py::AuditWriteFailureTests::test_audit_failure_rolls_back_to_pending_upload
 
 =============================== warnings summary ===============================
-../../../usr/local/lib/python3.12/dist-packages/wagtail/blocks/field_block.py:321
-../../../usr/local/lib/python3.12/dist-packages/wagtail/blocks/field_block.py:321
-  /usr/local/lib/python3.12/dist-packages/wagtail/blocks/field_block.py:321: RemovedInDjango60Warning: The default scheme will be changed from 'http' to 'https' in Django 6.0. Pass the forms.URLField.assume_scheme argument to silence this warning, or set the FORMS_URLFIELD_ASSUME_HTTPS transitional setting to True to opt into using 'https' as the new default scheme.
-    self.field = forms.URLField(
-
-apps/payments/models.py:193
-  <workspace>/apps/payments/models.py:193: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:195
+  <workspace>/apps/payments/models.py:195: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:197
-  <workspace>/apps/payments/models.py:197: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:199
+  <workspace>/apps/payments/models.py:199: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:350
-  <workspace>/apps/payments/models.py:350: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:352
+  <workspace>/apps/payments/models.py:352: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:354
-  <workspace>/apps/payments/models.py:354: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:356
+  <workspace>/apps/payments/models.py:356: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:358
-  <workspace>/apps/payments/models.py:358: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:360
+  <workspace>/apps/payments/models.py:360: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:362
-  <workspace>/apps/payments/models.py:362: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:364
+  <workspace>/apps/payments/models.py:364: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:499
-  <workspace>/apps/payments/models.py:499: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:500
+  <workspace>/apps/payments/models.py:500: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:697
-  <workspace>/apps/payments/models.py:697: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:700
+  <workspace>/apps/payments/models.py:700: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:1005
-  <workspace>/apps/payments/models.py:1005: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:1013
+  <workspace>/apps/payments/models.py:1013: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:1009
-  <workspace>/apps/payments/models.py:1009: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:1017
+  <workspace>/apps/payments/models.py:1017: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:1190
-  <workspace>/apps/payments/models.py:1190: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:1205
+  <workspace>/apps/payments/models.py:1205: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:1194
-  <workspace>/apps/payments/models.py:1194: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:1209
+  <workspace>/apps/payments/models.py:1209: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:1569
-  <workspace>/apps/payments/models.py:1569: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:1591
+  <workspace>/apps/payments/models.py:1591: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:1573
-  <workspace>/apps/payments/models.py:1573: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:1595
+  <workspace>/apps/payments/models.py:1595: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:1577
-  <workspace>/apps/payments/models.py:1577: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:1599
+  <workspace>/apps/payments/models.py:1599: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:1581
-  <workspace>/apps/payments/models.py:1581: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:1603
+  <workspace>/apps/payments/models.py:1603: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:1585
-  <workspace>/apps/payments/models.py:1585: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:1607
+  <workspace>/apps/payments/models.py:1607: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:1819
-  <workspace>/apps/payments/models.py:1819: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:1847
+  <workspace>/apps/payments/models.py:1847: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:1823
-  <workspace>/apps/payments/models.py:1823: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:1851
+  <workspace>/apps/payments/models.py:1851: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:1832
-  <workspace>/apps/payments/models.py:1832: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:1860
+  <workspace>/apps/payments/models.py:1860: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/volunteers/models.py:565
-  <workspace>/apps/volunteers/models.py:565: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/volunteers/models.py:547
+  <workspace>/apps/volunteers/models.py:547: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/volunteers/models.py:889
-  <workspace>/apps/volunteers/models.py:889: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/volunteers/models.py:860
+  <workspace>/apps/volunteers/models.py:860: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/volunteers/models.py:1118
-  <workspace>/apps/volunteers/models.py:1118: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/volunteers/models.py:1084
+  <workspace>/apps/volunteers/models.py:1084: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/volunteers/models.py:1631
-  <workspace>/apps/volunteers/models.py:1631: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/volunteers/models.py:1588
+  <workspace>/apps/volunteers/models.py:1588: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/volunteers/models.py:1836
-  <workspace>/apps/volunteers/models.py:1836: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/volunteers/models.py:1796
+  <workspace>/apps/volunteers/models.py:1796: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/govstack_models.py:1128
-  <workspace>/apps/payments/govstack_models.py:1128: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/govstack_models.py:1136
+  <workspace>/apps/payments/govstack_models.py:1136: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/govstack_models.py:1272
-  <workspace>/apps/payments/govstack_models.py:1272: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/govstack_models.py:1281
+  <workspace>/apps/payments/govstack_models.py:1281: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-../../../usr/local/lib/python3.12/dist-packages/django/db/models/fields/__init__.py:1148
-../../../usr/local/lib/python3.12/dist-packages/django/db/models/fields/__init__.py:1148
-  /usr/local/lib/python3.12/dist-packages/django/db/models/fields/__init__.py:1148: RemovedInDjango60Warning: The default scheme will be changed from 'http' to 'https' in Django 6.0. Pass the forms.URLField.assume_scheme argument to silence this warning, or set the FORMS_URLFIELD_ASSUME_HTTPS transitional setting to True to opt into using 'https' as the new default scheme.
+../civicos-pr1-candidate-venv/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1148
+../civicos-pr1-candidate-venv/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1148
+  /home/ubuntu/civicos-pr1-candidate-venv/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1148: RemovedInDjango60Warning: The default scheme will be changed from 'http' to 'https' in Django 6.0. Pass the forms.URLField.assume_scheme argument to silence this warning, or set the FORMS_URLFIELD_ASSUME_HTTPS transitional setting to True to opt into using 'https' as the new default scheme.
     return form_class(**defaults)
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-1159 tests collected in 0.63s
+1159 tests collected in 0.78s

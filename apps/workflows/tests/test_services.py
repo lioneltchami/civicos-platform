@@ -1,6 +1,6 @@
 """Tests for the workflows service layer."""
+
 import uuid
-from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
@@ -9,7 +9,6 @@ from django.utils import timezone
 
 from apps.workflows.models import (
     WorkItem,
-    WorkItemHistory,
     WorkItemPriority,
     WorkItemStatus,
 )
@@ -60,7 +59,6 @@ def make_work_item_direct(**kwargs):
 
 
 class CreateWorkItemTest(TestCase):
-
     def setUp(self):
         self.actor = make_staff()
         self.content_object = make_citizen()
@@ -78,8 +76,7 @@ class CreateWorkItemTest(TestCase):
     def test_due_at_computed_from_priority(self):
         with self.captureOnCommitCallbacks(execute=True):
             item = create_work_item(
-                self.content_object, title="T", actor=self.actor,
-                priority=WorkItemPriority.CRITICAL
+                self.content_object, title="T", actor=self.actor, priority=WorkItemPriority.CRITICAL
             )
         self.assertIsNotNone(item.due_at)
 
@@ -89,9 +86,7 @@ class CreateWorkItemTest(TestCase):
             item = create_work_item(
                 self.content_object, title="T", actor=self.actor, due_at=explicit_due
             )
-        self.assertAlmostEqual(
-            item.due_at.timestamp(), explicit_due.timestamp(), delta=1
-        )
+        self.assertAlmostEqual(item.due_at.timestamp(), explicit_due.timestamp(), delta=1)
 
     def test_creates_history_record(self):
         with self.captureOnCommitCallbacks(execute=True):
@@ -113,6 +108,7 @@ class CreateWorkItemTest(TestCase):
 
     def test_fires_work_item_created_signal(self):
         from apps.workflows.signals import work_item_created
+
         received = []
         work_item_created.connect(lambda **kw: received.append(kw), weak=False)
         try:
@@ -124,7 +120,6 @@ class CreateWorkItemTest(TestCase):
 
 
 class ClaimWorkItemTest(TestCase):
-
     def setUp(self):
         self.actor = make_staff()
         self.item = make_work_item_direct()
@@ -166,7 +161,6 @@ class ClaimWorkItemTest(TestCase):
 
 
 class AssignWorkItemTest(TestCase):
-
     def setUp(self):
         self.supervisor = make_staff("super@gov.ca")
         self.assignee = make_staff("worker@gov.ca")
@@ -201,7 +195,6 @@ class AssignWorkItemTest(TestCase):
 
 
 class UpdateWorkItemStatusTest(TestCase):
-
     def setUp(self):
         self.actor = make_staff()
         self.item = make_work_item_direct(status=WorkItemStatus.PENDING)
@@ -223,11 +216,7 @@ class UpdateWorkItemStatusTest(TestCase):
     def test_records_history(self):
         with self.captureOnCommitCallbacks(execute=True):
             update_work_item_status(self.item, WorkItemStatus.IN_PROGRESS, self.actor)
-        self.assertTrue(
-            self.item.history.filter(
-                action__startswith="status_changed_to_"
-            ).exists()
-        )
+        self.assertTrue(self.item.history.filter(action__startswith="status_changed_to_").exists())
 
     def test_raises_on_invalid_transition(self):
         # PENDING → COMPLETED is not valid
@@ -245,6 +234,7 @@ class UpdateWorkItemStatusTest(TestCase):
 
     def test_fires_status_changed_signal(self):
         from apps.workflows.signals import work_item_status_changed
+
         received = []
         work_item_status_changed.connect(lambda **kw: received.append(kw), weak=False)
         try:
@@ -258,7 +248,6 @@ class UpdateWorkItemStatusTest(TestCase):
 
 
 class EscalateWorkItemTest(TestCase):
-
     def setUp(self):
         self.actor = make_staff()
         self.item = make_work_item_direct()
@@ -309,7 +298,6 @@ class EscalateWorkItemTest(TestCase):
 
 
 class AddCommentTest(TestCase):
-
     def setUp(self):
         self.actor = make_staff()
         self.item = make_work_item_direct()
@@ -349,7 +337,6 @@ class AddCommentTest(TestCase):
 
 
 class GetStaffQueueTest(TestCase):
-
     def setUp(self):
         self.actor = make_staff()
         self.ct = ContentType.objects.get_for_model(User)
@@ -406,7 +393,6 @@ class GetStaffQueueTest(TestCase):
 
 
 class CheckSlaBreachesTest(TestCase):
-
     def setUp(self):
         self.ct = ContentType.objects.get_for_model(User)
 

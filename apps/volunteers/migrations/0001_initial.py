@@ -11,24 +11,34 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("consent", "0001_initial"),
         ("payments", "0001_initial"),
         ("workflows", "0001_initial"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         # ---- SkillTag -------------------------------------------------------
         migrations.CreateModel(
             name="SkillTag",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("name_en", models.CharField(max_length=100, unique=True, verbose_name="Name (EN)")),
-                ("name_fr", models.CharField(max_length=100, unique=True, verbose_name="Name (FR)")),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "name_en",
+                    models.CharField(max_length=100, unique=True, verbose_name="Name (EN)"),
+                ),
+                (
+                    "name_fr",
+                    models.CharField(max_length=100, unique=True, verbose_name="Name (FR)"),
+                ),
                 ("slug", models.SlugField(unique=True)),
                 ("category", models.CharField(blank=True, max_length=50, verbose_name="Category")),
                 ("is_active", models.BooleanField(default=True, verbose_name="Active")),
@@ -43,36 +53,52 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="Program",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("created_at", models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at")),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
+                ),
                 ("updated_at", models.DateTimeField(auto_now=True, verbose_name="Updated at")),
                 ("name_en", models.CharField(max_length=200, verbose_name="Name (EN)")),
                 ("name_fr", models.CharField(max_length=200, verbose_name="Name (FR)")),
                 ("slug", models.SlugField(unique=True)),
                 ("description_en", models.TextField(blank=True, verbose_name="Description (EN)")),
                 ("description_fr", models.TextField(blank=True, verbose_name="Description (FR)")),
-                ("cra_category", models.CharField(
-                    choices=[
-                        ("welfare", "Welfare of the general public"),
-                        ("education", "Education"),
-                        ("health", "Health"),
-                        ("religion", "Religion"),
-                        ("other", "Other"),
-                    ],
-                    default="other",
-                    max_length=20,
-                    verbose_name="CRA T3010 category",
-                )),
+                (
+                    "cra_category",
+                    models.CharField(
+                        choices=[
+                            ("welfare", "Welfare of the general public"),
+                            ("education", "Education"),
+                            ("health", "Health"),
+                            ("religion", "Religion"),
+                            ("other", "Other"),
+                        ],
+                        default="other",
+                        max_length=20,
+                        verbose_name="CRA T3010 category",
+                    ),
+                ),
                 ("is_active", models.BooleanField(default=True, verbose_name="Active")),
-                ("coordinator", models.ForeignKey(
-                    blank=True,
-                    limit_choices_to={"is_staff": True},
-                    null=True,
-                    on_delete=django.db.models.deletion.SET_NULL,
-                    related_name="coordinated_programs",
-                    to=settings.AUTH_USER_MODEL,
-                    verbose_name="Program coordinator",
-                )),
+                (
+                    "coordinator",
+                    models.ForeignKey(
+                        blank=True,
+                        limit_choices_to={"is_staff": True},
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="coordinated_programs",
+                        to=settings.AUTH_USER_MODEL,
+                        verbose_name="Program coordinator",
+                    ),
+                ),
             ],
             options={
                 "verbose_name": "Program",
@@ -84,64 +110,136 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="Opportunity",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("created_at", models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at")),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
+                ),
                 ("updated_at", models.DateTimeField(auto_now=True, verbose_name="Updated at")),
                 ("title_en", models.CharField(max_length=200, verbose_name="Title (EN)")),
                 ("title_fr", models.CharField(max_length=200, verbose_name="Title (FR)")),
                 ("slug", models.SlugField(unique=True)),
                 ("description_en", models.TextField(verbose_name="Description (EN)")),
                 ("description_fr", models.TextField(verbose_name="Description (FR)")),
-                ("responsibilities_en", models.TextField(blank=True, verbose_name="Responsibilities (EN)")),
-                ("responsibilities_fr", models.TextField(blank=True, verbose_name="Responsibilities (FR)")),
-                ("location_name", models.CharField(blank=True, max_length=200, verbose_name="Location name")),
+                (
+                    "responsibilities_en",
+                    models.TextField(blank=True, verbose_name="Responsibilities (EN)"),
+                ),
+                (
+                    "responsibilities_fr",
+                    models.TextField(blank=True, verbose_name="Responsibilities (FR)"),
+                ),
+                (
+                    "location_name",
+                    models.CharField(blank=True, max_length=200, verbose_name="Location name"),
+                ),
                 ("location_address", models.TextField(blank=True, verbose_name="Location address")),
                 ("is_remote", models.BooleanField(default=False, verbose_name="Remote / virtual")),
-                ("minimum_age", models.PositiveSmallIntegerField(blank=True, null=True, verbose_name="Minimum age")),
-                ("requires_vulnerable_sector_check", models.BooleanField(default=False, verbose_name="Requires Vulnerable Sector Check")),
-                ("requires_police_record_check", models.BooleanField(default=False, verbose_name="Requires Police Record Check")),
-                ("requires_reference_check", models.BooleanField(default=False, verbose_name="Requires reference check")),
-                ("requires_own_vehicle", models.BooleanField(default=False, verbose_name="Requires own vehicle")),
-                ("required_profile_fields", models.JSONField(blank=True, default=list, verbose_name="Required profile fields")),
-                ("volunteer_capacity", models.PositiveSmallIntegerField(blank=True, null=True, verbose_name="Volunteer capacity")),
-                ("status", models.CharField(
-                    choices=[
-                        ("draft", "Draft"),
-                        ("published", "Published"),
-                        ("closed", "Closed — not accepting applications"),
-                        ("archived", "Archived"),
-                    ],
-                    db_index=True,
-                    default="draft",
-                    max_length=20,
-                    verbose_name="Status",
-                )),
-                ("published_at", models.DateTimeField(blank=True, null=True, verbose_name="Published at")),
-                ("closes_at", models.DateTimeField(blank=True, null=True, verbose_name="Closes at")),
-                ("honorarium_per_shift", models.DecimalField(
-                    blank=True, decimal_places=2, max_digits=8, null=True,
-                    verbose_name="Honorarium per shift (CAD)",
-                )),
-                ("program", models.ForeignKey(
-                    on_delete=django.db.models.deletion.PROTECT,
-                    related_name="opportunities",
-                    to="volunteers.program",
-                    verbose_name="Program",
-                )),
-                ("required_skills", models.ManyToManyField(
-                    blank=True,
-                    related_name="required_by",
-                    to="volunteers.skilltag",
-                    verbose_name="Required skills",
-                )),
-                ("volunteer_agreement", models.ForeignKey(
-                    blank=True,
-                    null=True,
-                    on_delete=django.db.models.deletion.PROTECT,
-                    related_name="opportunity_agreements",
-                    to="consent.consentcategory",
-                    verbose_name="Volunteer agreement",
-                )),
+                (
+                    "minimum_age",
+                    models.PositiveSmallIntegerField(
+                        blank=True, null=True, verbose_name="Minimum age"
+                    ),
+                ),
+                (
+                    "requires_vulnerable_sector_check",
+                    models.BooleanField(
+                        default=False, verbose_name="Requires Vulnerable Sector Check"
+                    ),
+                ),
+                (
+                    "requires_police_record_check",
+                    models.BooleanField(default=False, verbose_name="Requires Police Record Check"),
+                ),
+                (
+                    "requires_reference_check",
+                    models.BooleanField(default=False, verbose_name="Requires reference check"),
+                ),
+                (
+                    "requires_own_vehicle",
+                    models.BooleanField(default=False, verbose_name="Requires own vehicle"),
+                ),
+                (
+                    "required_profile_fields",
+                    models.JSONField(
+                        blank=True, default=list, verbose_name="Required profile fields"
+                    ),
+                ),
+                (
+                    "volunteer_capacity",
+                    models.PositiveSmallIntegerField(
+                        blank=True, null=True, verbose_name="Volunteer capacity"
+                    ),
+                ),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("draft", "Draft"),
+                            ("published", "Published"),
+                            ("closed", "Closed — not accepting applications"),
+                            ("archived", "Archived"),
+                        ],
+                        db_index=True,
+                        default="draft",
+                        max_length=20,
+                        verbose_name="Status",
+                    ),
+                ),
+                (
+                    "published_at",
+                    models.DateTimeField(blank=True, null=True, verbose_name="Published at"),
+                ),
+                (
+                    "closes_at",
+                    models.DateTimeField(blank=True, null=True, verbose_name="Closes at"),
+                ),
+                (
+                    "honorarium_per_shift",
+                    models.DecimalField(
+                        blank=True,
+                        decimal_places=2,
+                        max_digits=8,
+                        null=True,
+                        verbose_name="Honorarium per shift (CAD)",
+                    ),
+                ),
+                (
+                    "program",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="opportunities",
+                        to="volunteers.program",
+                        verbose_name="Program",
+                    ),
+                ),
+                (
+                    "required_skills",
+                    models.ManyToManyField(
+                        blank=True,
+                        related_name="required_by",
+                        to="volunteers.skilltag",
+                        verbose_name="Required skills",
+                    ),
+                ),
+                (
+                    "volunteer_agreement",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="opportunity_agreements",
+                        to="consent.consentcategory",
+                        verbose_name="Volunteer agreement",
+                    ),
+                ),
             ],
             options={
                 "verbose_name": "Opportunity",
@@ -157,73 +255,159 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="VolunteerProfile",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("created_at", models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at")),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
+                ),
                 ("updated_at", models.DateTimeField(auto_now=True, verbose_name="Updated at")),
-                ("preferred_name", models.CharField(blank=True, max_length=100, verbose_name="Preferred name")),
-                ("preferred_language", models.CharField(
-                    choices=[("en", "English"), ("fr", "Français")],
-                    default="en",
-                    max_length=2,
-                    verbose_name="Preferred language",
-                )),
-                ("phone_number", models.CharField(blank=True, max_length=20, verbose_name="Phone number")),
-                ("availability_notes", models.TextField(blank=True, verbose_name="Availability notes")),
-                ("available_weekdays", models.BooleanField(default=False, verbose_name="Available weekdays")),
-                ("available_weekends", models.BooleanField(default=False, verbose_name="Available weekends")),
-                ("available_evenings", models.BooleanField(default=False, verbose_name="Available evenings")),
-                ("emergency_contact_name", models.CharField(blank=True, max_length=150, verbose_name="Emergency contact name")),
-                ("emergency_contact_phone", models.CharField(blank=True, max_length=20, verbose_name="Emergency contact phone")),
-                ("emergency_contact_relationship", models.CharField(blank=True, max_length=50, verbose_name="Emergency contact relationship")),
-                ("accommodation_notes", models.TextField(blank=True, verbose_name="Accommodation / access needs")),
-                ("sin_encrypted", models.BinaryField(blank=True, null=True, verbose_name="SIN (encrypted)")),
-                ("sin_last4", models.CharField(blank=True, max_length=4, verbose_name="SIN last 4 digits")),
-                ("date_of_birth", models.DateField(blank=True, null=True, verbose_name="Date of birth")),
-                ("photo", models.ImageField(blank=True, null=True, upload_to="volunteers/photos/", verbose_name="Photo")),
-                ("status", models.CharField(
-                    choices=[
-                        ("active", "Active"),
-                        ("inactive", "Inactive"),
-                        ("suspended", "Suspended — contact administrator"),
-                    ],
-                    db_index=True,
-                    default="active",
-                    max_length=20,
-                    verbose_name="Status",
-                )),
-                ("status_changed_at", models.DateTimeField(blank=True, null=True, verbose_name="Status changed at")),
-                ("total_hours_approved", models.DecimalField(
-                    decimal_places=2, default=0, max_digits=10,
-                    verbose_name="Total approved hours",
-                )),
-                ("photo_consent", models.ForeignKey(
-                    blank=True,
-                    null=True,
-                    on_delete=django.db.models.deletion.SET_NULL,
-                    related_name="volunteer_photo_consents",
-                    to="consent.consentrecord",
-                    verbose_name="Photo consent record",
-                )),
-                ("skills", models.ManyToManyField(
-                    blank=True,
-                    related_name="volunteers",
-                    to="volunteers.skilltag",
-                    verbose_name="Skills",
-                )),
-                ("status_changed_by", models.ForeignKey(
-                    blank=True,
-                    null=True,
-                    on_delete=django.db.models.deletion.SET_NULL,
-                    related_name="volunteer_status_changes",
-                    to=settings.AUTH_USER_MODEL,
-                    verbose_name="Status changed by",
-                )),
-                ("user", models.OneToOneField(
-                    on_delete=django.db.models.deletion.CASCADE,
-                    related_name="volunteer_profile",
-                    to=settings.AUTH_USER_MODEL,
-                    verbose_name="User",
-                )),
+                (
+                    "preferred_name",
+                    models.CharField(blank=True, max_length=100, verbose_name="Preferred name"),
+                ),
+                (
+                    "preferred_language",
+                    models.CharField(
+                        choices=[("en", "English"), ("fr", "Français")],
+                        default="en",
+                        max_length=2,
+                        verbose_name="Preferred language",
+                    ),
+                ),
+                (
+                    "phone_number",
+                    models.CharField(blank=True, max_length=20, verbose_name="Phone number"),
+                ),
+                (
+                    "availability_notes",
+                    models.TextField(blank=True, verbose_name="Availability notes"),
+                ),
+                (
+                    "available_weekdays",
+                    models.BooleanField(default=False, verbose_name="Available weekdays"),
+                ),
+                (
+                    "available_weekends",
+                    models.BooleanField(default=False, verbose_name="Available weekends"),
+                ),
+                (
+                    "available_evenings",
+                    models.BooleanField(default=False, verbose_name="Available evenings"),
+                ),
+                (
+                    "emergency_contact_name",
+                    models.CharField(
+                        blank=True, max_length=150, verbose_name="Emergency contact name"
+                    ),
+                ),
+                (
+                    "emergency_contact_phone",
+                    models.CharField(
+                        blank=True, max_length=20, verbose_name="Emergency contact phone"
+                    ),
+                ),
+                (
+                    "emergency_contact_relationship",
+                    models.CharField(
+                        blank=True, max_length=50, verbose_name="Emergency contact relationship"
+                    ),
+                ),
+                (
+                    "accommodation_notes",
+                    models.TextField(blank=True, verbose_name="Accommodation / access needs"),
+                ),
+                (
+                    "sin_encrypted",
+                    models.BinaryField(blank=True, null=True, verbose_name="SIN (encrypted)"),
+                ),
+                (
+                    "sin_last4",
+                    models.CharField(blank=True, max_length=4, verbose_name="SIN last 4 digits"),
+                ),
+                (
+                    "date_of_birth",
+                    models.DateField(blank=True, null=True, verbose_name="Date of birth"),
+                ),
+                (
+                    "photo",
+                    models.ImageField(
+                        blank=True, null=True, upload_to="volunteers/photos/", verbose_name="Photo"
+                    ),
+                ),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("active", "Active"),
+                            ("inactive", "Inactive"),
+                            ("suspended", "Suspended — contact administrator"),
+                        ],
+                        db_index=True,
+                        default="active",
+                        max_length=20,
+                        verbose_name="Status",
+                    ),
+                ),
+                (
+                    "status_changed_at",
+                    models.DateTimeField(blank=True, null=True, verbose_name="Status changed at"),
+                ),
+                (
+                    "total_hours_approved",
+                    models.DecimalField(
+                        decimal_places=2,
+                        default=0,
+                        max_digits=10,
+                        verbose_name="Total approved hours",
+                    ),
+                ),
+                (
+                    "photo_consent",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="volunteer_photo_consents",
+                        to="consent.consentrecord",
+                        verbose_name="Photo consent record",
+                    ),
+                ),
+                (
+                    "skills",
+                    models.ManyToManyField(
+                        blank=True,
+                        related_name="volunteers",
+                        to="volunteers.skilltag",
+                        verbose_name="Skills",
+                    ),
+                ),
+                (
+                    "status_changed_by",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="volunteer_status_changes",
+                        to=settings.AUTH_USER_MODEL,
+                        verbose_name="Status changed by",
+                    ),
+                ),
+                (
+                    "user",
+                    models.OneToOneField(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="volunteer_profile",
+                        to=settings.AUTH_USER_MODEL,
+                        verbose_name="User",
+                    ),
+                ),
             ],
             options={
                 "verbose_name": "Volunteer profile",
@@ -244,64 +428,100 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="VolunteerApplication",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("created_at", models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at")),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
+                ),
                 ("updated_at", models.DateTimeField(auto_now=True, verbose_name="Updated at")),
                 ("motivation", models.TextField(blank=True, verbose_name="Motivation")),
-                ("declares_no_relevant_criminal_history", models.BooleanField(default=False, verbose_name="Self-declares no relevant criminal history")),
+                (
+                    "declares_no_relevant_criminal_history",
+                    models.BooleanField(
+                        default=False, verbose_name="Self-declares no relevant criminal history"
+                    ),
+                ),
                 ("screening_notes", models.TextField(blank=True, verbose_name="Screening notes")),
-                ("status", models.CharField(
-                    choices=[
-                        ("pending", "Pending review"),
-                        ("in_review", "In review"),
-                        ("approved", "Approved"),
-                        ("rejected", "Not selected"),
-                        ("withdrawn", "Withdrawn by applicant"),
-                        ("waitlisted", "Waitlisted"),
-                    ],
-                    db_index=True,
-                    default="pending",
-                    max_length=20,
-                    verbose_name="Status",
-                )),
-                ("reviewed_at", models.DateTimeField(blank=True, null=True, verbose_name="Reviewed at")),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("pending", "Pending review"),
+                            ("in_review", "In review"),
+                            ("approved", "Approved"),
+                            ("rejected", "Not selected"),
+                            ("withdrawn", "Withdrawn by applicant"),
+                            ("waitlisted", "Waitlisted"),
+                        ],
+                        db_index=True,
+                        default="pending",
+                        max_length=20,
+                        verbose_name="Status",
+                    ),
+                ),
+                (
+                    "reviewed_at",
+                    models.DateTimeField(blank=True, null=True, verbose_name="Reviewed at"),
+                ),
                 ("rejection_reason", models.TextField(blank=True, verbose_name="Rejection reason")),
-                ("consent_record", models.ForeignKey(
-                    blank=True,
-                    null=True,
-                    on_delete=django.db.models.deletion.PROTECT,
-                    related_name="volunteer_applications",
-                    to="consent.consentrecord",
-                    verbose_name="Consent record",
-                )),
-                ("opportunity", models.ForeignKey(
-                    on_delete=django.db.models.deletion.PROTECT,
-                    related_name="applications",
-                    to="volunteers.opportunity",
-                    verbose_name="Opportunity",
-                )),
-                ("reviewed_by", models.ForeignKey(
-                    blank=True,
-                    null=True,
-                    on_delete=django.db.models.deletion.SET_NULL,
-                    related_name="reviewed_volunteer_applications",
-                    to=settings.AUTH_USER_MODEL,
-                    verbose_name="Reviewed by",
-                )),
-                ("volunteer", models.ForeignKey(
-                    on_delete=django.db.models.deletion.PROTECT,
-                    related_name="applications",
-                    to="volunteers.volunteerprofile",
-                    verbose_name="Volunteer",
-                )),
-                ("work_item", models.OneToOneField(
-                    blank=True,
-                    null=True,
-                    on_delete=django.db.models.deletion.SET_NULL,
-                    related_name="volunteer_application",
-                    to="workflows.workitem",
-                    verbose_name="Workflow work item",
-                )),
+                (
+                    "consent_record",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="volunteer_applications",
+                        to="consent.consentrecord",
+                        verbose_name="Consent record",
+                    ),
+                ),
+                (
+                    "opportunity",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="applications",
+                        to="volunteers.opportunity",
+                        verbose_name="Opportunity",
+                    ),
+                ),
+                (
+                    "reviewed_by",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="reviewed_volunteer_applications",
+                        to=settings.AUTH_USER_MODEL,
+                        verbose_name="Reviewed by",
+                    ),
+                ),
+                (
+                    "volunteer",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="applications",
+                        to="volunteers.volunteerprofile",
+                        verbose_name="Volunteer",
+                    ),
+                ),
+                (
+                    "work_item",
+                    models.OneToOneField(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="volunteer_application",
+                        to="workflows.workitem",
+                        verbose_name="Workflow work item",
+                    ),
+                ),
             ],
             options={
                 "verbose_name": "Volunteer application",
@@ -324,45 +544,98 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="Shift",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("created_at", models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at")),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
+                ),
                 ("updated_at", models.DateTimeField(auto_now=True, verbose_name="Updated at")),
-                ("title_en", models.CharField(blank=True, max_length=200, verbose_name="Title (EN)")),
-                ("title_fr", models.CharField(blank=True, max_length=200, verbose_name="Title (FR)")),
+                (
+                    "title_en",
+                    models.CharField(blank=True, max_length=200, verbose_name="Title (EN)"),
+                ),
+                (
+                    "title_fr",
+                    models.CharField(blank=True, max_length=200, verbose_name="Title (FR)"),
+                ),
                 ("description_en", models.TextField(blank=True, verbose_name="Description (EN)")),
                 ("description_fr", models.TextField(blank=True, verbose_name="Description (FR)")),
                 ("start_datetime", models.DateTimeField(verbose_name="Start (UTC)")),
                 ("end_datetime", models.DateTimeField(verbose_name="End (UTC)")),
-                ("location_override", models.CharField(blank=True, max_length=300, verbose_name="Location override")),
-                ("is_remote", models.BooleanField(blank=True, null=True, verbose_name="Remote override")),
-                ("capacity", models.PositiveSmallIntegerField(blank=True, null=True, verbose_name="Capacity")),
-                ("waitlist_enabled", models.BooleanField(default=True, verbose_name="Waitlist enabled")),
-                ("waitlist_cap", models.PositiveSmallIntegerField(blank=True, null=True, verbose_name="Waitlist cap")),
-                ("is_cancelled", models.BooleanField(db_index=True, default=False, verbose_name="Cancelled")),
-                ("cancelled_at", models.DateTimeField(blank=True, null=True, verbose_name="Cancelled at")),
-                ("cancellation_reason", models.TextField(blank=True, verbose_name="Cancellation reason")),
-                ("cancelled_by", models.ForeignKey(
-                    blank=True,
-                    null=True,
-                    on_delete=django.db.models.deletion.SET_NULL,
-                    related_name="cancelled_shifts",
-                    to=settings.AUTH_USER_MODEL,
-                    verbose_name="Cancelled by",
-                )),
-                ("coordinator", models.ForeignKey(
-                    blank=True,
-                    null=True,
-                    on_delete=django.db.models.deletion.SET_NULL,
-                    related_name="coordinated_shifts",
-                    to=settings.AUTH_USER_MODEL,
-                    verbose_name="Shift coordinator",
-                )),
-                ("opportunity", models.ForeignKey(
-                    on_delete=django.db.models.deletion.CASCADE,
-                    related_name="shifts",
-                    to="volunteers.opportunity",
-                    verbose_name="Opportunity",
-                )),
+                (
+                    "location_override",
+                    models.CharField(blank=True, max_length=300, verbose_name="Location override"),
+                ),
+                (
+                    "is_remote",
+                    models.BooleanField(blank=True, null=True, verbose_name="Remote override"),
+                ),
+                (
+                    "capacity",
+                    models.PositiveSmallIntegerField(
+                        blank=True, null=True, verbose_name="Capacity"
+                    ),
+                ),
+                (
+                    "waitlist_enabled",
+                    models.BooleanField(default=True, verbose_name="Waitlist enabled"),
+                ),
+                (
+                    "waitlist_cap",
+                    models.PositiveSmallIntegerField(
+                        blank=True, null=True, verbose_name="Waitlist cap"
+                    ),
+                ),
+                (
+                    "is_cancelled",
+                    models.BooleanField(db_index=True, default=False, verbose_name="Cancelled"),
+                ),
+                (
+                    "cancelled_at",
+                    models.DateTimeField(blank=True, null=True, verbose_name="Cancelled at"),
+                ),
+                (
+                    "cancellation_reason",
+                    models.TextField(blank=True, verbose_name="Cancellation reason"),
+                ),
+                (
+                    "cancelled_by",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="cancelled_shifts",
+                        to=settings.AUTH_USER_MODEL,
+                        verbose_name="Cancelled by",
+                    ),
+                ),
+                (
+                    "coordinator",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="coordinated_shifts",
+                        to=settings.AUTH_USER_MODEL,
+                        verbose_name="Shift coordinator",
+                    ),
+                ),
+                (
+                    "opportunity",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="shifts",
+                        to="volunteers.opportunity",
+                        verbose_name="Opportunity",
+                    ),
+                ),
             ],
             options={
                 "verbose_name": "Shift",
@@ -379,49 +652,91 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="shift",
-            index=models.Index(fields=["opportunity", "start_datetime"], name="vol_shift_opp_start_idx"),
+            index=models.Index(
+                fields=["opportunity", "start_datetime"], name="vol_shift_opp_start_idx"
+            ),
         ),
         migrations.AddIndex(
             model_name="shift",
-            index=models.Index(fields=["start_datetime", "is_cancelled"], name="vol_shift_start_cancelled_idx"),
+            index=models.Index(
+                fields=["start_datetime", "is_cancelled"], name="vol_shift_start_cancelled_idx"
+            ),
         ),
         # ---- ShiftBooking ---------------------------------------------------
         migrations.CreateModel(
             name="ShiftBooking",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("created_at", models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at")),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
+                ),
                 ("updated_at", models.DateTimeField(auto_now=True, verbose_name="Updated at")),
-                ("status", models.CharField(
-                    choices=[
-                        ("confirmed", "Confirmed"),
-                        ("waitlisted", "Waitlisted"),
-                        ("cancelled", "Cancelled"),
-                        ("no_show", "No show"),
-                        ("completed", "Completed"),
-                    ],
-                    db_index=True,
-                    default="confirmed",
-                    max_length=20,
-                    verbose_name="Status",
-                )),
-                ("waitlist_position", models.PositiveSmallIntegerField(blank=True, null=True, verbose_name="Waitlist position")),
-                ("reminder_24h_sent", models.BooleanField(default=False, verbose_name="24h reminder sent")),
-                ("reminder_2h_sent", models.BooleanField(default=False, verbose_name="2h reminder sent")),
-                ("cancelled_at", models.DateTimeField(blank=True, null=True, verbose_name="Cancelled at")),
-                ("cancellation_reason", models.CharField(blank=True, max_length=300, verbose_name="Cancellation reason")),
-                ("shift", models.ForeignKey(
-                    on_delete=django.db.models.deletion.CASCADE,
-                    related_name="bookings",
-                    to="volunteers.shift",
-                    verbose_name="Shift",
-                )),
-                ("volunteer", models.ForeignKey(
-                    on_delete=django.db.models.deletion.CASCADE,
-                    related_name="bookings",
-                    to="volunteers.volunteerprofile",
-                    verbose_name="Volunteer",
-                )),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("confirmed", "Confirmed"),
+                            ("waitlisted", "Waitlisted"),
+                            ("cancelled", "Cancelled"),
+                            ("no_show", "No show"),
+                            ("completed", "Completed"),
+                        ],
+                        db_index=True,
+                        default="confirmed",
+                        max_length=20,
+                        verbose_name="Status",
+                    ),
+                ),
+                (
+                    "waitlist_position",
+                    models.PositiveSmallIntegerField(
+                        blank=True, null=True, verbose_name="Waitlist position"
+                    ),
+                ),
+                (
+                    "reminder_24h_sent",
+                    models.BooleanField(default=False, verbose_name="24h reminder sent"),
+                ),
+                (
+                    "reminder_2h_sent",
+                    models.BooleanField(default=False, verbose_name="2h reminder sent"),
+                ),
+                (
+                    "cancelled_at",
+                    models.DateTimeField(blank=True, null=True, verbose_name="Cancelled at"),
+                ),
+                (
+                    "cancellation_reason",
+                    models.CharField(
+                        blank=True, max_length=300, verbose_name="Cancellation reason"
+                    ),
+                ),
+                (
+                    "shift",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="bookings",
+                        to="volunteers.shift",
+                        verbose_name="Shift",
+                    ),
+                ),
+                (
+                    "volunteer",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="bookings",
+                        to="volunteers.volunteerprofile",
+                        verbose_name="Volunteer",
+                    ),
+                ),
             ],
             options={
                 "verbose_name": "Shift booking",
@@ -442,61 +757,100 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="shiftbooking",
-            index=models.Index(fields=["status", "waitlist_position"], name="vol_booking_waitlist_idx"),
+            index=models.Index(
+                fields=["status", "waitlist_position"], name="vol_booking_waitlist_idx"
+            ),
         ),
         # ---- HoursLog -------------------------------------------------------
         migrations.CreateModel(
             name="HoursLog",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("created_at", models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at")),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
+                ),
                 ("updated_at", models.DateTimeField(auto_now=True, verbose_name="Updated at")),
                 ("date", models.DateField(verbose_name="Date")),
-                ("hours", models.DecimalField(decimal_places=2, max_digits=6, verbose_name="Hours")),
-                ("description", models.CharField(blank=True, max_length=500, verbose_name="Description")),
-                ("status", models.CharField(
-                    choices=[
-                        ("pending", "Pending coordinator approval"),
-                        ("approved", "Approved"),
-                        ("rejected", "Rejected"),
-                    ],
-                    db_index=True,
-                    default="pending",
-                    max_length=20,
-                    verbose_name="Status",
-                )),
-                ("approved_at", models.DateTimeField(blank=True, null=True, verbose_name="Approved at")),
-                ("rejection_reason", models.CharField(blank=True, max_length=300, verbose_name="Rejection reason")),
-                ("approved_by", models.ForeignKey(
-                    blank=True,
-                    null=True,
-                    on_delete=django.db.models.deletion.SET_NULL,
-                    related_name="approved_volunteer_hours",
-                    to=settings.AUTH_USER_MODEL,
-                    verbose_name="Approved by",
-                )),
-                ("opportunity", models.ForeignKey(
-                    blank=True,
-                    null=True,
-                    on_delete=django.db.models.deletion.SET_NULL,
-                    related_name="hours_logs",
-                    to="volunteers.opportunity",
-                    verbose_name="Opportunity",
-                )),
-                ("shift", models.ForeignKey(
-                    blank=True,
-                    null=True,
-                    on_delete=django.db.models.deletion.SET_NULL,
-                    related_name="hours_logs",
-                    to="volunteers.shift",
-                    verbose_name="Shift",
-                )),
-                ("volunteer", models.ForeignKey(
-                    on_delete=django.db.models.deletion.PROTECT,
-                    related_name="hours_logs",
-                    to="volunteers.volunteerprofile",
-                    verbose_name="Volunteer",
-                )),
+                (
+                    "hours",
+                    models.DecimalField(decimal_places=2, max_digits=6, verbose_name="Hours"),
+                ),
+                (
+                    "description",
+                    models.CharField(blank=True, max_length=500, verbose_name="Description"),
+                ),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("pending", "Pending coordinator approval"),
+                            ("approved", "Approved"),
+                            ("rejected", "Rejected"),
+                        ],
+                        db_index=True,
+                        default="pending",
+                        max_length=20,
+                        verbose_name="Status",
+                    ),
+                ),
+                (
+                    "approved_at",
+                    models.DateTimeField(blank=True, null=True, verbose_name="Approved at"),
+                ),
+                (
+                    "rejection_reason",
+                    models.CharField(blank=True, max_length=300, verbose_name="Rejection reason"),
+                ),
+                (
+                    "approved_by",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="approved_volunteer_hours",
+                        to=settings.AUTH_USER_MODEL,
+                        verbose_name="Approved by",
+                    ),
+                ),
+                (
+                    "opportunity",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="hours_logs",
+                        to="volunteers.opportunity",
+                        verbose_name="Opportunity",
+                    ),
+                ),
+                (
+                    "shift",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="hours_logs",
+                        to="volunteers.shift",
+                        verbose_name="Shift",
+                    ),
+                ),
+                (
+                    "volunteer",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="hours_logs",
+                        to="volunteers.volunteerprofile",
+                        verbose_name="Volunteer",
+                    ),
+                ),
             ],
             options={
                 "verbose_name": "Hours log",
@@ -527,46 +881,77 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="ScreeningRecord",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("created_at", models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at")),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
+                ),
                 ("updated_at", models.DateTimeField(auto_now=True, verbose_name="Updated at")),
-                ("check_type", models.CharField(
-                    choices=[
-                        ("vulnerable_sector_check", "Vulnerable Sector Check (VSC)"),
-                        ("police_record_check", "Police Record Check"),
-                        ("reference_check", "Reference Check"),
-                        ("drivers_abstract", "Driver's Abstract"),
-                    ],
-                    max_length=30,
-                    verbose_name="Check type",
-                )),
+                (
+                    "check_type",
+                    models.CharField(
+                        choices=[
+                            ("vulnerable_sector_check", "Vulnerable Sector Check (VSC)"),
+                            ("police_record_check", "Police Record Check"),
+                            ("reference_check", "Reference Check"),
+                            ("drivers_abstract", "Driver's Abstract"),
+                        ],
+                        max_length=30,
+                        verbose_name="Check type",
+                    ),
+                ),
                 ("completed_date", models.DateField(verbose_name="Completed date")),
-                ("expires_date", models.DateField(blank=True, null=True, verbose_name="Expiry date")),
-                ("verified_at", models.DateTimeField(blank=True, null=True, verbose_name="Verified at")),
-                ("verified_clear", models.BooleanField(null=True, verbose_name="Result: verified clear")),
+                (
+                    "expires_date",
+                    models.DateField(blank=True, null=True, verbose_name="Expiry date"),
+                ),
+                (
+                    "verified_at",
+                    models.DateTimeField(blank=True, null=True, verbose_name="Verified at"),
+                ),
+                (
+                    "verified_clear",
+                    models.BooleanField(null=True, verbose_name="Result: verified clear"),
+                ),
                 ("notes", models.CharField(blank=True, max_length=300, verbose_name="Admin notes")),
-                ("opportunity", models.ForeignKey(
-                    blank=True,
-                    null=True,
-                    on_delete=django.db.models.deletion.SET_NULL,
-                    related_name="screening_records",
-                    to="volunteers.opportunity",
-                    verbose_name="Opportunity",
-                )),
-                ("verified_by", models.ForeignKey(
-                    blank=True,
-                    null=True,
-                    on_delete=django.db.models.deletion.SET_NULL,
-                    related_name="verified_volunteer_screenings",
-                    to=settings.AUTH_USER_MODEL,
-                    verbose_name="Verified by",
-                )),
-                ("volunteer", models.ForeignKey(
-                    on_delete=django.db.models.deletion.PROTECT,
-                    related_name="screening_records",
-                    to="volunteers.volunteerprofile",
-                    verbose_name="Volunteer",
-                )),
+                (
+                    "opportunity",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="screening_records",
+                        to="volunteers.opportunity",
+                        verbose_name="Opportunity",
+                    ),
+                ),
+                (
+                    "verified_by",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="verified_volunteer_screenings",
+                        to=settings.AUTH_USER_MODEL,
+                        verbose_name="Verified by",
+                    ),
+                ),
+                (
+                    "volunteer",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="screening_records",
+                        to="volunteers.volunteerprofile",
+                        verbose_name="Volunteer",
+                    ),
+                ),
             ],
             options={
                 "verbose_name": "Screening record",
@@ -589,41 +974,82 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="Certification",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("created_at", models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at")),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
+                ),
                 ("updated_at", models.DateTimeField(auto_now=True, verbose_name="Updated at")),
-                ("cert_type", models.CharField(
-                    choices=[
-                        ("first_aid", "First Aid"),
-                        ("cpr", "CPR"),
-                        ("whmis", "WHMIS"),
-                        ("food_handler", "Food Handler Certificate"),
-                        ("drivers_licence", "Driver's Licence (class)"),
-                        ("other", "Other"),
-                    ],
-                    max_length=30,
-                    verbose_name="Certificate type",
-                )),
-                ("cert_type_other", models.CharField(blank=True, max_length=100, verbose_name="Other certificate type")),
-                ("issuing_body", models.CharField(blank=True, max_length=200, verbose_name="Issuing body")),
+                (
+                    "cert_type",
+                    models.CharField(
+                        choices=[
+                            ("first_aid", "First Aid"),
+                            ("cpr", "CPR"),
+                            ("whmis", "WHMIS"),
+                            ("food_handler", "Food Handler Certificate"),
+                            ("drivers_licence", "Driver's Licence (class)"),
+                            ("other", "Other"),
+                        ],
+                        max_length=30,
+                        verbose_name="Certificate type",
+                    ),
+                ),
+                (
+                    "cert_type_other",
+                    models.CharField(
+                        blank=True, max_length=100, verbose_name="Other certificate type"
+                    ),
+                ),
+                (
+                    "issuing_body",
+                    models.CharField(blank=True, max_length=200, verbose_name="Issuing body"),
+                ),
                 ("issued_date", models.DateField(verbose_name="Issued date")),
-                ("expires_date", models.DateField(blank=True, null=True, verbose_name="Expiry date")),
-                ("document", models.FileField(blank=True, null=True, upload_to="volunteers/certifications/", verbose_name="Certificate document")),
-                ("verified_at", models.DateTimeField(blank=True, null=True, verbose_name="Verified at")),
-                ("verified_by", models.ForeignKey(
-                    blank=True,
-                    null=True,
-                    on_delete=django.db.models.deletion.SET_NULL,
-                    related_name="verified_volunteer_certifications",
-                    to=settings.AUTH_USER_MODEL,
-                    verbose_name="Verified by",
-                )),
-                ("volunteer", models.ForeignKey(
-                    on_delete=django.db.models.deletion.CASCADE,
-                    related_name="certifications",
-                    to="volunteers.volunteerprofile",
-                    verbose_name="Volunteer",
-                )),
+                (
+                    "expires_date",
+                    models.DateField(blank=True, null=True, verbose_name="Expiry date"),
+                ),
+                (
+                    "document",
+                    models.FileField(
+                        blank=True,
+                        null=True,
+                        upload_to="volunteers/certifications/",
+                        verbose_name="Certificate document",
+                    ),
+                ),
+                (
+                    "verified_at",
+                    models.DateTimeField(blank=True, null=True, verbose_name="Verified at"),
+                ),
+                (
+                    "verified_by",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="verified_volunteer_certifications",
+                        to=settings.AUTH_USER_MODEL,
+                        verbose_name="Verified by",
+                    ),
+                ),
+                (
+                    "volunteer",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="certifications",
+                        to="volunteers.volunteerprofile",
+                        verbose_name="Volunteer",
+                    ),
+                ),
             ],
             options={
                 "verbose_name": "Certification",
@@ -643,45 +1069,78 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="Honorarium",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("created_at", models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at")),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
+                ),
                 ("updated_at", models.DateTimeField(auto_now=True, verbose_name="Updated at")),
-                ("payment_type", models.CharField(
-                    choices=[
-                        ("expense_reimbursement", "Expense Reimbursement"),
-                        ("honorarium", "Honorarium"),
-                    ],
-                    max_length=30,
-                    verbose_name="Payment type",
-                )),
-                ("amount", models.DecimalField(decimal_places=2, max_digits=8, verbose_name="Amount (CAD)")),
-                ("currency", models.CharField(default="CAD", max_length=3, verbose_name="Currency")),
+                (
+                    "payment_type",
+                    models.CharField(
+                        choices=[
+                            ("expense_reimbursement", "Expense Reimbursement"),
+                            ("honorarium", "Honorarium"),
+                        ],
+                        max_length=30,
+                        verbose_name="Payment type",
+                    ),
+                ),
+                (
+                    "amount",
+                    models.DecimalField(
+                        decimal_places=2, max_digits=8, verbose_name="Amount (CAD)"
+                    ),
+                ),
+                (
+                    "currency",
+                    models.CharField(default="CAD", max_length=3, verbose_name="Currency"),
+                ),
                 ("description", models.CharField(max_length=300, verbose_name="Description")),
                 ("payment_date", models.DateField(verbose_name="Payment date")),
                 ("calendar_year", models.PositiveSmallIntegerField(verbose_name="Calendar year")),
                 ("t4a_required", models.BooleanField(default=False, verbose_name="T4A required")),
                 ("t4a_issued", models.BooleanField(default=False, verbose_name="T4A issued")),
-                ("t4a_issued_at", models.DateTimeField(blank=True, null=True, verbose_name="T4A issued at")),
-                ("created_by", models.ForeignKey(
-                    on_delete=django.db.models.deletion.PROTECT,
-                    related_name="created_honoraria",
-                    to=settings.AUTH_USER_MODEL,
-                    verbose_name="Created by",
-                )),
-                ("payment", models.OneToOneField(
-                    blank=True,
-                    null=True,
-                    on_delete=django.db.models.deletion.SET_NULL,
-                    related_name="honorarium",
-                    to="payments.payment",
-                    verbose_name="Payment (Payments BB)",
-                )),
-                ("volunteer", models.ForeignKey(
-                    on_delete=django.db.models.deletion.PROTECT,
-                    related_name="honoraria",
-                    to="volunteers.volunteerprofile",
-                    verbose_name="Volunteer",
-                )),
+                (
+                    "t4a_issued_at",
+                    models.DateTimeField(blank=True, null=True, verbose_name="T4A issued at"),
+                ),
+                (
+                    "created_by",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="created_honoraria",
+                        to=settings.AUTH_USER_MODEL,
+                        verbose_name="Created by",
+                    ),
+                ),
+                (
+                    "payment",
+                    models.OneToOneField(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="honorarium",
+                        to="payments.payment",
+                        verbose_name="Payment (Payments BB)",
+                    ),
+                ),
+                (
+                    "volunteer",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="honoraria",
+                        to="volunteers.volunteerprofile",
+                        verbose_name="Volunteer",
+                    ),
+                ),
             ],
             options={
                 "verbose_name": "Honorarium",
@@ -710,22 +1169,38 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="VolunteerNote",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("created_at", models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at")),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
+                ),
                 ("updated_at", models.DateTimeField(auto_now=True, verbose_name="Updated at")),
                 ("body", models.TextField(verbose_name="Note body")),
-                ("author", models.ForeignKey(
-                    on_delete=django.db.models.deletion.PROTECT,
-                    related_name="volunteer_notes",
-                    to=settings.AUTH_USER_MODEL,
-                    verbose_name="Author",
-                )),
-                ("volunteer", models.ForeignKey(
-                    on_delete=django.db.models.deletion.CASCADE,
-                    related_name="notes",
-                    to="volunteers.volunteerprofile",
-                    verbose_name="Volunteer",
-                )),
+                (
+                    "author",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="volunteer_notes",
+                        to=settings.AUTH_USER_MODEL,
+                        verbose_name="Author",
+                    ),
+                ),
+                (
+                    "volunteer",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="notes",
+                        to="volunteers.volunteerprofile",
+                        verbose_name="Volunteer",
+                    ),
+                ),
             ],
             options={
                 "verbose_name": "Volunteer note",
@@ -737,21 +1212,38 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="RecognitionMilestone",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("hours_threshold", models.DecimalField(
-                    decimal_places=2,
-                    max_digits=8,
-                    validators=[django.core.validators.MinValueValidator(1)],
-                    verbose_name="Hours threshold",
-                )),
-                ("achieved_at", models.DateTimeField(auto_now_add=True, verbose_name="Achieved at")),
-                ("notification_sent", models.BooleanField(default=False, verbose_name="Notification sent")),
-                ("volunteer", models.ForeignKey(
-                    on_delete=django.db.models.deletion.CASCADE,
-                    related_name="milestones",
-                    to="volunteers.volunteerprofile",
-                    verbose_name="Volunteer",
-                )),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "hours_threshold",
+                    models.DecimalField(
+                        decimal_places=2,
+                        max_digits=8,
+                        validators=[django.core.validators.MinValueValidator(1)],
+                        verbose_name="Hours threshold",
+                    ),
+                ),
+                (
+                    "achieved_at",
+                    models.DateTimeField(auto_now_add=True, verbose_name="Achieved at"),
+                ),
+                (
+                    "notification_sent",
+                    models.BooleanField(default=False, verbose_name="Notification sent"),
+                ),
+                (
+                    "volunteer",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="milestones",
+                        to="volunteers.volunteerprofile",
+                        verbose_name="Volunteer",
+                    ),
+                ),
             ],
             options={
                 "verbose_name": "Recognition milestone",

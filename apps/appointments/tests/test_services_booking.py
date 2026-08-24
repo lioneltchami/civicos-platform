@@ -16,6 +16,7 @@ Covers:
   BookingAuditLogImmutabilityTests  — save() and delete() guards
   ClientNoShowRecordPropertyTests   — no_show_rate, one-per-citizen constraint
 """
+
 from __future__ import annotations
 
 import uuid
@@ -49,6 +50,7 @@ User = get_user_model()
 # Test factories
 # ---------------------------------------------------------------------------
 
+
 def _make_user(email=None, is_staff=False):
     if email is None:
         email = f"user_{uuid.uuid4().hex[:8]}@example.com"
@@ -61,6 +63,7 @@ def _make_user(email=None, is_staff=False):
 
 def _make_org():
     from apps.appointments.models import Organization
+
     return Organization.objects.create(
         name_en=f"Test Org {uuid.uuid4().hex[:6]}",
         name_fr="Org de test",
@@ -71,6 +74,7 @@ def _make_org():
 
 def _make_location(org=None):
     from apps.appointments.models import Location
+
     if org is None:
         org = _make_org()
     return Location.objects.create(
@@ -85,6 +89,7 @@ def _make_location(org=None):
 
 def _make_service_type(org=None):
     from apps.appointments.models import ServiceType
+
     return ServiceType.objects.create(
         name_en=f"Test Service {uuid.uuid4().hex[:4]}",
         name_fr="Service test",
@@ -96,6 +101,7 @@ def _make_service_type(org=None):
 def _make_scheduling_policy(org=None, **overrides):
     """Create a SchedulingPolicy with permissive defaults for testing."""
     from apps.appointments.models import SchedulingPolicy
+
     if org is None:
         org = _make_org()
     defaults = {
@@ -128,6 +134,7 @@ def _make_appointment_type(
     capacity_per_slot=2,
 ):
     from apps.appointments.models import AppointmentType
+
     if service_type is None:
         service_type = _make_service_type()
     obj = AppointmentType.objects.create(
@@ -149,6 +156,7 @@ def _make_appointment_type(
 
 def _make_staff_profile(location=None, appointment_type=None):
     from apps.appointments.models import StaffProfile
+
     user = _make_user(is_staff=True)
     if location is None:
         location = _make_location()
@@ -171,6 +179,7 @@ def _make_slot(
     start_offset_days=2,
 ):
     from apps.appointments.models import Slot
+
     if location is None:
         location = _make_location()
     if appointment_type is None:
@@ -203,6 +212,7 @@ def _make_slot(
 def _make_booking(slot=None, citizen=None, status="confirmed", **kwargs):
     """Create a Booking directly, bypassing the service layer."""
     from apps.appointments.models import Booking
+
     if slot is None:
         slot = _make_slot()
     if citizen is None:
@@ -222,6 +232,7 @@ def _make_booking(slot=None, citizen=None, status="confirmed", **kwargs):
 # Create booking — happy path
 # ---------------------------------------------------------------------------
 
+
 class CreateBookingHappyPathTests(TestCase):
     def setUp(self):
         self.citizen = _make_user()
@@ -230,6 +241,7 @@ class CreateBookingHappyPathTests(TestCase):
 
     def test_returns_booking_instance(self):
         from apps.appointments.models import Booking
+
         booking = create_booking(
             slot=self.slot,
             citizen=self.citizen,
@@ -241,6 +253,7 @@ class CreateBookingHappyPathTests(TestCase):
 
     def test_auto_confirm_when_no_staff_confirmation_required(self):
         from apps.appointments.models import Booking
+
         # Default appointment type has requires_staff_confirmation=False
         booking = create_booking(
             slot=self.slot,
@@ -253,6 +266,7 @@ class CreateBookingHappyPathTests(TestCase):
 
     def test_pending_when_requires_staff_confirmation(self):
         from apps.appointments.models import Booking
+
         slot = _make_slot(
             appointment_type=_make_appointment_type(requires_staff_confirmation=True),
             capacity=2,
@@ -302,6 +316,7 @@ class CreateBookingHappyPathTests(TestCase):
 
     def test_audit_log_written(self):
         from apps.appointments.models import BookingAuditLog
+
         booking = create_booking(
             slot=self.slot,
             citizen=self.citizen,
@@ -317,6 +332,7 @@ class CreateBookingHappyPathTests(TestCase):
 
     def test_consent_audit_log_written_when_provided(self):
         from apps.appointments.models import BookingAuditLog
+
         booking = create_booking(
             slot=self.slot,
             citizen=self.citizen,
@@ -347,6 +363,7 @@ class CreateBookingHappyPathTests(TestCase):
 # ---------------------------------------------------------------------------
 # Create booking — capacity
 # ---------------------------------------------------------------------------
+
 
 class CreateBookingCapacityTests(TestCase):
     def setUp(self):
@@ -396,12 +413,14 @@ class CreateBookingCapacityTests(TestCase):
 # Create booking — suspended citizen
 # ---------------------------------------------------------------------------
 
+
 class CreateBookingSuspendedCitizenTests(TestCase):
     def setUp(self):
         self.citizen = _make_user()
 
     def test_suspended_citizen_cannot_book(self):
         from apps.appointments.models import ClientNoShowRecord
+
         ClientNoShowRecord.objects.create(
             citizen=self.citizen,
             is_suspended=True,
@@ -418,6 +437,7 @@ class CreateBookingSuspendedCitizenTests(TestCase):
 
     def test_non_suspended_citizen_can_book(self):
         from apps.appointments.models import ClientNoShowRecord
+
         ClientNoShowRecord.objects.create(
             citizen=self.citizen,
             is_suspended=False,
@@ -447,6 +467,7 @@ class CreateBookingSuspendedCitizenTests(TestCase):
 # ---------------------------------------------------------------------------
 # Create booking — frequency control
 # ---------------------------------------------------------------------------
+
 
 class CreateBookingFrequencyControlTests(TestCase):
     def setUp(self):
@@ -498,6 +519,7 @@ class CreateBookingFrequencyControlTests(TestCase):
 # Create booking — max active
 # ---------------------------------------------------------------------------
 
+
 class CreateBookingMaxActiveTests(TestCase):
     def setUp(self):
         self.citizen = _make_user()
@@ -529,15 +551,15 @@ class CreateBookingMaxActiveTests(TestCase):
 # Confirm booking
 # ---------------------------------------------------------------------------
 
+
 class ConfirmBookingTests(TestCase):
     def setUp(self):
         self.staff = _make_user(is_staff=True)
 
     def test_confirms_pending_booking(self):
         from apps.appointments.models import Booking
-        slot = _make_slot(
-            appointment_type=_make_appointment_type(requires_staff_confirmation=True)
-        )
+
+        slot = _make_slot(appointment_type=_make_appointment_type(requires_staff_confirmation=True))
         citizen = _make_user()
         booking = _make_booking(slot=slot, citizen=citizen, status="pending")
         result = confirm_booking(booking=booking, actor=self.staff)
@@ -545,6 +567,7 @@ class ConfirmBookingTests(TestCase):
 
     def test_writes_audit_log(self):
         from apps.appointments.models import BookingAuditLog
+
         slot = _make_slot()
         citizen = _make_user()
         booking = _make_booking(slot=slot, citizen=citizen, status="pending")
@@ -574,6 +597,7 @@ class ConfirmBookingTests(TestCase):
 # Cancel booking
 # ---------------------------------------------------------------------------
 
+
 class CancelBookingTests(TestCase):
     def setUp(self):
         self.citizen = _make_user()
@@ -581,6 +605,7 @@ class CancelBookingTests(TestCase):
 
     def test_cancels_confirmed_booking(self):
         from apps.appointments.models import Booking
+
         slot = _make_slot(spaces_used=1)
         booking = _make_booking(slot=slot, citizen=self.citizen, status="confirmed")
         result = cancel_booking(booking=booking, actor=self.citizen, reason="Changed mind")
@@ -596,6 +621,7 @@ class CancelBookingTests(TestCase):
     def test_late_cancellation_when_within_notice_window(self):
         """Slot starts in 12h, notice=24h → late cancellation."""
         from apps.appointments.models import Slot
+
         org = _make_org()
         policy = _make_scheduling_policy(org=org, cancellation_notice_hours=24)
         service_type = _make_service_type(org=org)
@@ -644,6 +670,7 @@ class CancelBookingTests(TestCase):
 
     def test_writes_citizen_audit_log(self):
         from apps.appointments.models import BookingAuditLog
+
         slot = _make_slot(spaces_used=1)
         booking = _make_booking(slot=slot, citizen=self.citizen, status="confirmed")
         cancel_booking(booking=booking, actor=self.citizen)
@@ -655,6 +682,7 @@ class CancelBookingTests(TestCase):
 
     def test_writes_staff_audit_log(self):
         from apps.appointments.models import BookingAuditLog
+
         slot = _make_slot(spaces_used=1)
         booking = _make_booking(slot=slot, citizen=self.citizen, status="confirmed")
         cancel_booking(booking=booking, actor=self.staff)
@@ -666,6 +694,7 @@ class CancelBookingTests(TestCase):
 
     def test_writes_system_audit_log_when_actor_none(self):
         from apps.appointments.models import BookingAuditLog
+
         slot = _make_slot(spaces_used=1)
         booking = _make_booking(slot=slot, citizen=self.citizen, status="confirmed")
         cancel_booking(booking=booking, actor=None)
@@ -679,6 +708,7 @@ class CancelBookingTests(TestCase):
 # ---------------------------------------------------------------------------
 # Reschedule booking
 # ---------------------------------------------------------------------------
+
 
 class RescheduleBookingTests(TestCase):
     def setUp(self):
@@ -707,6 +737,7 @@ class RescheduleBookingTests(TestCase):
 
     def test_creates_new_booking(self):
         from apps.appointments.models import Booking
+
         new_booking = reschedule_booking(
             booking=self.booking, new_slot=self.new_slot, actor=self.staff
         )
@@ -715,16 +746,13 @@ class RescheduleBookingTests(TestCase):
 
     def test_old_booking_cancelled(self):
         from apps.appointments.models import Booking
-        reschedule_booking(
-            booking=self.booking, new_slot=self.new_slot, actor=self.staff
-        )
+
+        reschedule_booking(booking=self.booking, new_slot=self.new_slot, actor=self.staff)
         self.booking.refresh_from_db()
         self.assertEqual(self.booking.status, Booking.STATUS_CANCELLED)
 
     def test_old_booking_rescheduled_flag(self):
-        reschedule_booking(
-            booking=self.booking, new_slot=self.new_slot, actor=self.staff
-        )
+        reschedule_booking(booking=self.booking, new_slot=self.new_slot, actor=self.staff)
         self.booking.refresh_from_db()
         self.assertTrue(self.booking.rescheduled)
 
@@ -741,36 +769,26 @@ class RescheduleBookingTests(TestCase):
         self.assertEqual(new_booking.reschedule_count, 1)
 
     def test_old_slot_spaces_decremented(self):
-        reschedule_booking(
-            booking=self.booking, new_slot=self.new_slot, actor=self.staff
-        )
+        reschedule_booking(booking=self.booking, new_slot=self.new_slot, actor=self.staff)
         self.old_slot.refresh_from_db()
         self.assertEqual(self.old_slot.spaces_used, 0)
 
     def test_new_slot_spaces_incremented(self):
-        reschedule_booking(
-            booking=self.booking, new_slot=self.new_slot, actor=self.staff
-        )
+        reschedule_booking(booking=self.booking, new_slot=self.new_slot, actor=self.staff)
         self.new_slot.refresh_from_db()
         self.assertEqual(self.new_slot.spaces_used, 1)
 
     def test_raises_if_not_confirmed(self):
-        pending_booking = _make_booking(
-            slot=self.old_slot, citizen=self.citizen, status="pending"
-        )
+        pending_booking = _make_booking(slot=self.old_slot, citizen=self.citizen, status="pending")
         with self.assertRaises(InvalidStatusTransitionError):
-            reschedule_booking(
-                booking=pending_booking, new_slot=self.new_slot, actor=self.staff
-            )
+            reschedule_booking(booking=pending_booking, new_slot=self.new_slot, actor=self.staff)
 
     def test_raises_if_no_show(self):
         no_show_booking = _make_booking(
             slot=self.old_slot, citizen=self.citizen, status="confirmed", no_show=True
         )
         with self.assertRaises(InvalidStatusTransitionError):
-            reschedule_booking(
-                booking=no_show_booking, new_slot=self.new_slot, actor=self.staff
-            )
+            reschedule_booking(booking=no_show_booking, new_slot=self.new_slot, actor=self.staff)
 
     def test_raises_if_max_reschedule_count_reached(self):
         org = _make_org()
@@ -780,7 +798,9 @@ class RescheduleBookingTests(TestCase):
         location = _make_location(org=org)
         slot1 = _make_slot(appointment_type=appt_type, location=location, spaces_used=1)
         slot2 = _make_slot(appointment_type=appt_type, location=location, spaces_used=0)
-        booking = _make_booking(slot=slot1, citizen=self.citizen, status="confirmed", reschedule_count=0)
+        booking = _make_booking(
+            slot=slot1, citizen=self.citizen, status="confirmed", reschedule_count=0
+        )
         with self.assertRaises(RescheduleCountError):
             reschedule_booking(booking=booking, new_slot=slot2, actor=self.staff)
 
@@ -794,12 +814,11 @@ class RescheduleBookingTests(TestCase):
         full_slot.status = "full"
         full_slot.save(update_fields=["status"])
         with self.assertRaises(SlotFullError):
-            reschedule_booking(
-                booking=self.booking, new_slot=full_slot, actor=self.staff
-            )
+            reschedule_booking(booking=self.booking, new_slot=full_slot, actor=self.staff)
 
     def test_audit_logs_written_on_both_bookings(self):
         from apps.appointments.models import BookingAuditLog
+
         new_booking = reschedule_booking(
             booking=self.booking, new_slot=self.new_slot, actor=self.staff
         )
@@ -818,6 +837,7 @@ class RescheduleBookingTests(TestCase):
 # ---------------------------------------------------------------------------
 # Mark no-show
 # ---------------------------------------------------------------------------
+
 
 class MarkNoShowTests(TestCase):
     def setUp(self):
@@ -840,18 +860,21 @@ class MarkNoShowTests(TestCase):
 
     def test_increments_no_show_count(self):
         from apps.appointments.models import ClientNoShowRecord
+
         mark_no_show(booking=self.booking, actor=self.staff)
         record = ClientNoShowRecord.objects.get(citizen=self.citizen)
         self.assertEqual(record.no_show_count, 1)
 
     def test_status_unchanged_after_no_show(self):
         from apps.appointments.models import Booking
+
         mark_no_show(booking=self.booking, actor=self.staff)
         self.booking.refresh_from_db()
         self.assertEqual(self.booking.status, Booking.STATUS_CONFIRMED)
 
     def test_flags_at_warning_threshold(self):
         from apps.appointments.models import ClientNoShowRecord
+
         # Pre-create record with count just below warning (threshold=2, count=1)
         ClientNoShowRecord.objects.create(
             citizen=self.citizen, no_show_count=1, total_appointments=1
@@ -862,6 +885,7 @@ class MarkNoShowTests(TestCase):
 
     def test_suspends_at_suspension_threshold(self):
         from apps.appointments.models import ClientNoShowRecord
+
         # Pre-create record with count at suspension_threshold - 1 (threshold=3, count=2)
         ClientNoShowRecord.objects.create(
             citizen=self.citizen, no_show_count=2, total_appointments=2
@@ -884,6 +908,7 @@ class MarkNoShowTests(TestCase):
 
     def test_writes_audit_log(self):
         from apps.appointments.models import BookingAuditLog
+
         mark_no_show(booking=self.booking, actor=self.staff)
         self.assertTrue(
             BookingAuditLog.objects.filter(
@@ -896,6 +921,7 @@ class MarkNoShowTests(TestCase):
 # Complete booking
 # ---------------------------------------------------------------------------
 
+
 class CompleteBookingTests(TestCase):
     def setUp(self):
         self.citizen = _make_user()
@@ -903,6 +929,7 @@ class CompleteBookingTests(TestCase):
 
     def test_changes_status_to_completed(self):
         from apps.appointments.models import Booking
+
         slot = _make_slot()
         booking = _make_booking(slot=slot, citizen=self.citizen, status="confirmed")
         result = complete_booking(booking=booking, actor=self.staff)
@@ -916,6 +943,7 @@ class CompleteBookingTests(TestCase):
 
     def test_increments_total_appointments(self):
         from apps.appointments.models import ClientNoShowRecord
+
         slot = _make_slot()
         booking = _make_booking(slot=slot, citizen=self.citizen, status="confirmed")
         complete_booking(booking=booking, actor=self.staff)
@@ -924,6 +952,7 @@ class CompleteBookingTests(TestCase):
 
     def test_writes_audit_log(self):
         from apps.appointments.models import BookingAuditLog
+
         slot = _make_slot()
         booking = _make_booking(slot=slot, citizen=self.citizen, status="confirmed")
         complete_booking(booking=booking)
@@ -938,6 +967,7 @@ class CompleteBookingTests(TestCase):
 # Reject booking
 # ---------------------------------------------------------------------------
 
+
 class RejectBookingTests(TestCase):
     def setUp(self):
         self.citizen = _make_user()
@@ -945,6 +975,7 @@ class RejectBookingTests(TestCase):
 
     def test_rejects_pending_booking(self):
         from apps.appointments.models import Booking
+
         slot = _make_slot(spaces_used=1)
         booking = _make_booking(slot=slot, citizen=self.citizen, status="pending")
         result = reject_booking(booking=booking, actor=self.staff, reason="Ineligible")
@@ -965,6 +996,7 @@ class RejectBookingTests(TestCase):
 
     def test_writes_audit_log(self):
         from apps.appointments.models import BookingAuditLog
+
         slot = _make_slot(spaces_used=1)
         booking = _make_booking(slot=slot, citizen=self.citizen, status="pending")
         reject_booking(booking=booking, actor=self.staff)
@@ -979,6 +1011,7 @@ class RejectBookingTests(TestCase):
 # BookingAuditLog immutability
 # ---------------------------------------------------------------------------
 
+
 class BookingAuditLogImmutabilityTests(TestCase):
     def setUp(self):
         self.citizen = _make_user()
@@ -987,6 +1020,7 @@ class BookingAuditLogImmutabilityTests(TestCase):
 
     def _make_log(self):
         from apps.appointments.models import BookingAuditLog
+
         return BookingAuditLog.objects.create(
             booking=self.booking,
             action=BookingAuditLog.ACTION_CREATED,
@@ -994,7 +1028,6 @@ class BookingAuditLogImmutabilityTests(TestCase):
         )
 
     def test_create_succeeds(self):
-        from apps.appointments.models import BookingAuditLog
         log = self._make_log()
         self.assertIsNotNone(log.pk)
 
@@ -1010,6 +1043,7 @@ class BookingAuditLogImmutabilityTests(TestCase):
 
     def test_detail_stores_and_retrieves_dict(self):
         from apps.appointments.models import BookingAuditLog
+
         log = BookingAuditLog.objects.create(
             booking=self.booking,
             action=BookingAuditLog.ACTION_CREATED,
@@ -1021,6 +1055,7 @@ class BookingAuditLogImmutabilityTests(TestCase):
 
     def test_actor_id_is_string(self):
         from apps.appointments.models import BookingAuditLog
+
         log = BookingAuditLog.objects.create(
             booking=self.booking,
             action=BookingAuditLog.ACTION_CREATED,
@@ -1034,12 +1069,14 @@ class BookingAuditLogImmutabilityTests(TestCase):
 # ClientNoShowRecord property tests
 # ---------------------------------------------------------------------------
 
+
 class ClientNoShowRecordPropertyTests(TestCase):
     def setUp(self):
         self.citizen = _make_user()
 
     def test_no_show_rate_zero_when_no_appointments(self):
         from apps.appointments.models import ClientNoShowRecord
+
         record = ClientNoShowRecord.objects.create(
             citizen=self.citizen, no_show_count=0, total_appointments=0
         )
@@ -1047,6 +1084,7 @@ class ClientNoShowRecordPropertyTests(TestCase):
 
     def test_no_show_rate_calculation(self):
         from apps.appointments.models import ClientNoShowRecord
+
         record = ClientNoShowRecord.objects.create(
             citizen=self.citizen, no_show_count=2, total_appointments=10
         )
@@ -1054,7 +1092,8 @@ class ClientNoShowRecordPropertyTests(TestCase):
 
     def test_one_record_per_citizen_constraint(self):
         from apps.appointments.models import ClientNoShowRecord
+
         ClientNoShowRecord.objects.create(citizen=self.citizen)
-        with self.assertRaises(Exception):  # IntegrityError (OneToOneField)
+        with self.assertRaises(Exception):  # IntegrityError (OneToOneField)  # noqa: B017
             with transaction.atomic():
                 ClientNoShowRecord.objects.create(citizen=self.citizen)

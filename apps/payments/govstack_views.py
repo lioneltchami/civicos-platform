@@ -47,7 +47,8 @@ Security:
 DO NOT MODIFY:
   - apps/payments/views/ (Stripe-facing CivicOS views)
   - apps/payments/urls.py (CivicOS internal URL routing)
-"""
+"""  # noqa: RUF002
+
 from __future__ import annotations
 
 import logging
@@ -97,19 +98,19 @@ from .govstack_services import (
 )
 from .govstack_status_views import tenant_status
 from .govstack_tasks import process_bulk_payment_batch, validate_prepayment_async
+from .govstack_throttling import GovStackPaymentsIdentityThrottle
 from .payment_command_boundary import (
     PaymentCommandService,
     PaymentIdempotencyConflict,
     PaymentScopeDenied,
-    resolve_registered_bb_scope,
 )
-from .govstack_throttling import GovStackPaymentsIdentityThrottle
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Base view
 # ---------------------------------------------------------------------------
+
 
 class GovStackAPIView(APIView):
     """
@@ -134,10 +135,11 @@ class GovStackAPIView(APIView):
 
     Wave 2+ concrete views delegate to service methods and return proper shapes.
     """
+
     # GovStackPaymentsIdentityThrottle (a ScopedRateThrottle subclass) is set
     # explicitly here so the govstack_bb scope is active without touching
     # DEFAULT_THROTTLE_CLASSES (which controls citizen/anon flows).
-    throttle_classes = [GovStackPaymentsIdentityThrottle]
+    throttle_classes = [GovStackPaymentsIdentityThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
     # X-Platform-TenantId / Platform-TenantId (spelling varies across the live
@@ -249,9 +251,7 @@ class GovStackAPIView(APIView):
         harness that doesn't exist.
         """
         value = self._extract_platform_tenant_id(request)
-        require_tenant_id = getattr(
-            settings, "GOVSTACK_REQUIRE_PLATFORM_TENANT_ID", False
-        )
+        require_tenant_id = getattr(settings, "GOVSTACK_REQUIRE_PLATFORM_TENANT_ID", False)
 
         if not value:
             if require_tenant_id:
@@ -311,7 +311,7 @@ class GovStackAPIView(APIView):
         if require_tenant_id:
             resolved_caller_id = request.META.get("_gs_payer_identity")
             if resolved_caller_id:
-                from apps.payments.govstack_models import (  # noqa: PLC0415
+                from apps.payments.govstack_models import (
                     GovStackRegisteredBB,
                 )
 
@@ -324,18 +324,14 @@ class GovStackAPIView(APIView):
                     and value not in registered_bb.allowed_platform_tenant_ids
                 ):
                     logger.warning(
-                        "govstack.p2g.platform_tenant_id_not_authorized "
-                        "caller_id=%r path=%s",
+                        "govstack.p2g.platform_tenant_id_not_authorized " "caller_id=%r path=%s",
                         resolved_caller_id,
                         request.path,
                     )
                     return "", Response(
                         {
                             "responseCode": "01",
-                            "reason": (
-                                "X-Platform-TenantId is not authorized for "
-                                "this caller."
-                            ),
+                            "reason": ("X-Platform-TenantId is not authorized for " "this caller."),
                             request_id_key: "",
                         },
                         status=400,
@@ -343,10 +339,10 @@ class GovStackAPIView(APIView):
 
         return value, None
 
-    def get_exception_handler(self):
+    def get_exception_handler(self):  # noqa: ANN201
         return govstack_exception_handler
 
-    def initial(self, request: Request, *args, **kwargs):
+    def initial(self, request: Request, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         super().initial(request, *args, **kwargs)
         logger.debug(
             "govstack.payments method=%s path=%s",
@@ -354,7 +350,7 @@ class GovStackAPIView(APIView):
             request.path,
         )
 
-    def _flatten_errors(self, errors, _prefix: str = "") -> str:
+    def _flatten_errors(self, errors, _prefix: str = "") -> str:  # noqa: ANN001
         """
         Recursively flatten DRF serializer error dicts into a concise string.
 
@@ -410,6 +406,7 @@ class GovStackAPIView(APIView):
 # G2P base view  (Wave 2+)
 # ---------------------------------------------------------------------------
 
+
 class GovStackG2PView(GovStackAPIView):
     """
     Base class for all G2P (Government-to-Person) endpoints.
@@ -444,9 +441,9 @@ class GovStackG2PView(GovStackAPIView):
       expose ResponseCode, RequestID (echoed), and ResponseDescription (human text).
     """
 
-    permission_classes = [AllowAnyBB]
+    permission_classes = [AllowAnyBB]  # noqa: RUF012
 
-    def get_exception_handler(self):
+    def get_exception_handler(self):  # noqa: ANN201
         # G2P views use the G2P-specific handler to wrap unexpected exceptions in the
         # G2P envelope ({ResponseCode, RequestID, ResponseDescription}).
         # This overrides GovStackAPIView which returns govstack_exception_handler
@@ -490,12 +487,14 @@ class GovStackG2PView(GovStackAPIView):
             # not re-raised so the caller can still build a valid G2P envelope.
             logger.debug(
                 "GovStackG2PView._request_id: could not extract RequestID "
-                "from request body (unparseable or malformed); echoing \"\".",
+                'from request body (unparseable or malformed); echoing "".',
                 exc_info=True,
             )
         return ""
 
-    def _g2p_ok(self, request: Request, description: str = "Request received successfully.") -> Response:
+    def _g2p_ok(
+        self, request: Request, description: str = "Request received successfully."
+    ) -> Response:
         """Return a G2P success envelope (HTTP 200, ResponseCode '00')."""
         return Response(
             {
@@ -525,6 +524,7 @@ class GovStackG2PView(GovStackAPIView):
 # G2P — Beneficiary (Wave 2)
 # ---------------------------------------------------------------------------
 
+
 class RegisterBeneficiaryView(GovStackG2PView):
     """
     POST /govstack/payments/register-beneficiary
@@ -546,7 +546,7 @@ class RegisterBeneficiaryView(GovStackG2PView):
 
     Body:  {RequestID?, SourceBBID, Beneficiaries: [{PayeeFunctionalID, PaymentModality?, FinancialAddress?}]}
     Response: {ResponseCode, RequestID, ResponseDescription}
-    """
+    """  # noqa: E501
 
     # Override base class AllowAnyBB: these endpoints process PII (PayeeFunctionalID,
     # FinancialAddress) and MUST authenticate the calling BB via
@@ -557,7 +557,7 @@ class RegisterBeneficiaryView(GovStackG2PView):
     # default) — this endpoint's smoke tests still pass. DB whitelist lookup
     # only runs when a header IS present and GOVSTACK_REQUIRE_REGISTERED_BB=True
     # (production default).
-    permission_classes = [IsTrustedSourceBB]
+    permission_classes = [IsTrustedSourceBB]  # noqa: RUF012
 
     def post(self, request: Request) -> Response:
         ser = RegisterBeneficiaryRequestSerializer(data=request.data)
@@ -602,7 +602,7 @@ class UpdateBeneficiaryView(GovStackG2PView):
     # authenticate the calling BB, and IsTrustedSourceBB's harness-mode
     # fallback (absent header → allow, when GOVSTACK_REQUIRE_REGISTERED_BB=False)
     # keeps this compatible with the real harness, which never sends the header.
-    permission_classes = [IsTrustedSourceBB]
+    permission_classes = [IsTrustedSourceBB]  # noqa: RUF012
 
     def post(self, request: Request) -> Response:
         ser = UpdateBeneficiaryRequestSerializer(data=request.data)
@@ -627,6 +627,7 @@ class UpdateBeneficiaryView(GovStackG2PView):
 # ---------------------------------------------------------------------------
 # G2P — Bulk Payment (Wave 3)
 # ---------------------------------------------------------------------------
+
 
 class BulkPaymentView(GovStackG2PView):
     """
@@ -668,7 +669,7 @@ class BulkPaymentView(GovStackG2PView):
 
     # See auth note in the class docstring above — closes the under-authentication
     # gap flagged against AllowAnyBB without breaking harness compatibility.
-    permission_classes = [IsTrustedSourceBB]
+    permission_classes = [IsTrustedSourceBB]  # noqa: RUF012
 
     def post(self, request: Request) -> Response:
         ser = BulkPaymentRequestSerializer(data=request.data)
@@ -762,7 +763,7 @@ class PrepaymentValidationView(GovStackG2PView):
     """
 
     # See auth note in the class docstring above.
-    permission_classes = [IsTrustedSourceBB]
+    permission_classes = [IsTrustedSourceBB]  # noqa: RUF012
 
     def post(self, request: Request) -> Response:
         ser = PrepaymentValidationRequestSerializer(data=request.data)
@@ -820,7 +821,7 @@ class PrepaymentValidationView(GovStackG2PView):
                 {
                     "ResponseCode": "01",
                     "RequestID": self._request_id(request),
-                    "ResponseDescription": "Prepayment validation request ID has already been received.",
+                    "ResponseDescription": "Prepayment validation request ID has already been received.",  # noqa: E501
                 },
                 status=200,
             )
@@ -870,7 +871,7 @@ class PrepaymentValidationResponseView(GovStackG2PView):
     """
 
     # See auth note in the class docstring above.
-    permission_classes = [IsTrustedSourceBB]
+    permission_classes = [IsTrustedSourceBB]  # noqa: RUF012
 
     def post(self, request: Request) -> Response:
         ser = PrepaymentValidationResponseAckSerializer(data=request.data)
@@ -901,6 +902,7 @@ class PrepaymentValidationResponseView(GovStackG2PView):
 # ---------------------------------------------------------------------------
 # Voucher Engine (Wave 4)
 # ---------------------------------------------------------------------------
+
 
 class VoucherPreactivationView(GovStackAPIView):
     """
@@ -938,7 +940,8 @@ class VoucherPreactivationView(GovStackAPIView):
       Serial number is public (in response). voucher_secret is stored encrypted
       and NEVER returned.
     """
-    permission_classes = [AllowAnyBB]
+
+    permission_classes = [AllowAnyBB]  # noqa: RUF012
 
     def post(self, request: Request) -> Response:
         ser = VoucherPreactivationRequestSerializer(data=request.data)
@@ -973,9 +976,7 @@ class VoucherPreactivationView(GovStackAPIView):
                 "voucher_number": voucher.serial_number,
                 "voucher_serial_number": voucher.serial_number,
                 "expiry_date_time": (
-                    voucher.expiry_date.isoformat()
-                    if voucher.expiry_date
-                    else None
+                    voucher.expiry_date.isoformat() if voucher.expiry_date else None
                 ),
             },
             status=200,
@@ -999,7 +1000,8 @@ class VoucherActivationView(GovStackAPIView):
       460 — Gov_Stack_BB is blank or a known-invalid sentinel — see
             _is_known_invalid_gov_stack_bb()
     """
-    permission_classes = [AllowAnyBB]
+
+    permission_classes = [AllowAnyBB]  # noqa: RUF012
 
     def patch(self, request: Request) -> Response:
         ser = VoucherActivationRequestSerializer(data=request.data)
@@ -1055,7 +1057,8 @@ class VoucherRedemptionView(GovStackAPIView):
       merchant_name / merchant_bank_details may contain PII and are NOT echoed
       back in the response — only stored internally.
     """
-    permission_classes = [HasVoucherJWT]
+
+    permission_classes = [HasVoucherJWT]  # noqa: RUF012
 
     def post(self, request: Request) -> Response:
         ser = VoucherRedemptionRequestSerializer(data=request.data)
@@ -1204,10 +1207,11 @@ class VoucherStatusCheckView(GovStackAPIView):
             the unconditional blocklist already rejects.
       464 — voucher already cancelled (idempotent double-cancel)
     """
+
     # HasVoucherJWT: no-op when GOVSTACK_VOUCHER_REQUIRE_JWT=False (harness mode);
     # requires request.user.is_authenticated when =True (production mode).
     # This mirrors VoucherRedemptionView — both are higher-risk than preactivation.
-    permission_classes = [HasVoucherJWT]
+    permission_classes = [HasVoucherJWT]  # noqa: RUF012
 
     def get(self, request: Request, voucherserialnumber: str) -> Response:
         # URL parameter may arrive as an integer string from the harness.
@@ -1303,6 +1307,7 @@ class VoucherStatusCheckView(GovStackAPIView):
 # P2G — Bill Payments (Wave 5)
 # ---------------------------------------------------------------------------
 
+
 class BillInquiryView(GovStackAPIView):
     """
     GET /govstack/payments/bills/{bill_id}?fields=inquiry
@@ -1383,7 +1388,8 @@ class BillInquiryView(GovStackAPIView):
       identically to a bill that does not exist (BillNotFound), so this
       endpoint can never be used to read another tenant's bill.
     """
-    permission_classes = [IsTrustedPayerFI]
+
+    permission_classes = [IsTrustedPayerFI]  # noqa: RUF012
 
     def get(self, request: Request, bill_id: str) -> Response:
         # request_id_key="requestId" (lowercase d) — this is the ONE P2G view
@@ -1503,7 +1509,8 @@ class BillTransferRequestView(GovStackAPIView):
       tenant; that lookup now raises the same BillNotFound as a genuinely
       missing bill.
     """
-    permission_classes = [IsTrustedPayerFI]
+
+    permission_classes = [IsTrustedPayerFI]  # noqa: RUF012
 
     def post(self, request: Request) -> Response:
         platform_tenant_id, tenant_error = self._validate_platform_tenant_id(request)
@@ -1516,9 +1523,7 @@ class BillTransferRequestView(GovStackAPIView):
             # at least a parseable dict containing one, else "" — the
             # serializer failed validation so we cannot trust ser.validated_data.
             submitted_request_id = (
-                str(request.data.get("requestId") or "")
-                if isinstance(request.data, dict)
-                else ""
+                str(request.data.get("requestId") or "") if isinstance(request.data, dict) else ""
             )
             return Response(
                 {
@@ -1642,7 +1647,8 @@ class MarkBillPaidView(GovStackAPIView):
       is unchanged by this fix — but there is now a real audit record of
       WHO invoked it.
     """
-    permission_classes = [RequirePayerFI]
+
+    permission_classes = [RequirePayerFI]  # noqa: RUF012
 
     def post(self, request: Request, bill_id: str) -> Response:
         tenant_id, tenant_error = self._validate_platform_tenant_id(request)
@@ -1722,7 +1728,8 @@ class TransferRequestStatusView(GovStackAPIView):
       (BillPaymentNotFound), so this endpoint can never be used to read
       another tenant's payment.
     """
-    permission_classes = [IsTrustedBiller]
+
+    permission_classes = [IsTrustedBiller]  # noqa: RUF012
 
     def get(self, request: Request, transfer_request_id: str) -> Response:
         tenant_id, tenant_error = self._validate_platform_tenant_id(request)
@@ -1735,11 +1742,15 @@ class TransferRequestStatusView(GovStackAPIView):
             platform_tenant_id=tenant_id,
         )
 
-        attempt = PaymentAttempt.objects.filter(
-            tenant_id=tenant_id,
-            operation="p2g_bill_notification",
-            request_id=payment.request_id,
-        ).order_by("-created_at").first()
+        attempt = (
+            PaymentAttempt.objects.filter(
+                tenant_id=tenant_id,
+                operation="p2g_bill_notification",
+                request_id=payment.request_id,
+            )
+            .order_by("-created_at")
+            .first()
+        )
         response_body = {
             "responseCode": "00",
             "reason": "Transfer request retrieved successfully.",

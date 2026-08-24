@@ -33,6 +33,7 @@ Security invariants tested:
   - payee_functional_id NEVER appears in GovStackBeneficiary.__str__()
   - GovStackPaymentAuditEntry is truly append-only: no mutation path succeeds
 """
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -49,10 +50,10 @@ from apps.payments.govstack_models import (
     _generate_voucher_serial,
 )
 
+# ============================================================================
+# M1–M2  _generate_voucher_serial  # noqa: RUF003
+# ============================================================================
 
-# ============================================================================
-# M1–M2  _generate_voucher_serial
-# ============================================================================
 
 class GenerateVoucherSerialTest(TestCase):
     """Tests for the _generate_voucher_serial() module-level function."""
@@ -74,7 +75,9 @@ class GenerateVoucherSerialTest(TestCase):
             self.assertGreaterEqual(value, 10**17, f"Serial {serial!r} < 10**17")
             self.assertLessEqual(value, 10**18 - 1, f"Serial {serial!r} > 10**18 - 1")
             seen.add(serial)
-        self.assertGreater(len(seen), 1, "20 samples produced only 1 unique value — suspiciously non-random")
+        self.assertGreater(
+            len(seen), 1, "20 samples produced only 1 unique value — suspiciously non-random"
+        )
 
     def test_m2_serial_is_string(self):
         """
@@ -87,13 +90,16 @@ class GenerateVoucherSerialTest(TestCase):
         """
         serial = _generate_voucher_serial()
         self.assertIsInstance(serial, str)
-        self.assertTrue(16 <= len(serial) <= 20, f"Serial {serial!r} length {len(serial)} not in 16-20")
+        self.assertTrue(
+            16 <= len(serial) <= 20, f"Serial {serial!r} length {len(serial)} not in 16-20"
+        )
         self.assertEqual(len(serial), 18)
 
 
 # ============================================================================
-# M3–M4  GovStackBeneficiary
+# M3–M4  GovStackBeneficiary  # noqa: RUF003
 # ============================================================================
+
 
 class GovStackBeneficiaryModelTest(TestCase):
     """Tests for the GovStackBeneficiary model."""
@@ -120,10 +126,11 @@ class GovStackBeneficiaryModelTest(TestCase):
         payee_id = "2ba5ed20-0f42-4eff-8"
         b = self._make(payee_id=payee_id)
         result = str(b)
-        self.assertNotIn(payee_id, result, (
-            f"payee_functional_id {payee_id!r} must not appear in __str__(). "
-            f"Got: {result!r}"
-        ))
+        self.assertNotIn(
+            payee_id,
+            result,
+            (f"payee_functional_id {payee_id!r} must not appear in __str__(). " f"Got: {result!r}"),
+        )
 
     def test_m4_payee_functional_id_unique(self):
         """M4: payee_functional_id has a unique constraint — duplicate raises IntegrityError."""
@@ -144,6 +151,7 @@ class GovStackBeneficiaryModelTest(TestCase):
 # ============================================================================
 # M5  BulkPaymentBatch
 # ============================================================================
+
 
 class BulkPaymentBatchModelTest(TestCase):
     """Tests for the BulkPaymentBatch model."""
@@ -169,6 +177,7 @@ class BulkPaymentBatchModelTest(TestCase):
 # ============================================================================
 # M21  BulkPaymentBatch.request_id — _REQUEST_ID_VALIDATOR (exactly 12 chars)
 # ============================================================================
+
 
 class RequestIdValidatorTest(TestCase):
     """
@@ -206,6 +215,7 @@ class RequestIdValidatorTest(TestCase):
     def test_m21b_eleven_chars_fails_full_clean(self):
         """M21b: an 11-char request_id fails full_clean() with a ValidationError."""
         from django.core.exceptions import ValidationError
+
         batch = self._make_unsaved("RequestID11")  # 11 chars
         with self.assertRaises(ValidationError):
             batch.full_clean()
@@ -213,6 +223,7 @@ class RequestIdValidatorTest(TestCase):
     def test_m21c_thirteen_chars_fails_full_clean(self):
         """M21c: a 13-char request_id fails full_clean() with a ValidationError."""
         from django.core.exceptions import ValidationError
+
         batch = self._make_unsaved("RequestID1111")  # 13 chars
         with self.assertRaises(ValidationError):
             batch.full_clean()
@@ -238,6 +249,7 @@ class RequestIdValidatorTest(TestCase):
 # ============================================================================
 # M6  CreditInstruction
 # ============================================================================
+
 
 class CreditInstructionModelTest(TestCase):
     """Tests for the CreditInstruction model."""
@@ -295,19 +307,20 @@ class CreditInstructionModelTest(TestCase):
             currency="USD",
             status=CreditInstruction.STATUS_PENDING,
         )
-        self.assertEqual(
-            CreditInstruction.objects.filter(batch=self.batch).count(), 2
-        )
+        self.assertEqual(CreditInstruction.objects.filter(batch=self.batch).count(), 2)
 
 
 # ============================================================================
-# M7–M13, M19  GovStackVoucher
+# M7–M13, M19  GovStackVoucher  # noqa: RUF003
 # ============================================================================
+
 
 class GovStackVoucherModelTest(TestCase):
     """Tests for the GovStackVoucher model."""
 
-    def _make(self, serial: str = "123456", status: str = GovStackVoucher.STATUS_PREACTIVATED) -> GovStackVoucher:
+    def _make(
+        self, serial: str = "123456", status: str = GovStackVoucher.STATUS_PREACTIVATED
+    ) -> GovStackVoucher:
         return GovStackVoucher.objects.create(
             serial_number=serial,
             amount=Decimal("50.00"),
@@ -334,7 +347,9 @@ class GovStackVoucherModelTest(TestCase):
         """M9: status_int returns the integer code for STATUS_ACTIVATED (2)."""
         v = self._make(status=GovStackVoucher.STATUS_ACTIVATED)
         # STATUS_INT_MAP: activated → 2
-        self.assertEqual(v.status_int, GovStackVoucher.STATUS_INT_MAP[GovStackVoucher.STATUS_ACTIVATED])
+        self.assertEqual(
+            v.status_int, GovStackVoucher.STATUS_INT_MAP[GovStackVoucher.STATUS_ACTIVATED]
+        )
         self.assertIsInstance(v.status_int, int)
 
     def test_m10_status_int_unrecognised_returns_error_int(self):
@@ -372,8 +387,9 @@ class GovStackVoucherModelTest(TestCase):
 
 
 # ============================================================================
-# M14–M18  GovStackPaymentAuditEntry (append-only enforcement)
+# M14–M18  GovStackPaymentAuditEntry (append-only enforcement)  # noqa: RUF003
 # ============================================================================
+
 
 class AuditEntryAppendOnlyTest(TestCase):
     """
@@ -385,7 +401,9 @@ class AuditEntryAppendOnlyTest(TestCase):
       - QuerySet.update() raises PermissionError.
     """
 
-    def _make_entry(self, action: str = GovStackPaymentAuditEntry.ACTION_BENEFICIARY_REGISTERED) -> GovStackPaymentAuditEntry:
+    def _make_entry(
+        self, action: str = GovStackPaymentAuditEntry.ACTION_BENEFICIARY_REGISTERED
+    ) -> GovStackPaymentAuditEntry:
         """Create a fresh audit entry. Should always succeed."""
         return GovStackPaymentAuditEntry.objects.create(
             action=action,
@@ -431,9 +449,7 @@ class AuditEntryAppendOnlyTest(TestCase):
         """
         self._make_entry()
         with self.assertRaises(PermissionError):
-            GovStackPaymentAuditEntry.objects.filter(
-                actor_bb_id="gs-bb-test"
-            ).delete()
+            GovStackPaymentAuditEntry.objects.filter(actor_bb_id="gs-bb-test").delete()
 
     def test_m17_queryset_update_raises_permission_error(self):
         """
@@ -445,9 +461,9 @@ class AuditEntryAppendOnlyTest(TestCase):
         """
         self._make_entry()
         with self.assertRaises(PermissionError):
-            GovStackPaymentAuditEntry.objects.filter(
-                actor_bb_id="gs-bb-test"
-            ).update(actor_bb_id="tampered")
+            GovStackPaymentAuditEntry.objects.filter(actor_bb_id="gs-bb-test").update(
+                actor_bb_id="tampered"
+            )
 
     def test_m17b_multiple_entries_same_object_allowed(self):
         """

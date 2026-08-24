@@ -21,6 +21,7 @@ unrelated bug — this codebase additionally double-wrapping that JSON value
 under an extra outer "qry" key — was fixed later; all payloads below use the
 correct single-nested shape.)
 """
+
 from __future__ import annotations
 
 import json
@@ -45,8 +46,6 @@ from apps.appointments.models import (
 from apps.appointments.services.govstack_appointment import (
     AppointmentOwnershipError,
     appointment_create,
-    appointment_delete,
-    appointment_list,
     appointment_modify,
 )
 from apps.appointments.services.govstack_event import event_create
@@ -74,6 +73,7 @@ _SLOT_3 = {"from": "2027-03-03T09:00:00Z", "to": "2027-03-03T10:00:00Z"}
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _qs(**extra):
     """Build a URL query string with GovStack auth + any extras."""
     params = {**_AUTH, **extra}
@@ -86,8 +86,10 @@ def _qry_qs(qry_dict, **extra):
     return "?" + urlencode(params)
 
 
-def _create_event(name="Test Appt Event", slots=None, status="available", subscriber_limit="", **kwargs):
-    """Factory: create a bookable Event (AppointmentType + Slot) via the Event service. Returns list[Slot]."""
+def _create_event(
+    name="Test Appt Event", slots=None, status="available", subscriber_limit="", **kwargs
+):
+    """Factory: create a bookable Event (AppointmentType + Slot) via the Event service. Returns list[Slot]."""  # noqa: E501
     if slots is None:
         slots = [_SLOT_1]
     return event_create(
@@ -106,7 +108,7 @@ def _create_event(name="Test Appt Event", slots=None, status="available", subscr
 
 def _create_citizen(email=None):
     """Factory: create an active, non-staff citizen User for use as participant_id."""
-    User = get_user_model()
+    User = get_user_model()  # noqa: N806
     email = email or f"citizen-{uuid.uuid4().hex[:10]}@example.com"
     user = User.objects.create(email=email, is_staff=False, is_active=True)
     user.set_unusable_password()
@@ -139,7 +141,7 @@ def _create_native_slot(
     (bypassing the GovStack Event service), for tests that need to control
     AppointmentType.mode directly (e.g. AP49's "hybrid" mode test).
     """
-    User = get_user_model()
+    User = get_user_model()  # noqa: N806
     user, _ = User.objects.get_or_create(
         email="ap-native-staff@civicos.internal",
         defaults={"is_staff": True, "is_active": True},
@@ -215,6 +217,7 @@ def _create_native_slot(
 # Base test case
 # ===========================================================================
 
+
 class AppointmentBaseTestCase(TestCase):
     """Shared HTTP helpers for all appointment endpoint tests."""
 
@@ -238,6 +241,7 @@ class AppointmentBaseTestCase(TestCase):
 # ===========================================================================
 # AP1-AP15: POST /appointment/new
 # ===========================================================================
+
 
 class AppointmentNewTests(AppointmentBaseTestCase):
     """AP1-AP15: POST /appointment/new"""
@@ -279,9 +283,7 @@ class AppointmentNewTests(AppointmentBaseTestCase):
         """AP2: POST with 2 event_ids creates 2 Booking rows, both linked to the same citizen."""
         slots1 = _create_event(name="E1", slots=[_SLOT_1])
         slots2 = _create_event(name="E2", slots=[_SLOT_2])
-        resp = self._post(
-            self._valid_qry(event_ids=[str(slots1[0].pk), str(slots2[0].pk)])
-        )
+        resp = self._post(self._valid_qry(event_ids=[str(slots1[0].pk), str(slots2[0].pk)]))
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(len(data["appointment_ids"]), 2)
@@ -397,9 +399,7 @@ class AppointmentNewTests(AppointmentBaseTestCase):
         slots = _create_event(slots=[_SLOT_1])
         org = _create_org()
         resp = self._post(
-            self._valid_qry(
-                event_ids=[str(slots[0].pk)], participant_entity_id=str(org.pk)
-            )
+            self._valid_qry(event_ids=[str(slots[0].pk)], participant_entity_id=str(org.pk))
         )
         self.assertEqual(resp.status_code, 200)
         booking = Booking.objects.get(pk=resp.json()["appointment_id"])
@@ -427,9 +427,7 @@ class AppointmentNewTests(AppointmentBaseTestCase):
             participant_type="subscriber",
             participant_id=str(other_citizen.pk),
         )
-        resp = self._post(
-            self._valid_qry(event_ids=[str(slot1.pk), str(slot2.pk)])
-        )
+        resp = self._post(self._valid_qry(event_ids=[str(slot1.pk), str(slot2.pk)]))
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(Booking.objects.filter(citizen=self.citizen).count(), 0)
 
@@ -437,6 +435,7 @@ class AppointmentNewTests(AppointmentBaseTestCase):
 # ===========================================================================
 # AP16-AP27: PUT /appointment/modifications
 # ===========================================================================
+
 
 class AppointmentModificationsTests(AppointmentBaseTestCase):
     """AP16-AP27: PUT /appointment/modifications"""
@@ -456,17 +455,21 @@ class AppointmentModificationsTests(AppointmentBaseTestCase):
     # AP16
     def test_ap16_confirm_pending_booking(self):
         """AP16: status_id='confirmed' on a pending booking returns 200 and updates status."""
-        resp = self._put({"details": {"status_id": "confirmed"}}, appointment_id=self.appointment_id)
+        resp = self._put(
+            {"details": {"status_id": "confirmed"}}, appointment_id=self.appointment_id
+        )
         self.assertEqual(resp.status_code, 200)
         self.booking.refresh_from_db()
         self.assertEqual(self.booking.status, "confirmed")
 
     # AP17
     def test_ap17_cancel_booking_decrements_slot_spaces_used(self):
-        """AP17: status_id='cancelled' returns 200, status becomes cancelled, slot spaces_used decremented."""
+        """AP17: status_id='cancelled' returns 200, status becomes cancelled, slot spaces_used decremented."""  # noqa: E501
         self.slot.refresh_from_db()
         before = self.slot.spaces_used
-        resp = self._put({"details": {"status_id": "cancelled"}}, appointment_id=self.appointment_id)
+        resp = self._put(
+            {"details": {"status_id": "cancelled"}}, appointment_id=self.appointment_id
+        )
         self.assertEqual(resp.status_code, 200)
         self.booking.refresh_from_db()
         self.assertEqual(self.booking.status, "cancelled")
@@ -484,9 +487,13 @@ class AppointmentModificationsTests(AppointmentBaseTestCase):
     # AP19
     def test_ap19_complete_confirmed_booking(self):
         """AP19: status_id='completed' on a confirmed booking returns 200 with status completed."""
-        resp1 = self._put({"details": {"status_id": "confirmed"}}, appointment_id=self.appointment_id)
+        resp1 = self._put(
+            {"details": {"status_id": "confirmed"}}, appointment_id=self.appointment_id
+        )
         self.assertEqual(resp1.status_code, 200)
-        resp2 = self._put({"details": {"status_id": "completed"}}, appointment_id=self.appointment_id)
+        resp2 = self._put(
+            {"details": {"status_id": "completed"}}, appointment_id=self.appointment_id
+        )
         self.assertEqual(resp2.status_code, 200)
         self.booking.refresh_from_db()
         self.assertEqual(self.booking.status, "completed")
@@ -515,11 +522,13 @@ class AppointmentModificationsTests(AppointmentBaseTestCase):
     # AP23
     def test_ap23_reschedule_to_new_event_id(self):
         """AP23: event_id targeting a different available slot reschedules — new appointment_id differs,
-        old booking cancelled+rescheduled=True, new booking confirmed."""
+        old booking cancelled+rescheduled=True, new booking confirmed."""  # noqa: E501
         self._put({"details": {"status_id": "confirmed"}}, appointment_id=self.appointment_id)
         new_slots = _create_event(name="Reschedule Target", slots=[_SLOT_2])
         new_slot = new_slots[0]
-        resp = self._put({"details": {"event_id": str(new_slot.pk)}}, appointment_id=self.appointment_id)
+        resp = self._put(
+            {"details": {"event_id": str(new_slot.pk)}}, appointment_id=self.appointment_id
+        )
         self.assertEqual(resp.status_code, 200)
         new_appointment_id = resp.json()["appointment_id"]
         self.assertNotEqual(new_appointment_id, self.appointment_id)
@@ -536,7 +545,7 @@ class AppointmentModificationsTests(AppointmentBaseTestCase):
     def test_ap24_reschedule_carries_forward_exclusive_and_entity_id(self):
         """AP24: reschedule carries forward govstack_exclusive/govstack_participant_entity_id onto the
         new booking, actually re-locks the new slot (FIX 1), and clears the stale flag on the old,
-        now-cancelled booking (FIX 3)."""
+        now-cancelled booking (FIX 3)."""  # noqa: E501
         self._put({"details": {"status_id": "confirmed"}}, appointment_id=self.appointment_id)
         org = _create_org()
         appointment_modify(
@@ -546,7 +555,9 @@ class AppointmentModificationsTests(AppointmentBaseTestCase):
         )
         new_slots = _create_event(name="Reschedule Target 2", slots=[_SLOT_2])
         new_slot = new_slots[0]
-        resp = self._put({"details": {"event_id": str(new_slot.pk)}}, appointment_id=self.appointment_id)
+        resp = self._put(
+            {"details": {"event_id": str(new_slot.pk)}}, appointment_id=self.appointment_id
+        )
         self.assertEqual(resp.status_code, 200)
         new_booking = Booking.objects.get(pk=resp.json()["appointment_id"])
         self.assertTrue(new_booking.govstack_exclusive)
@@ -566,7 +577,9 @@ class AppointmentModificationsTests(AppointmentBaseTestCase):
         self._put({"details": {"status_id": "confirmed"}}, appointment_id=self.appointment_id)
         new_slots = _create_event(name="Reschedule Target Non-Exclusive", slots=[_SLOT_2])
         new_slot = new_slots[0]
-        resp = self._put({"details": {"event_id": str(new_slot.pk)}}, appointment_id=self.appointment_id)
+        resp = self._put(
+            {"details": {"event_id": str(new_slot.pk)}}, appointment_id=self.appointment_id
+        )
         self.assertEqual(resp.status_code, 200)
         new_booking = Booking.objects.get(pk=resp.json()["appointment_id"])
         self.assertFalse(new_booking.govstack_exclusive)
@@ -600,7 +613,7 @@ class AppointmentModificationsTests(AppointmentBaseTestCase):
 
     # AP26
     def test_ap26_exclusive_false_unblocks_slot(self):
-        """AP26: exclusive=false on a previously-exclusive booking recomputes Slot.status (not 'blocked')."""
+        """AP26: exclusive=false on a previously-exclusive booking recomputes Slot.status (not 'blocked')."""  # noqa: E501
         self._put({"details": {"status_id": "confirmed"}}, appointment_id=self.appointment_id)
         self._put({"details": {"exclusive": True}}, appointment_id=self.appointment_id)
         resp = self._put({"details": {"exclusive": False}}, appointment_id=self.appointment_id)
@@ -612,7 +625,9 @@ class AppointmentModificationsTests(AppointmentBaseTestCase):
     def test_ap27_confirm_already_confirmed_returns_400(self):
         """AP27: confirming an already-confirmed booking returns 400 INVALID_STATUS_TRANSITION."""
         self._put({"details": {"status_id": "confirmed"}}, appointment_id=self.appointment_id)
-        resp = self._put({"details": {"status_id": "confirmed"}}, appointment_id=self.appointment_id)
+        resp = self._put(
+            {"details": {"status_id": "confirmed"}}, appointment_id=self.appointment_id
+        )
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()["code"], "INVALID_STATUS_TRANSITION")
 
@@ -620,6 +635,7 @@ class AppointmentModificationsTests(AppointmentBaseTestCase):
 # ===========================================================================
 # AP28-AP32: DELETE /appointment
 # ===========================================================================
+
 
 class AppointmentDeleteTests(AppointmentBaseTestCase):
     """AP28-AP32: DELETE /appointment"""
@@ -640,7 +656,7 @@ class AppointmentDeleteTests(AppointmentBaseTestCase):
 
     # AP28
     def test_ap28_delete_confirmed_booking_returns_200_cancelled(self):
-        """AP28: valid appointment_id on a confirmed booking returns 200 and sets status to cancelled."""
+        """AP28: valid appointment_id on a confirmed booking returns 200 and sets status to cancelled."""  # noqa: E501
         resp = self._delete(appointment_id=self.appointment_id)
         self.assertEqual(resp.status_code, 200)
         self.booking.refresh_from_db()
@@ -681,6 +697,7 @@ class AppointmentDeleteTests(AppointmentBaseTestCase):
 # ===========================================================================
 # AP33-AP42: GET /appointment/list_details
 # ===========================================================================
+
 
 class AppointmentListDetailsTests(AppointmentBaseTestCase):
     """AP33-AP42: GET /appointment/list_details"""
@@ -751,9 +768,7 @@ class AppointmentListDetailsTests(AppointmentBaseTestCase):
             participant_id=str(other_citizen.pk),
         )
         qry = {
-            "appointment_filter": {
-                "participant_id": [str(self.citizen.pk), str(other_citizen.pk)]
-            }
+            "appointment_filter": {"participant_id": [str(self.citizen.pk), str(other_citizen.pk)]}
         }
         resp = self._get(qry)
         self.assertEqual(resp.status_code, 200)
@@ -827,7 +842,7 @@ class AppointmentListDetailsTests(AppointmentBaseTestCase):
 
     # AP38
     def test_ap38_event_details_true_includes_nested_event_details(self):
-        """AP38: appointment_details_required.event_details=true includes event_details with nested event_id/name/status."""
+        """AP38: appointment_details_required.event_details=true includes event_details with nested event_id/name/status."""  # noqa: E501
         qry = {
             "appointment_filter": {"appointment_id": self.appointment_id},
             "appointment_details_required": {"event_details": True},
@@ -842,7 +857,7 @@ class AppointmentListDetailsTests(AppointmentBaseTestCase):
 
     # AP39
     def test_ap39_exclusive_default_false_excludes_exclusive_key(self):
-        """AP39: appointment_details_required.exclusive=false (default) — 'exclusive' key absent from results."""
+        """AP39: appointment_details_required.exclusive=false (default) — 'exclusive' key absent from results."""  # noqa: E501
         qry = {"appointment_filter": {"appointment_id": self.appointment_id}}
         resp = self._get(qry)
         data = resp.json()
@@ -851,7 +866,7 @@ class AppointmentListDetailsTests(AppointmentBaseTestCase):
 
     # AP40
     def test_ap40_participant_type_resource_returns_empty_list(self):
-        """AP40: appointment_filter.participant_type='resource' (unsupported) returns empty list, not an error."""
+        """AP40: appointment_filter.participant_type='resource' (unsupported) returns empty list, not an error."""  # noqa: E501
         qry = {"appointment_filter": {"participant_type": "resource"}}
         resp = self._get(qry)
         self.assertEqual(resp.status_code, 200)
@@ -884,7 +899,7 @@ class AppointmentListDetailsTests(AppointmentBaseTestCase):
     def test_ap52_details_required_status_false_suppresses_status_id(self):
         """AP52 (FIX 5 regression): appointment_details_required={"status": False} suppresses
         'status_id' from the response — the real spec's required-flag key is "status", not
-        "status_id"; previously this key was silently dropped by DRF and status_id always appeared."""
+        "status_id"; previously this key was silently dropped by DRF and status_id always appeared."""  # noqa: E501
         qry = {
             "appointment_filter": {"appointment_id": self.appointment_id},
             "appointment_details_required": {"status": False},
@@ -914,6 +929,7 @@ class AppointmentListDetailsTests(AppointmentBaseTestCase):
 # ===========================================================================
 # AP43-AP46: Wrong HTTP method tests
 # ===========================================================================
+
 
 class AppointmentViewMethodTests(TestCase):
     """AP43-AP46: Wrong HTTP methods return 405."""
@@ -947,6 +963,7 @@ class AppointmentViewMethodTests(TestCase):
 # AP47-AP49: Service-level tests (direct service imports)
 # ===========================================================================
 
+
 class AppointmentServiceTests(TestCase):
     """AP47-AP49: Direct service layer tests."""
 
@@ -968,7 +985,7 @@ class AppointmentServiceTests(TestCase):
 
     # AP49
     def test_ap49_derive_appointment_mode_hybrid_maps_to_in_person(self):
-        """AP49: _derive_appointment_mode maps AppointmentType.mode='hybrid' to Booking.appointment_mode='in_person'."""
+        """AP49: _derive_appointment_mode maps AppointmentType.mode='hybrid' to Booking.appointment_mode='in_person'."""  # noqa: E501
         citizen = _create_citizen()
         _, slot = _create_native_slot(mode="hybrid")
         bookings = appointment_create(
@@ -982,6 +999,7 @@ class AppointmentServiceTests(TestCase):
 # ===========================================================================
 # AP53-AP59: Citizen JWT self-service ownership enforcement (IDOR fix)
 # ===========================================================================
+
 
 def _jwt_header(user) -> dict:
     """Build a Django test-client kwargs dict carrying a Bearer JWT for `user`."""
@@ -1011,9 +1029,7 @@ class AppointmentCitizenOwnershipTests(TestCase):
         """AP53: omitting participant_id on a citizen JWT call books for the caller themselves."""
         details = {"event_ids": [str(self.slot.pk)]}
         qry = {"appointment_details": details}
-        resp = self.client.post(
-            NEW_URL + _qry_qs(qry), **_jwt_header(self.citizen)
-        )
+        resp = self.client.post(NEW_URL + _qry_qs(qry), **_jwt_header(self.citizen))
         self.assertEqual(resp.status_code, 200)
         booking = Booking.objects.get(pk=resp.json()["appointment_id"])
         self.assertEqual(booking.citizen_id, self.citizen.pk)
@@ -1027,23 +1043,19 @@ class AppointmentCitizenOwnershipTests(TestCase):
             "participant_id": str(self.citizen.pk),
         }
         qry = {"appointment_details": details}
-        resp = self.client.post(
-            NEW_URL + _qry_qs(qry), **_jwt_header(self.citizen)
-        )
+        resp = self.client.post(NEW_URL + _qry_qs(qry), **_jwt_header(self.citizen))
         self.assertEqual(resp.status_code, 200)
 
     # AP55
     def test_ap55_citizen_jwt_create_with_other_participant_id_returns_403(self):
-        """AP55: setting participant_id to a DIFFERENT citizen returns 403 and creates no Booking."""
+        """AP55: setting participant_id to a DIFFERENT citizen returns 403 and creates no Booking."""  # noqa: E501
         details = {
             "event_ids": [str(self.slot.pk)],
             "participant_type": "subscriber",
             "participant_id": str(self.other_citizen.pk),
         }
         qry = {"appointment_details": details}
-        resp = self.client.post(
-            NEW_URL + _qry_qs(qry), **_jwt_header(self.citizen)
-        )
+        resp = self.client.post(NEW_URL + _qry_qs(qry), **_jwt_header(self.citizen))
         self.assertEqual(resp.status_code, 403)
         self.assertFalse(Booking.objects.filter(slot=self.slot).exists())
 
@@ -1081,7 +1093,7 @@ class AppointmentCitizenOwnershipTests(TestCase):
 
     # AP58
     def test_ap58_citizen_jwt_list_only_returns_own_appointments(self):
-        """AP58: listing with no participant_id filter still only returns the caller's own appointments."""
+        """AP58: listing with no participant_id filter still only returns the caller's own appointments."""  # noqa: E501
         appointment_create(
             event_ids=[str(self.slot.pk)],
             participant_type="subscriber",
@@ -1120,7 +1132,7 @@ class AppointmentCitizenOwnershipTests(TestCase):
 
     # AP66 (service-level)
     def test_ap66_service_appointment_create_ownership_mismatch_raises(self):
-        """AP66: appointment_create() itself raises AppointmentOwnershipError on a mismatched caller."""
+        """AP66: appointment_create() itself raises AppointmentOwnershipError on a mismatched caller."""  # noqa: E501
         with self.assertRaises(AppointmentOwnershipError):
             appointment_create(
                 event_ids=[str(self.slot.pk)],
@@ -1133,6 +1145,7 @@ class AppointmentCitizenOwnershipTests(TestCase):
 # ===========================================================================
 # AP60-AP65: BB-to-BB role gating on the citizen-capable endpoints
 # ===========================================================================
+
 
 @override_settings(GOVSTACK_SCHEDULER_REQUIRE_TOKEN=True)
 class AppointmentBBRoleGatingTests(TestCase):
@@ -1160,7 +1173,9 @@ class AppointmentBBRoleGatingTests(TestCase):
         correct plaintext secret. Finding #1 fix: request_token must never equal
         bb_id — it must verify against a separate hashed secret.
         """
-        bb = GovStackRegisteredBB.objects.create(bb_id=_AUTH["requestor_id"], is_active=True, role=role)
+        bb = GovStackRegisteredBB.objects.create(
+            bb_id=_AUTH["requestor_id"], is_active=True, role=role
+        )
         token = GovStackBBCredential.generate_plaintext_token()
         credential = GovStackBBCredential(bb=bb)
         credential.set_token(token)

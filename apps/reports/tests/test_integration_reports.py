@@ -17,24 +17,24 @@ PIPEDA invariants:
 
 Settings: --settings=config.settings.test
 """
+
 from __future__ import annotations
 
 import datetime as _dt
-import uuid
 from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
-from django.test import TestCase, TransactionTestCase, override_settings
+from django.test import TestCase, override_settings
 
 from apps.reports.models import ReportSnapshot
+from apps.reports.services.combined import combined_nonprofit_impact
 from apps.reports.services.volunteers import (
     compute_volunteer_snapshot,
     get_monthly_volunteer_summary,
 )
-from apps.reports.services.combined import combined_nonprofit_impact
 from apps.reports.tasks import _compute_all_snapshots, _compute_single_snapshot
 
 User = get_user_model()
@@ -73,42 +73,48 @@ def _make_user(*, is_staff=False, perms=None):
 
 def _make_program(**kwargs):
     from apps.volunteers.models import Program
+
     n = _uid()
-    defaults = dict(
-        name_en=f"Program {n}",
-        name_fr=f"Programme {n}",
-        slug=f"rprog-{n}",
-        cra_category="welfare",
-    )
+    defaults = {
+        "name_en": f"Program {n}",
+        "name_fr": f"Programme {n}",
+        "slug": f"rprog-{n}",
+        "cra_category": "welfare",
+    }
     defaults.update(kwargs)
     return Program.objects.create(**defaults)
 
 
 def _make_opportunity(program, **kwargs):
     from apps.volunteers.models import Opportunity
+
     n = _uid()
-    defaults = dict(
-        title_en=f"Opportunity {n}",
-        title_fr=f"Opportunité {n}",
-        slug=f"ropp-{n}",
-        description_en="Desc",
-        description_fr="Desc FR",
-        program=program,
-        status="published",
-    )
+    defaults = {
+        "title_en": f"Opportunity {n}",
+        "title_fr": f"Opportunité {n}",
+        "slug": f"ropp-{n}",
+        "description_en": "Desc",
+        "description_fr": "Desc FR",
+        "program": program,
+        "status": "published",
+    }
     defaults.update(kwargs)
     return Opportunity.objects.create(**defaults)
 
 
 def _make_profile(user):
     from apps.volunteers.models import VolunteerProfile
+
     return VolunteerProfile.objects.create(user=user)
 
 
 def _make_shift(opportunity, *, start_datetime=None, end_datetime=None):
     from datetime import timedelta
-    from apps.volunteers.models import Shift
+
     from django.utils import timezone
+
+    from apps.volunteers.models import Shift
+
     now = timezone.now()
     start_datetime = start_datetime or now
     # Use timedelta so end is always 2 hours after start, never wraps past midnight.
@@ -126,10 +132,11 @@ def _make_shift(opportunity, *, start_datetime=None, end_datetime=None):
 
 def _make_hours_log(volunteer, shift, *, approved_hours=None, status="approved"):
     from apps.volunteers.models import HoursLog
+
     return HoursLog.objects.create(
         volunteer=volunteer,
         shift=shift,
-        opportunity=shift.opportunity,  # required: hours_by_program filters opportunity__isnull=False
+        opportunity=shift.opportunity,  # required: hours_by_program filters opportunity__isnull=False  # noqa: E501
         hours=Decimal(str(approved_hours or "2.00")),
         status=status,
         date=date.today(),
@@ -143,6 +150,7 @@ def _make_staff_user_with_reports_perm():
 # ---------------------------------------------------------------------------
 # VolunteerServiceTests
 # ---------------------------------------------------------------------------
+
 
 class VolunteerServiceTests(TestCase):
     """Tests for get_monthly_volunteer_summary and compute_volunteer_snapshot."""
@@ -159,8 +167,13 @@ class VolunteerServiceTests(TestCase):
 
     def test_returns_required_keys(self):
         result = get_monthly_volunteer_summary(2025, 1)
-        for key in ("total_approved_hours", "volunteer_count", "opportunity_count",
-                    "program_count", "by_program"):
+        for key in (
+            "total_approved_hours",
+            "volunteer_count",
+            "opportunity_count",
+            "program_count",
+            "by_program",
+        ):
             self.assertIn(key, result)
 
     def test_sums_approved_hours_single_program(self):
@@ -179,6 +192,7 @@ class VolunteerServiceTests(TestCase):
         # correctness if this class is ever converted to TransactionTestCase
         # (which does NOT wrap each test in a savepoint).
         from apps.volunteers.models import HoursLog
+
         HoursLog.objects.filter(volunteer=profile).update(date=date(2025, 6, 15))
         result = get_monthly_volunteer_summary(2025, 6)
         self.assertEqual(result["total_approved_hours"], Decimal("5.00"))
@@ -195,6 +209,7 @@ class VolunteerServiceTests(TestCase):
             _make_hours_log(profile, shift, approved_hours="1.00")
             profiles.append(profile)
         from apps.volunteers.models import HoursLog
+
         HoursLog.objects.filter(volunteer__in=profiles).update(date=date(2025, 7, 10))
         result = get_monthly_volunteer_summary(2025, 7)
         # P2-6: assertEqual not assertGreaterEqual — the test creates exactly 3 volunteers;
@@ -213,6 +228,7 @@ class VolunteerServiceTests(TestCase):
         _make_hours_log(profile, shift_a, approved_hours="2.00")
         _make_hours_log(profile, shift_b, approved_hours="3.00")
         from apps.volunteers.models import HoursLog
+
         HoursLog.objects.filter(volunteer=profile).update(date=date(2025, 8, 20))
         result = get_monthly_volunteer_summary(2025, 8)
         self.assertEqual(result["total_approved_hours"], Decimal("5.00"))
@@ -230,6 +246,7 @@ class VolunteerServiceTests(TestCase):
         profile = _make_profile(vol_user)
         _make_hours_log(profile, shift, approved_hours="1.00")
         from apps.volunteers.models import HoursLog
+
         HoursLog.objects.filter(volunteer=profile).update(date=date(2025, 9, 5))
         result = get_monthly_volunteer_summary(2025, 9)
         for row in result["by_program"]:
@@ -246,6 +263,7 @@ class VolunteerServiceTests(TestCase):
         profile = _make_profile(vol_user)
         _make_hours_log(profile, shift, approved_hours="1.00")
         from apps.volunteers.models import HoursLog
+
         HoursLog.objects.filter(volunteer=profile).update(date=date(2025, 9, 6))
         result = get_monthly_volunteer_summary(2025, 9)
         for row in result["by_program"]:
@@ -263,6 +281,7 @@ class VolunteerServiceTests(TestCase):
         profile = _make_profile(vol_user)
         _make_hours_log(profile, shift, approved_hours="5.00", status="pending")
         from apps.volunteers.models import HoursLog
+
         HoursLog.objects.filter(volunteer=profile).update(date=date(2025, 10, 1))
         result = get_monthly_volunteer_summary(2025, 10)
         self.assertEqual(result["total_approved_hours"], Decimal("0.00"))
@@ -302,15 +321,25 @@ class VolunteerServiceTests(TestCase):
     def test_snapshot_hours_has_expected_keys(self):
         snapshot = compute_volunteer_snapshot(2025, 1)
         hours = snapshot["hours"]
-        for key in ("total_approved_hours", "volunteer_count", "opportunity_count",
-                    "program_count", "by_program"):
+        for key in (
+            "total_approved_hours",
+            "volunteer_count",
+            "opportunity_count",
+            "program_count",
+            "by_program",
+        ):
             self.assertIn(key, hours)
 
     def test_snapshot_impact_has_expected_keys(self):
         snapshot = compute_volunteer_snapshot(2025, 1)
         impact = snapshot["impact"]
-        for key in ("total_approved_hours", "estimated_value_cad", "volunteer_count",
-                    "hourly_rate", "province"):
+        for key in (
+            "total_approved_hours",
+            "estimated_value_cad",
+            "volunteer_count",
+            "hourly_rate",
+            "province",
+        ):
             self.assertIn(key, impact)
 
     def _assert_no_decimal(self, obj):
@@ -345,18 +374,34 @@ class VolunteerServiceTests(TestCase):
         self.assertIsInstance(snapshot, dict)
         hours = snapshot["hours"]
         # All numeric hours fields must fall back to zero sentinels.
-        self.assertEqual(hours["total_approved_hours"], "0.00",
-            "T3: hours.total_approved_hours must be '0.00' when hours source fails")
-        self.assertEqual(hours["volunteer_count"], 0,
-            "T3: hours.volunteer_count must be 0 sentinel when hours source fails")
-        self.assertEqual(hours["opportunity_count"], 0,
-            "T3: hours.opportunity_count must be 0 sentinel when hours source fails")
-        self.assertEqual(hours["program_count"], 0,
-            "T3: hours.program_count must be 0 sentinel when hours source fails")
-        self.assertEqual(hours["by_program"], [],
-            "T3: hours.by_program must be [] sentinel when hours source fails")
-        self.assertEqual(snapshot["row_count"], 0,
-            "T3: row_count must be 0 when hours source fails")
+        self.assertEqual(
+            hours["total_approved_hours"],
+            "0.00",
+            "T3: hours.total_approved_hours must be '0.00' when hours source fails",
+        )
+        self.assertEqual(
+            hours["volunteer_count"],
+            0,
+            "T3: hours.volunteer_count must be 0 sentinel when hours source fails",
+        )
+        self.assertEqual(
+            hours["opportunity_count"],
+            0,
+            "T3: hours.opportunity_count must be 0 sentinel when hours source fails",
+        )
+        self.assertEqual(
+            hours["program_count"],
+            0,
+            "T3: hours.program_count must be 0 sentinel when hours source fails",
+        )
+        self.assertEqual(
+            hours["by_program"],
+            [],
+            "T3: hours.by_program must be [] sentinel when hours source fails",
+        )
+        self.assertEqual(
+            snapshot["row_count"], 0, "T3: row_count must be 0 when hours source fails"
+        )
 
     def test_snapshot_impact_failure_returns_zero_impact_dict(self):
         """
@@ -378,21 +423,35 @@ class VolunteerServiceTests(TestCase):
         self.assertIsInstance(snapshot, dict)
         impact = snapshot["impact"]
         # All numeric impact fields must fall back to zero sentinels.
-        self.assertEqual(impact["total_approved_hours"], "0.00",
-            "T3: impact.total_approved_hours must be '0.00' when impact source fails")
-        self.assertEqual(impact["estimated_value_cad"], "0.00",
-            "T3: impact.estimated_value_cad must be '0.00' when impact source fails")
-        self.assertEqual(impact["volunteer_count"], 0,
-            "T3: impact.volunteer_count must be 0 sentinel when impact source fails")
-        self.assertEqual(impact["hourly_rate"], "0.00",
-            "T3: impact.hourly_rate must be '0.00' when impact source fails")
-        self.assertEqual(impact["province"], "",
-            "T3: impact.province must be '' when impact source fails")
+        self.assertEqual(
+            impact["total_approved_hours"],
+            "0.00",
+            "T3: impact.total_approved_hours must be '0.00' when impact source fails",
+        )
+        self.assertEqual(
+            impact["estimated_value_cad"],
+            "0.00",
+            "T3: impact.estimated_value_cad must be '0.00' when impact source fails",
+        )
+        self.assertEqual(
+            impact["volunteer_count"],
+            0,
+            "T3: impact.volunteer_count must be 0 sentinel when impact source fails",
+        )
+        self.assertEqual(
+            impact["hourly_rate"],
+            "0.00",
+            "T3: impact.hourly_rate must be '0.00' when impact source fails",
+        )
+        self.assertEqual(
+            impact["province"], "", "T3: impact.province must be '' when impact source fails"
+        )
 
 
 # ---------------------------------------------------------------------------
 # CombinedServiceTests
 # ---------------------------------------------------------------------------
+
 
 class CombinedServiceTests(TestCase):
     """Tests for combined_nonprofit_impact."""
@@ -409,15 +468,25 @@ class CombinedServiceTests(TestCase):
     def test_volunteer_sub_dict_keys(self):
         result = combined_nonprofit_impact(2025)
         vol = result["volunteer"]
-        for key in ("total_approved_hours", "estimated_value_cad", "volunteer_count",
-                    "hourly_rate", "province"):
+        for key in (
+            "total_approved_hours",
+            "estimated_value_cad",
+            "volunteer_count",
+            "hourly_rate",
+            "province",
+        ):
             self.assertIn(key, vol)
 
     def test_donations_sub_dict_keys(self):
         result = combined_nonprofit_impact(2025)
         don = result["donations"]
-        for key in ("total_donations", "total_eligible_amount", "donation_count",
-                    "unique_donor_count", "receipts_issued"):
+        for key in (
+            "total_donations",
+            "total_eligible_amount",
+            "donation_count",
+            "unique_donor_count",
+            "receipts_issued",
+        ):
             self.assertIn(key, don)
 
     def test_no_volunteer_data_returns_zeros(self):
@@ -439,7 +508,10 @@ class CombinedServiceTests(TestCase):
     def test_combined_value_cad_is_sum_of_volunteer_value_and_eligible_donations(self):
         """combined_value_cad = volunteer.estimated_value_cad + donations.total_eligible_amount"""
         result = combined_nonprofit_impact(2025)
-        expected = result["volunteer"]["estimated_value_cad"] + result["donations"]["total_eligible_amount"]
+        expected = (
+            result["volunteer"]["estimated_value_cad"]
+            + result["donations"]["total_eligible_amount"]
+        )
         self.assertEqual(result["combined_value_cad"], expected)
 
     def test_combined_value_cad_is_decimal(self):
@@ -490,8 +562,13 @@ class CombinedServiceTests(TestCase):
 
         # donations sub-dict must still have all required keys, even if zeros
         don = result["donations"]
-        for key in ("total_donations", "total_eligible_amount", "donation_count",
-                    "unique_donor_count", "receipts_issued"):
+        for key in (
+            "total_donations",
+            "total_eligible_amount",
+            "donation_count",
+            "unique_donor_count",
+            "receipts_issued",
+        ):
             self.assertIn(key, don)
 
     def test_donation_source_exception_returns_zero_donation_dict(self):
@@ -529,8 +606,13 @@ class CombinedServiceTests(TestCase):
 
         # volunteer sub-dict must still have all required keys
         vol = result["volunteer"]
-        for key in ("total_approved_hours", "estimated_value_cad", "volunteer_count",
-                    "hourly_rate", "province"):
+        for key in (
+            "total_approved_hours",
+            "estimated_value_cad",
+            "volunteer_count",
+            "hourly_rate",
+            "province",
+        ):
             self.assertIn(key, vol)
 
     def test_both_sources_fail_returns_all_zeros(self):
@@ -538,12 +620,15 @@ class CombinedServiceTests(TestCase):
         H-9: When both sources fail independently, the function still returns a
         valid dict with zeros and does not raise.
         """
-        with patch(
-            "apps.volunteers.services.reporting.impact_value",
-            side_effect=RuntimeError("volunteer down"),
-        ), patch(
-            "apps.reports.services.donations.get_annual_donation_summary",
-            side_effect=RuntimeError("donations down"),
+        with (
+            patch(
+                "apps.volunteers.services.reporting.impact_value",
+                side_effect=RuntimeError("volunteer down"),
+            ),
+            patch(
+                "apps.reports.services.donations.get_annual_donation_summary",
+                side_effect=RuntimeError("donations down"),
+            ),
         ):
             result = combined_nonprofit_impact(2025)
 
@@ -582,16 +667,23 @@ class CombinedServiceTests(TestCase):
         self.assertEqual(vol["province"], "ON")
         # VN-4: Assert full return-dict shape, not just key presence.
         self.assertEqual(result["year"], 2025)
-        self.assertIsInstance(result["t3010_notes"], str,
-            "t3010_notes must be a string even when volunteer BB is missing")
+        self.assertIsInstance(
+            result["t3010_notes"],
+            str,
+            "t3010_notes must be a string even when volunteer BB is missing",
+        )
         self.assertIn("donations", result)
-        self.assertIsInstance(result["combined_value_cad"], Decimal,
-            "combined_value_cad must be a Decimal on the volunteer-error path")
+        self.assertIsInstance(
+            result["combined_value_cad"],
+            Decimal,
+            "combined_value_cad must be a Decimal on the volunteer-error path",
+        )
         # combined_value_cad = volunteer.estimated_value_cad (0) + donations.total_eligible_amount
         # In test DB with no 2025 donation data the donations path returns zeros too.
         self.assertEqual(
             result["combined_value_cad"],
-            result["volunteer"]["estimated_value_cad"] + result["donations"]["total_eligible_amount"],
+            result["volunteer"]["estimated_value_cad"]
+            + result["donations"]["total_eligible_amount"],
             "combined_value_cad must equal the sum of its two components",
         )
 
@@ -610,7 +702,9 @@ class CombinedServiceTests(TestCase):
                 combined_nonprofit_impact(2025)
 
         # Filter to only messages from this function
-        debug_msgs = [m for m in log_ctx.output if "DEBUG" in m and "volunteers BB not installed" in m]
+        debug_msgs = [
+            m for m in log_ctx.output if "DEBUG" in m and "volunteers BB not installed" in m
+        ]
         warning_msgs = [m for m in log_ctx.output if "WARNING" in m and "volunteer" in m.lower()]
         self.assertTrue(
             debug_msgs,
@@ -650,27 +744,49 @@ class CombinedServiceTests(TestCase):
         self.assertEqual(don["receipts_issued"], 0)
         # VN-4: Assert full return-dict shape on the donations error path.
         self.assertEqual(result["year"], 2025)
-        self.assertIsInstance(result["t3010_notes"], str,
-            "t3010_notes must be a string even when donations module raises")
+        self.assertIsInstance(
+            result["t3010_notes"],
+            str,
+            "t3010_notes must be a string even when donations module raises",
+        )
         # T4: Strengthen from assertIn to value assertions — a key being present
         # with a None or exception value would pass assertIn but mask a regression
         # in the error-path zero-sentinel fallback for the volunteer sub-dict.
         vol_on_donations_error = result["volunteer"]
-        self.assertIsInstance(vol_on_donations_error, dict,
-            "T4: volunteer sub-dict must be a dict even when donations path fails")
-        self.assertIn("volunteer_count", vol_on_donations_error,
-            "T4: volunteer sub-dict must contain volunteer_count on donations error path")
-        self.assertEqual(vol_on_donations_error["volunteer_count"], 0,
-            "T4: volunteer_count must be 0 sentinel (not None/exception) on donations error path")
-        self.assertIn("estimated_value_cad", vol_on_donations_error,
-            "T4: volunteer sub-dict must contain estimated_value_cad on donations error path")
-        self.assertEqual(vol_on_donations_error["estimated_value_cad"], Decimal("0.00"),
-            "T4: estimated_value_cad must be Decimal('0.00') sentinel on donations error path")
-        self.assertIsInstance(result["combined_value_cad"], Decimal,
-            "combined_value_cad must be a Decimal on the donations-error path")
+        self.assertIsInstance(
+            vol_on_donations_error,
+            dict,
+            "T4: volunteer sub-dict must be a dict even when donations path fails",
+        )
+        self.assertIn(
+            "volunteer_count",
+            vol_on_donations_error,
+            "T4: volunteer sub-dict must contain volunteer_count on donations error path",
+        )
+        self.assertEqual(
+            vol_on_donations_error["volunteer_count"],
+            0,
+            "T4: volunteer_count must be 0 sentinel (not None/exception) on donations error path",
+        )
+        self.assertIn(
+            "estimated_value_cad",
+            vol_on_donations_error,
+            "T4: volunteer sub-dict must contain estimated_value_cad on donations error path",
+        )
+        self.assertEqual(
+            vol_on_donations_error["estimated_value_cad"],
+            Decimal("0.00"),
+            "T4: estimated_value_cad must be Decimal('0.00') sentinel on donations error path",
+        )
+        self.assertIsInstance(
+            result["combined_value_cad"],
+            Decimal,
+            "combined_value_cad must be a Decimal on the donations-error path",
+        )
         self.assertEqual(
             result["combined_value_cad"],
-            result["volunteer"]["estimated_value_cad"] + result["donations"]["total_eligible_amount"],
+            result["volunteer"]["estimated_value_cad"]
+            + result["donations"]["total_eligible_amount"],
             "combined_value_cad must equal the sum of its two components",
         )
         # A WARNING must be present (ImportError hits except Exception → WARNING)
@@ -707,12 +823,14 @@ class CombinedServiceTests(TestCase):
         # A second call must return fresh zeros, not the mutated values.
         result_b = combined_nonprofit_impact(1900)
         self.assertEqual(
-            result_b["volunteer"]["volunteer_count"], 0,
+            result_b["volunteer"]["volunteer_count"],
+            0,
             "Mutating result_a['volunteer'] must not affect a subsequent call's "
             "zero-dict (VN-1: defensive copy required)",
         )
         self.assertEqual(
-            result_b["donations"]["donation_count"], 0,
+            result_b["donations"]["donation_count"],
+            0,
             "Mutating result_a['donations'] must not affect a subsequent call's "
             "zero-dict (VN-1: defensive copy required)",
         )
@@ -721,6 +839,7 @@ class CombinedServiceTests(TestCase):
 # ---------------------------------------------------------------------------
 # VolunteerViewTests
 # ---------------------------------------------------------------------------
+
 
 class VolunteerViewTests(TestCase):
     """Tests for VolunteerImpactDashboardView at /reports/volunteers/."""
@@ -771,6 +890,7 @@ class VolunteerViewTests(TestCase):
     def test_current_month_data_source_is_live(self):
         """When viewing the current month, data_source must be 'live'."""
         from django.utils import timezone
+
         now = timezone.localtime(timezone.now())
         user = _make_staff_user_with_reports_perm()
         self.client.force_login(user)
@@ -874,6 +994,7 @@ class VolunteerViewTests(TestCase):
 # CombinedViewTests
 # ---------------------------------------------------------------------------
 
+
 class CombinedViewTests(TestCase):
     """Tests for CombinedImpactView at /reports/combined/."""
 
@@ -953,6 +1074,7 @@ class CombinedViewTests(TestCase):
 
     def test_year_param_out_of_range_uses_current_year(self):
         from django.utils import timezone
+
         current_year = timezone.localtime(timezone.now()).year
         user = _make_staff_user_with_reports_perm()
         self.client.force_login(user)
@@ -965,11 +1087,12 @@ class CombinedViewTests(TestCase):
 # ReportsTaskTests
 # ---------------------------------------------------------------------------
 
+
 class ReportsTaskTests(TestCase):
     """Tests for _compute_all_snapshots, _compute_single_snapshot, and recompute_snapshot."""
 
     def test_compute_all_snapshots_returns_4(self):
-        """_compute_all_snapshots should return 4 (financial + donations + operational + volunteers)."""
+        """_compute_all_snapshots should return 4 (financial + donations + operational + volunteers)."""  # noqa: E501
         count = _compute_all_snapshots(2025, 1)
         self.assertEqual(count, 4)
 
@@ -995,16 +1118,16 @@ class ReportsTaskTests(TestCase):
 
     def test_compute_all_snapshots_second_run_updates_data(self):
         """Second run (update_or_create) updates the existing row — same PK, no duplicate."""
-        t1 = _dt.datetime(2025, 4, 1, 12, 0, 0, tzinfo=_dt.timezone.utc)
-        t2 = _dt.datetime(2025, 4, 1, 12, 0, 1, tzinfo=_dt.timezone.utc)
-        with patch('django.utils.timezone.now', return_value=t1):
+        t1 = _dt.datetime(2025, 4, 1, 12, 0, 0, tzinfo=_dt.UTC)
+        t2 = _dt.datetime(2025, 4, 1, 12, 0, 1, tzinfo=_dt.UTC)
+        with patch("django.utils.timezone.now", return_value=t1):
             _compute_all_snapshots(2025, 4)
         snap_v1 = ReportSnapshot.objects.get(
             report_type=ReportSnapshot.REPORT_TYPE_VOLUNTEERS,
             period_year=2025,
             period_month=4,
         )
-        with patch('django.utils.timezone.now', return_value=t2):
+        with patch("django.utils.timezone.now", return_value=t2):
             _compute_all_snapshots(2025, 4)
         snap_v2 = ReportSnapshot.objects.get(
             report_type=ReportSnapshot.REPORT_TYPE_VOLUNTEERS,
@@ -1013,7 +1136,8 @@ class ReportsTaskTests(TestCase):
         )
         # 1. Same PK — second run updated the existing row, not a new INSERT.
         self.assertEqual(
-            snap_v1.pk, snap_v2.pk,
+            snap_v1.pk,
+            snap_v2.pk,
             "Second run must UPDATE the existing row, not insert a new one",
         )
         # 2. Exactly one row — no phantom duplicate.
@@ -1025,7 +1149,8 @@ class ReportsTaskTests(TestCase):
         self.assertEqual(total, 1, "Exactly one snapshot row must exist after two runs")
         # 3. Frozen time guarantees t2 > t1 strictly — assertGreater (not >=) is correct.
         self.assertGreater(
-            snap_v2.computed_at, snap_v1.computed_at,
+            snap_v2.computed_at,
+            snap_v1.computed_at,
             "computed_at after second run must be strictly > first run (row was re-saved)",
         )
 
@@ -1055,6 +1180,7 @@ class ReportsTaskTests(TestCase):
     def test_recompute_snapshot_task_creates_volunteers_snapshot(self):
         """recompute_snapshot Celery task should create/update a volunteers snapshot."""
         from apps.reports.tasks import recompute_snapshot
+
         recompute_snapshot.apply(args=["volunteers", 2025, 9])
         exists = ReportSnapshot.objects.filter(
             report_type=ReportSnapshot.REPORT_TYPE_VOLUNTEERS,
@@ -1066,6 +1192,7 @@ class ReportsTaskTests(TestCase):
     @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
     def test_recompute_snapshot_task_returns_success_dict(self):
         from apps.reports.tasks import recompute_snapshot
+
         result = recompute_snapshot.apply(args=["volunteers", 2025, 10])
         returned = result.get()
         self.assertTrue(returned["success"])
@@ -1076,6 +1203,7 @@ class ReportsTaskTests(TestCase):
     @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
     def test_recompute_snapshot_task_is_idempotent(self):
         from apps.reports.tasks import recompute_snapshot
+
         recompute_snapshot.apply(args=["volunteers", 2025, 11])
         recompute_snapshot.apply(args=["volunteers", 2025, 11])
         count = ReportSnapshot.objects.filter(

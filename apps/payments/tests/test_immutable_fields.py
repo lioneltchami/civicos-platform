@@ -11,6 +11,7 @@ Tests for OfficialDonationReceipt append-only field enforcement:
 Uses the same make_* helper pattern as test_receipt_services.py.
 Bypasses PostgreSQL serial sequence by setting serial_number before save().
 """
+
 import uuid
 from datetime import date
 from decimal import Decimal
@@ -19,11 +20,11 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from apps.payments.models import (
+    DONATION_STATUS_COMPLETED,
     Donation,
     DonationCampaign,
     OfficialDonationReceipt,
     PaymentIntent,
-    DONATION_STATUS_COMPLETED,
 )
 
 User = get_user_model()
@@ -32,6 +33,7 @@ User = get_user_model()
 # ---------------------------------------------------------------------------
 # Fixture helpers (mirrors test_receipt_services.py pattern)
 # ---------------------------------------------------------------------------
+
 
 def make_user(email=None, **kwargs):
     email = email or f"user_{uuid.uuid4().hex[:6]}@example.com"
@@ -117,6 +119,7 @@ def make_receipt(donation, **kwargs):
 # has_pdf property tests (no DB required, but we use TestCase for consistency)
 # ---------------------------------------------------------------------------
 
+
 class HasPdfPropertyTests(TestCase):
     """Unit tests for has_pdf property — no DB interaction needed.
 
@@ -148,6 +151,7 @@ class HasPdfPropertyTests(TestCase):
 # ---------------------------------------------------------------------------
 # Immutable field enforcement tests
 # ---------------------------------------------------------------------------
+
 
 class ImmutableFieldsTests(TestCase):
     """Each field in _IMMUTABLE_FIELDS raises ValueError on attempted mutation."""
@@ -252,6 +256,7 @@ class ImmutableFieldsTests(TestCase):
 # Mutable field tests — these MUST succeed (no exception raised)
 # ---------------------------------------------------------------------------
 
+
 class MutableFieldsTests(TestCase):
     """Fields that are explicitly allowed to change after first save."""
 
@@ -293,6 +298,7 @@ class MutableFieldsTests(TestCase):
 # Delete guard tests
 # ---------------------------------------------------------------------------
 
+
 class DeleteGuardTests(TestCase):
     """OfficialDonationReceipt.delete() raises ValueError — records are permanent."""
 
@@ -311,6 +317,4 @@ class DeleteGuardTests(TestCase):
             self.receipt.delete()
         except ValueError:
             pass
-        self.assertTrue(
-            OfficialDonationReceipt.objects.filter(pk=self.receipt.pk).exists()
-        )
+        self.assertTrue(OfficialDonationReceipt.objects.filter(pk=self.receipt.pk).exists())

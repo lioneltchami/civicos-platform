@@ -1,11 +1,11 @@
-from django.db import migrations, models
 import django.db.models.deletion
+from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("payments", "0043_executionintent_submit_admission")]
+    dependencies = [("payments", "0043_executionintent_submit_admission")]  # noqa: RUF012
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddField(
             model_name="creditinstruction",
             name="payment_attempt",

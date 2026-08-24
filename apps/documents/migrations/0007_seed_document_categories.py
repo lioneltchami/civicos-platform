@@ -1,6 +1,5 @@
 from django.db import migrations
 
-
 CATEGORIES = [
     {
         "slug": "service-request-evidence",
@@ -83,7 +82,7 @@ CATEGORIES = [
     {
         "slug": "pipeda-data-export",
         "name_en": "PIPEDA Data Export Archive",
-        "name_fr": "Archive d’exportation de données LPRPDE",
+        "name_fr": "Archive d’exportation de données LPRPDE",  # noqa: RUF001
         "description_en": "",
         "description_fr": "",
         "security_classification": "protected_b",
@@ -125,7 +124,7 @@ CATEGORIES = [
 STAFF_ONLY_SLUGS = {"staff-decision-memo", "system-generated-report"}
 
 
-def seed_document_categories(apps, schema_editor):
+def seed_document_categories(apps, schema_editor) -> None:  # noqa: ANN001
     DocumentCategory = apps.get_model("documents", "DocumentCategory")
     for data in CATEGORIES:
         staff_only = data["slug"] in STAFF_ONLY_SLUGS
@@ -166,17 +165,16 @@ def seed_document_categories(apps, schema_editor):
             )
 
 
-def noop(apps, schema_editor):
+def noop(apps, schema_editor) -> None:  # noqa: ANN001
     # Reverse is a no-op: categories may be in use by existing documents.
     pass
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("documents", "0006_add_staff_view_permissions"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.RunPython(seed_document_categories, noop, elidable=False),
     ]

@@ -9,6 +9,7 @@ Usage:
 Data current as of 2026-01-01.
 Sources: CRA, provincial revenue authorities.
 """
+
 from datetime import date
 from decimal import Decimal
 
@@ -58,23 +59,23 @@ RATES = [
 class Command(BaseCommand):
     help = "Seed Canadian provincial/territorial tax rates (idempotent)."
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser) -> None:  # noqa: ANN001
         parser.add_argument(
             "--dry-run",
             action="store_true",
             help="Preview what would be created/updated without writing to the database.",
         )
 
-    def handle(self, *args, **options):
+    def handle(self, *args, **options) -> None:  # noqa: ANN002, ANN003
         dry_run = options["dry_run"]
         verbosity = options.get("verbosity", 1)
         prefix = "[DRY RUN] " if dry_run else ""
 
         # Data integrity check: federal + provincial must equal combined for every row.
         for prov, federal, provincial, combined, *_ in RATES:
-            assert Decimal(federal) + Decimal(provincial) == Decimal(combined), (
-                f"Rate data error for {prov}: {federal} + {provincial} != {combined}"
-            )
+            assert Decimal(federal) + Decimal(provincial) == Decimal(
+                combined
+            ), f"Rate data error for {prov}: {federal} + {provincial} != {combined}"
 
         created_count = 0
         updated_count = 0
@@ -119,9 +120,7 @@ class Command(BaseCommand):
             else:
                 updated_count += 1
                 if verbosity >= 2:
-                    self.stdout.write(
-                        f"  {prefix}Updated: {province} — {name_en} ({combined})"
-                    )
+                    self.stdout.write(f"  {prefix}Updated: {province} — {name_en} ({combined})")
 
         summary = (
             f"{prefix}seed_tax_rates: {created_count} created, {updated_count} updated "

@@ -21,7 +21,9 @@ Import note:
   imports are deferred inside each receiver body to avoid circular-import cycles
   at app-startup time (models → services → receivers → models is a common trap).
 """
+
 import logging
+from typing import Any
 
 from django.conf import settings
 from django.db.models.signals import pre_delete
@@ -54,8 +56,9 @@ logger = logging.getLogger(__name__)
 # H-3: PIPEDA photo deletion on consent record withdrawal
 # ---------------------------------------------------------------------------
 
+
 @receiver(pre_delete, sender="consent.ConsentRecord")
-def delete_volunteer_photo_on_consent_withdrawal(sender, instance, **kwargs):
+def delete_volunteer_photo_on_consent_withdrawal(sender, instance, **kwargs) -> None:  # noqa: ANN001, ANN003
     """
     PIPEDA: When a ConsentRecord is deleted (consent withdrawn), delete the
     volunteer's photo if it was authorised by this consent record.
@@ -68,6 +71,7 @@ def delete_volunteer_photo_on_consent_withdrawal(sender, instance, **kwargs):
     """
     try:
         from apps.volunteers.models import VolunteerProfile
+
         profiles = VolunteerProfile.objects.filter(photo_consent=instance)
         for profile in profiles:
             if profile.photo:
@@ -103,8 +107,9 @@ def delete_volunteer_photo_on_consent_withdrawal(sender, instance, **kwargs):
 # Wave 2: Application lifecycle notification receivers
 # ---------------------------------------------------------------------------
 
+
 @receiver(application_submitted)
-def notify_coordinator_on_application_submitted(sender, instance, actor=None, **kwargs):
+def notify_coordinator_on_application_submitted(sender, instance, actor=None, **kwargs) -> None:  # noqa: ANN001, ANN003
     """
     Notify the opportunity coordinator when a new volunteer application arrives.
 
@@ -121,11 +126,9 @@ def notify_coordinator_on_application_submitted(sender, instance, actor=None, **
         # loaded in a single JOIN rather than N lazy queries.
         # volunteer_id is accessed directly (no .user needed here), so we only
         # need the forward FK chain on the opportunity side.
-        instance = (
-            instance.__class__.objects
-            .select_related("opportunity__program__coordinator")
-            .get(pk=instance.pk)
-        )
+        instance = instance.__class__.objects.select_related(
+            "opportunity__program__coordinator"
+        ).get(pk=instance.pk)
 
         # Coordinator is on Program, not directly on Opportunity.
         coordinator = instance.opportunity.program.coordinator
@@ -174,7 +177,7 @@ def notify_coordinator_on_application_submitted(sender, instance, actor=None, **
 
 
 @receiver(application_approved)
-def notify_volunteer_on_application_approved(sender, instance, actor=None, **kwargs):
+def notify_volunteer_on_application_approved(sender, instance, actor=None, **kwargs) -> None:  # noqa: ANN001, ANN003
     """
     Notify the volunteer that their application was approved.
 
@@ -190,10 +193,8 @@ def notify_volunteer_on_application_approved(sender, instance, actor=None, **kwa
         # Re-fetch with select_related so opportunity and volunteer→user are
         # loaded in a single JOIN rather than lazy queries on first attribute
         # access. prefetch_related_objects() is a no-op for forward FK chains.
-        instance = (
-            instance.__class__.objects
-            .select_related("opportunity", "volunteer__user")
-            .get(pk=instance.pk)
+        instance = instance.__class__.objects.select_related("opportunity", "volunteer__user").get(
+            pk=instance.pk
         )
 
         volunteer_user = instance.volunteer.user
@@ -229,7 +230,7 @@ def notify_volunteer_on_application_approved(sender, instance, actor=None, **kwa
 
 
 @receiver(application_rejected)
-def notify_volunteer_on_application_rejected(sender, instance, actor=None, **kwargs):
+def notify_volunteer_on_application_rejected(sender, instance, actor=None, **kwargs) -> None:  # noqa: ANN001, ANN003
     """
     Notify the volunteer that their application was not successful.
 
@@ -259,8 +260,7 @@ def notify_volunteer_on_application_rejected(sender, instance, actor=None, **kwa
         # returning the value — mirrors the safe_instance defence in
         # reject_application() at the service layer.
         instance = (
-            instance.__class__.objects
-            .select_related("opportunity", "volunteer__user")
+            instance.__class__.objects.select_related("opportunity", "volunteer__user")
             .defer("rejection_reason", "screening_notes", "motivation")
             .get(pk=instance.pk)
         )
@@ -290,8 +290,9 @@ def notify_volunteer_on_application_rejected(sender, instance, actor=None, **kwa
 # Wave 2: Screening expiry notification receiver
 # ---------------------------------------------------------------------------
 
+
 @receiver(screening_expiring)
-def notify_on_screening_expiring(sender, instance, **kwargs):
+def notify_on_screening_expiring(sender, instance, **kwargs) -> None:  # noqa: ANN001, ANN003
     """
     Notify both the volunteer and the opportunity coordinator when a screening
     record is expiring soon.
@@ -315,14 +316,10 @@ def notify_on_screening_expiring(sender, instance, **kwargs):
         # prefetch_related_objects() is a no-op for forward FK chains.
         # The Celery beat task may have used select_related on its queryset, but
         # receivers cannot rely on that — always re-fetch defensively.
-        instance = (
-            instance.__class__.objects
-            .select_related(
-                "opportunity__program__coordinator",
-                "volunteer__user",
-            )
-            .get(pk=instance.pk)
-        )
+        instance = instance.__class__.objects.select_related(
+            "opportunity__program__coordinator",
+            "volunteer__user",
+        ).get(pk=instance.pk)
 
         today = timezone.localtime(timezone.now()).date()
         expires_date = instance.expires_date
@@ -398,8 +395,9 @@ def notify_on_screening_expiring(sender, instance, **kwargs):
 # Wave 3: Shift booking, shift cancellation, hours, and milestone receivers
 # ---------------------------------------------------------------------------
 
+
 @receiver(shift_booked, sender="volunteers.ShiftBooking")
-def notify_volunteer_on_shift_booked(sender, instance, shift, volunteer, **kwargs):
+def notify_volunteer_on_shift_booked(sender, instance, shift, volunteer, **kwargs) -> None:  # noqa: ANN001, ANN003
     """
     Email confirmation when a volunteer books (or joins waitlist for) a shift.
 
@@ -415,11 +413,9 @@ def notify_volunteer_on_shift_booked(sender, instance, shift, volunteer, **kwarg
 
         # Re-fetch with select_related so shift→opportunity→program and
         # volunteer→user are loaded in a single JOIN.
-        booking = (
-            ShiftBooking.objects
-            .select_related("shift__opportunity__program", "volunteer__user")
-            .get(pk=instance.pk)
-        )
+        booking = ShiftBooking.objects.select_related(
+            "shift__opportunity__program", "volunteer__user"
+        ).get(pk=instance.pk)
         recipient = booking.volunteer.user
 
         local_start = timezone.localtime(booking.shift.start_datetime)
@@ -466,7 +462,14 @@ def notify_volunteer_on_shift_booked(sender, instance, shift, volunteer, **kwarg
 
 
 @receiver(shift_cancelled, sender="volunteers.Shift")
-def notify_volunteers_on_shift_cancelled(sender, instance, opportunity, reason, cancelled_by, **kwargs):
+def notify_volunteers_on_shift_cancelled(
+    sender: Any,
+    instance: Any,
+    opportunity: Any,
+    reason: Any,
+    cancelled_by: Any,
+    **kwargs: Any,
+) -> None:
     """
     Notify all booked/waitlisted volunteers when a shift is cancelled.
 
@@ -482,8 +485,7 @@ def notify_volunteers_on_shift_cancelled(sender, instance, opportunity, reason, 
 
         # Re-fetch shift with opportunity and all affected bookings in minimal queries.
         shift = (
-            Shift.objects
-            .select_related("opportunity")
+            Shift.objects.select_related("opportunity")
             .prefetch_related("bookings__volunteer__user")
             .get(pk=instance.pk)
         )
@@ -526,7 +528,9 @@ def notify_volunteers_on_shift_cancelled(sender, instance, opportunity, reason, 
             except Exception as exc:
                 logger.error(
                     "Failed to notify volunteer pk=%s for shift cancellation: %s",
-                    booking.volunteer_id, exc, exc_info=True,
+                    booking.volunteer_id,
+                    exc,
+                    exc_info=True,
                 )
                 continue
 
@@ -538,20 +542,31 @@ def notify_volunteers_on_shift_cancelled(sender, instance, opportunity, reason, 
     except Exception as exc:
         logger.error(
             "notify_volunteers_on_shift_cancelled failed for shift pk=%s: %s",
-            instance.pk, exc, exc_info=True,
+            instance.pk,
+            exc,
+            exc_info=True,
         )
 
 
 @receiver(shift_booking_cancelled)
-def notify_volunteer_on_booking_cancelled(sender, instance, shift, volunteer, reason="", **kwargs):
+def notify_volunteer_on_booking_cancelled(
+    sender: Any,
+    instance: Any,
+    shift: Any,
+    volunteer: Any,
+    reason: Any = "",
+    **kwargs: Any,
+) -> None:
     """
     Notify a volunteer when their individual shift booking is cancelled by a coordinator.
     Distinct from shift_cancelled which covers whole-shift cancellations.
     """
     try:
         from apps.volunteers.models import ShiftBooking
+
         booking = ShiftBooking.objects.select_related(
-            "volunteer__user", "shift__opportunity__program",
+            "volunteer__user",
+            "shift__opportunity__program",
         ).get(pk=instance.pk)
 
         local_start = timezone.localtime(booking.shift.start_datetime)
@@ -575,6 +590,7 @@ def notify_volunteer_on_booking_cancelled(sender, instance, shift, volunteer, re
         }
 
         from apps.notifications.services import send_email_notification
+
         send_email_notification(
             recipient=booking.volunteer.user,
             subject_key="volunteer_booking_cancelled",
@@ -595,7 +611,7 @@ def notify_volunteer_on_booking_cancelled(sender, instance, shift, volunteer, re
 
 
 @receiver(hours_approved)
-def notify_volunteer_on_hours_approved(sender, instance, approved_by, **kwargs):
+def notify_volunteer_on_hours_approved(sender, instance, approved_by, **kwargs) -> None:  # noqa: ANN001, ANN003
     """
     Notify volunteer their hours submission was approved.
 
@@ -614,8 +630,7 @@ def notify_volunteer_on_hours_approved(sender, instance, approved_by, **kwargs):
         # .only() enforces PIPEDA data-minimisation: rejection_reason is never
         # loaded into the Python object, eliminating any risk of accidental inclusion.
         log = (
-            HoursLog.objects
-            .only("pk", "hours", "date", "volunteer_id", "opportunity_id", "status")
+            HoursLog.objects.only("pk", "hours", "date", "volunteer_id", "opportunity_id", "status")
             .select_related("volunteer__user", "opportunity")
             .get(pk=instance.pk)
         )
@@ -623,15 +638,14 @@ def notify_volunteer_on_hours_approved(sender, instance, approved_by, **kwargs):
         recipient = volunteer.user
 
         # Re-fetch denormalized total from VolunteerProfile — authoritative post-approval value.
-        total = (
-            VolunteerProfile.objects
-            .values_list("total_hours_approved", flat=True)
-            .get(pk=volunteer.pk)
+        total = VolunteerProfile.objects.values_list("total_hours_approved", flat=True).get(
+            pk=volunteer.pk
         )
 
         opp = log.opportunity
         opp_title = (
-            opp.get_title() if (opp and hasattr(opp, "get_title"))
+            opp.get_title()
+            if (opp and hasattr(opp, "get_title"))
             else (opp.title_en if opp else "")
         )
 
@@ -640,11 +654,15 @@ def notify_volunteer_on_hours_approved(sender, instance, approved_by, **kwargs):
         except Exception:
             portal_url = ""
 
-        local_date = timezone.localtime(
-            timezone.make_aware(
-                timezone.datetime.combine(log.date, timezone.datetime.min.time())
-            )
-        ).date() if hasattr(log.date, 'year') else log.date
+        (
+            timezone.localtime(
+                timezone.make_aware(
+                    timezone.datetime.combine(log.date, timezone.datetime.min.time())
+                )
+            ).date()
+            if hasattr(log.date, "year")
+            else log.date
+        )
 
         context = {
             "recipient": recipient,
@@ -678,7 +696,7 @@ def notify_volunteer_on_hours_approved(sender, instance, approved_by, **kwargs):
 
 
 @receiver(hours_rejected)
-def notify_volunteer_on_hours_rejected(sender, instance, rejected_by, **kwargs):
+def notify_volunteer_on_hours_rejected(sender, instance, rejected_by, **kwargs) -> None:  # noqa: ANN001, ANN003
     """
     Notify volunteer their hours submission was not approved. No reason given (PIPEDA).
 
@@ -696,8 +714,7 @@ def notify_volunteer_on_hours_rejected(sender, instance, rejected_by, **kwargs):
         # .only() enforces PIPEDA data-minimisation: rejection_reason is never
         # loaded into the Python object, eliminating any risk of accidental inclusion.
         log = (
-            HoursLog.objects
-            .only("pk", "hours", "date", "volunteer_id", "opportunity_id", "status")
+            HoursLog.objects.only("pk", "hours", "date", "volunteer_id", "opportunity_id", "status")
             .select_related("volunteer__user", "opportunity")
             .get(pk=instance.pk)
         )
@@ -706,7 +723,8 @@ def notify_volunteer_on_hours_rejected(sender, instance, rejected_by, **kwargs):
 
         opp = log.opportunity
         opp_title = (
-            opp.get_title() if (opp and hasattr(opp, "get_title"))
+            opp.get_title()
+            if (opp and hasattr(opp, "get_title"))
             else (opp.title_en if opp else "")
         )
 
@@ -746,7 +764,13 @@ def notify_volunteer_on_hours_rejected(sender, instance, rejected_by, **kwargs):
 
 
 @receiver(milestone_achieved)
-def notify_volunteer_on_milestone_achieved(sender, instance, volunteer, hours_threshold, **kwargs):
+def notify_volunteer_on_milestone_achieved(
+    sender: Any,
+    instance: Any,
+    volunteer: Any,
+    hours_threshold: Any,
+    **kwargs: Any,
+) -> None:
     """
     Celebrate a volunteer's cumulative hours milestone.
 
@@ -763,11 +787,7 @@ def notify_volunteer_on_milestone_achieved(sender, instance, volunteer, hours_th
 
         # Accept either a VolunteerProfile instance or a PK integer.
         volunteer_pk = volunteer.pk if hasattr(volunteer, "pk") else volunteer
-        volunteer_obj = (
-            VolunteerProfile.objects
-            .select_related("user")
-            .get(pk=volunteer_pk)
-        )
+        volunteer_obj = VolunteerProfile.objects.select_related("user").get(pk=volunteer_pk)
         recipient = volunteer_obj.user
         total = volunteer_obj.total_hours_approved
 
@@ -797,7 +817,9 @@ def notify_volunteer_on_milestone_achieved(sender, instance, volunteer, hours_th
         except Exception as exc:
             logger.error(
                 "Failed to send milestone email for milestone pk=%s: %s",
-                instance.pk, exc, exc_info=True,
+                instance.pk,
+                exc,
+                exc_info=True,
             )
             # notification_sent=True already; won't re-send. Logged for manual follow-up.
 
@@ -820,8 +842,9 @@ def notify_volunteer_on_milestone_achieved(sender, instance, volunteer, hours_th
 # Wave 4: Honorarium / CRA threshold notification receivers
 # ---------------------------------------------------------------------------
 
+
 @receiver(t4a_threshold_reached, sender="volunteers.Honorarium")
-def notify_coordinator_on_t4a_threshold(sender, instance, coordinator, ytd_total, **kwargs):
+def notify_coordinator_on_t4a_threshold(sender, instance, coordinator, ytd_total, **kwargs) -> None:  # noqa: ANN001, ANN003
     """
     Notify the coordinator when a volunteer's cumulative honoraria reach the
     CRA $500 T4A threshold. A T4A slip must be issued.
@@ -841,12 +864,11 @@ def notify_coordinator_on_t4a_threshold(sender, instance, coordinator, ytd_total
     volunteer_display uses volunteer_id (FK, no extra query) not display_name.
     """
     try:
-        from apps.volunteers.models import Honorarium as _H
+        from apps.volunteers.models import Honorarium as _H  # noqa: N814
+
         try:
-            instance = (
-                _H.objects
-                .select_related("volunteer__user", "created_by")
-                .get(pk=instance.pk)
+            instance = _H.objects.select_related("volunteer__user", "created_by").get(
+                pk=instance.pk
             )
         except _H.DoesNotExist:
             logger.error(
@@ -876,6 +898,7 @@ def notify_coordinator_on_t4a_threshold(sender, instance, coordinator, ytd_total
             "portal_url": portal_url,
         }
         from apps.notifications.services import send_email_notification
+
         send_email_notification(
             recipient=coordinator,
             subject_key="volunteer_honorarium_t4a_alert",
@@ -884,17 +907,20 @@ def notify_coordinator_on_t4a_threshold(sender, instance, coordinator, ytd_total
         logger.info(
             "notify_coordinator_on_t4a_threshold: T4A alert sent for "
             "volunteer profile #%s to coordinator user #%s",
-            instance.volunteer_id, coordinator.pk,
+            instance.volunteer_id,
+            coordinator.pk,
         )
     except Exception as exc:
         logger.error(
             "notify_coordinator_on_t4a_threshold failed for honorarium #%s: %s",
-            getattr(instance, "pk", "?"), exc, exc_info=True,
+            getattr(instance, "pk", "?"),
+            exc,
+            exc_info=True,
         )
 
 
 @receiver(cra_alert_threshold_reached, sender="volunteers.Honorarium")
-def notify_coordinator_on_cra_alert(sender, instance, coordinator, ytd_total, **kwargs):
+def notify_coordinator_on_cra_alert(sender, instance, coordinator, ytd_total, **kwargs) -> None:  # noqa: ANN001, ANN003
     """
     Notify the coordinator that a volunteer is approaching the CRA $500 T4A
     threshold (currently at $450+ YTD honoraria). Non-blocking warning only —
@@ -911,12 +937,11 @@ def notify_coordinator_on_cra_alert(sender, instance, coordinator, ytd_total, **
     volunteer_display uses volunteer_id (FK, no extra query) not display_name.
     """
     try:
-        from apps.volunteers.models import Honorarium as _H
+        from apps.volunteers.models import Honorarium as _H  # noqa: N814
+
         try:
-            instance = (
-                _H.objects
-                .select_related("volunteer__user", "created_by")
-                .get(pk=instance.pk)
+            instance = _H.objects.select_related("volunteer__user", "created_by").get(
+                pk=instance.pk
             )
         except _H.DoesNotExist:
             logger.error(
@@ -944,6 +969,7 @@ def notify_coordinator_on_cra_alert(sender, instance, coordinator, ytd_total, **
             "portal_url": portal_url,
         }
         from apps.notifications.services import send_email_notification
+
         send_email_notification(
             recipient=coordinator,
             subject_key="volunteer_honorarium_cra_near_alert",
@@ -952,10 +978,14 @@ def notify_coordinator_on_cra_alert(sender, instance, coordinator, ytd_total, **
         logger.info(
             "notify_coordinator_on_cra_alert: CRA near-threshold alert sent for "
             "volunteer profile #%s to coordinator user #%s (ytd_total=%s)",
-            instance.volunteer_id, coordinator.pk, ytd_total,
+            instance.volunteer_id,
+            coordinator.pk,
+            ytd_total,
         )
     except Exception as exc:
         logger.error(
             "notify_coordinator_on_cra_alert failed for honorarium #%s: %s",
-            getattr(instance, "pk", "?"), exc, exc_info=True,
+            getattr(instance, "pk", "?"),
+            exc,
+            exc_info=True,
         )

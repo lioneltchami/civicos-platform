@@ -13,12 +13,8 @@ class IsStaff(BasePermission):
 
     message = "Staff access required."
 
-    def has_permission(self, request, view) -> bool:
-        return bool(
-            request.user
-            and request.user.is_authenticated
-            and request.user.is_staff
-        )
+    def has_permission(self, request, view) -> bool:  # noqa: ANN001
+        return bool(request.user and request.user.is_authenticated and request.user.is_staff)
 
 
 class IsCitizenOwner(BasePermission):
@@ -33,7 +29,7 @@ class IsCitizenOwner(BasePermission):
 
     message = "You do not have permission to access this resource."
 
-    def has_object_permission(self, request, view, obj) -> bool:
+    def has_object_permission(self, request, view, obj) -> bool:  # noqa: ANN001
         return hasattr(obj, "citizen_id") and obj.citizen_id == request.user.pk
 
 
@@ -48,10 +44,10 @@ class IsOwnerOrStaff(BasePermission):
 
     message = "You do not have permission to access this resource."
 
-    def has_permission(self, request, view) -> bool:
+    def has_permission(self, request, view) -> bool:  # noqa: ANN001
         return bool(request.user and request.user.is_authenticated)
 
-    def has_object_permission(self, request, view, obj) -> bool:
+    def has_object_permission(self, request, view, obj) -> bool:  # noqa: ANN001
         if request.user.is_staff:
             return True
         return hasattr(obj, "citizen_id") and obj.citizen_id == request.user.pk
@@ -65,7 +61,7 @@ class IsCoordinator(BasePermission):
 
     message = "Coordinator or admin group membership required."
 
-    def has_permission(self, request, view) -> bool:
+    def has_permission(self, request, view) -> bool:  # noqa: ANN001
         if not request.user or not request.user.is_authenticated:
             return False
         return request.user.groups.filter(

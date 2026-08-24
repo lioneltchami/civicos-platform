@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
-from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 from django.urls import reverse
 
@@ -13,7 +12,7 @@ User = get_user_model()
 VALID_PASSWORD = "SecureTestPass123!"
 
 
-def _make_staff(email: str) -> "User":
+def _make_staff(email: str) -> User:
     return User.objects.create_user(
         email=email,
         password=VALID_PASSWORD,
@@ -21,7 +20,7 @@ def _make_staff(email: str) -> "User":
     )
 
 
-def _make_citizen(email: str, is_active: bool = True) -> "User":
+def _make_citizen(email: str, is_active: bool = True) -> User:
     return User.objects.create_user(
         email=email,
         password=VALID_PASSWORD,
@@ -30,9 +29,10 @@ def _make_citizen(email: str, is_active: bool = True) -> "User":
     )
 
 
-def _make_service_request(citizen: "User", service_name: str = "Test Service") -> ServiceRequest:
+def _make_service_request(citizen: User, service_name: str = "Test Service") -> ServiceRequest:
     import secrets
     import string
+
     ref = "REF-" + "".join(secrets.choice(string.digits) for _ in range(8))
     return ServiceRequest.objects.create(
         citizen=citizen,
@@ -92,7 +92,7 @@ class CitizenListTests(TestCase):
 
     def test_staff_users_not_listed(self):
         """Staff accounts are never shown in the citizen list."""
-        other_staff = _make_staff("otherstaf@example.gov")
+        _make_staff("otherstaf@example.gov")
         self.client.force_login(self.staff)
         resp = self.client.get(self._url())
         self.assertEqual(resp.status_code, 200)

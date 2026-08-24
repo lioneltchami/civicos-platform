@@ -44,6 +44,7 @@ to the exact stock ``ScopedRateThrottle`` behaviour (user-pk-or-IP) so that
 throttling never errors and never silently stops applying — it just isn't
 identity-aware in that case.
 """
+
 from __future__ import annotations
 
 from typing import Any

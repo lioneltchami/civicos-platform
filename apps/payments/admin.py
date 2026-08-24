@@ -16,6 +16,7 @@ Security:
   - webhook_endpoint_secret never shown in plain text (masked display only)
   - gateway_payment_method_id not exposed in admin (Stripe reusable token)
 """
+
 from django.contrib import admin
 
 from .govstack_models import (
@@ -46,14 +47,14 @@ from .models import (
     WebhookEvent,
 )
 
-
 # ---------------------------------------------------------------------------
 # PaymentIntent
 # ---------------------------------------------------------------------------
 
+
 @admin.register(PaymentIntent)
 class PaymentIntentAdmin(admin.ModelAdmin):
-    list_display = [
+    list_display = [  # noqa: RUF012
         "reference",
         "payer_pk",
         "purpose",
@@ -63,26 +64,26 @@ class PaymentIntentAdmin(admin.ModelAdmin):
         "currency",
         "created_at",
     ]
-    list_filter = ["status", "purpose", "gateway", "currency"]
-    search_fields = ["reference", "gateway_intent_id"]
-    readonly_fields = [
+    list_filter = ["status", "purpose", "gateway", "currency"]  # noqa: RUF012
+    search_fields = ["reference", "gateway_intent_id"]  # noqa: RUF012
+    readonly_fields = [  # noqa: RUF012
         "id",
         "reference",
         "idempotency_key",
         "created_at",
         "updated_at",
     ]
-    ordering = ["-created_at"]
+    ordering = ["-created_at"]  # noqa: RUF012
 
     @admin.display(description="Payer PK", ordering="payer_id")
-    def payer_pk(self, obj):
+    def payer_pk(self, obj):  # noqa: ANN001, ANN201
         return obj.payer_id
 
-    def has_change_permission(self, request, obj=None):
+    def has_change_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # Financial records must not be mutated via admin — gateway is sole writer.
         return False
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # PaymentIntents are permanent financial records; deletion cascades to
         # Payment, Donation, and OfficialDonationReceipt rows (CRA audit risk).
         return False
@@ -92,6 +93,7 @@ class PaymentIntentAdmin(admin.ModelAdmin):
 # RefundInline — shown on the Payment change page
 # ---------------------------------------------------------------------------
 
+
 class RefundInline(admin.TabularInline):
     model = Refund
     fields = ("amount", "reason", "gateway_refund_id", "authorized_by", "refunded_at")
@@ -100,7 +102,7 @@ class RefundInline(admin.TabularInline):
     can_delete = False
     show_change_link = True
 
-    def has_add_permission(self, request, obj=None):
+    def has_add_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False
 
 
@@ -108,13 +110,14 @@ class RefundInline(admin.TabularInline):
 # Payment
 # ---------------------------------------------------------------------------
 
+
 @admin.register(Payment)
 class PaymentAdmin(admin.ModelAdmin):
     # Note: "refund_link" is added dynamically in get_list_display() so it only
     # appears for users who hold the payments.add_refund permission.  Users who
     # can view payments but cannot issue refunds must not see the link — it would
     # render a clickable URL that returns 403 (confusing UX, minor info-disclosure).
-    list_display = [
+    list_display = [  # noqa: RUF012
         "gateway_charge_id",
         "intent_reference",
         "payment_method_type",
@@ -124,10 +127,10 @@ class PaymentAdmin(admin.ModelAdmin):
         "net_amount",
         "paid_at",
     ]
-    list_filter = ["payment_method_type", "card_brand"]
-    list_select_related = ["intent"]
-    search_fields = ["gateway_charge_id", "intent__reference"]
-    readonly_fields = [
+    list_filter = ["payment_method_type", "card_brand"]  # noqa: RUF012
+    list_select_related = ["intent"]  # noqa: RUF012
+    search_fields = ["gateway_charge_id", "intent__reference"]  # noqa: RUF012
+    readonly_fields = [  # noqa: RUF012
         "id",
         "intent",
         "gateway_charge_id",
@@ -141,10 +144,10 @@ class PaymentAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     ]
-    ordering = ["-paid_at"]
-    inlines = [RefundInline]
+    ordering = ["-paid_at"]  # noqa: RUF012
+    inlines = [RefundInline]  # noqa: RUF012
 
-    def get_list_display(self, request):
+    def get_list_display(self, request):  # noqa: ANN001, ANN201
         """Append refund_link only for users who may issue refunds (payments.add_refund)."""
         columns = list(super().get_list_display(request))
         if request.user.has_perm("payments.add_refund"):
@@ -152,20 +155,21 @@ class PaymentAdmin(admin.ModelAdmin):
         return columns
 
     @admin.display(description="Intent Reference", ordering="intent__reference")
-    def intent_reference(self, obj):
+    def intent_reference(self, obj):  # noqa: ANN001, ANN201
         return obj.intent.reference
 
     @admin.display(description="Refund")
-    def refund_link(self, obj):
-        from django.utils.html import format_html
+    def refund_link(self, obj):  # noqa: ANN001, ANN201
         from django.urls import reverse
+        from django.utils.html import format_html
+
         url = reverse("payments:refund_create", kwargs={"payment_pk": obj.pk})
         return format_html('<a href="{}">Issue Refund</a>', url)
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         return False  # Created by gateway receiver only
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False  # Financial records are permanent
 
 
@@ -173,9 +177,10 @@ class PaymentAdmin(admin.ModelAdmin):
 # Refund
 # ---------------------------------------------------------------------------
 
+
 @admin.register(Refund)
 class RefundAdmin(admin.ModelAdmin):
-    list_display = [
+    list_display = [  # noqa: RUF012
         "gateway_refund_id",
         "payment_charge_id",
         "amount",
@@ -183,10 +188,10 @@ class RefundAdmin(admin.ModelAdmin):
         "authorized_by_pk",
         "refunded_at",
     ]
-    list_filter = ["reason"]
-    list_select_related = ["payment", "authorized_by"]
-    search_fields = ["gateway_refund_id", "payment__gateway_charge_id"]
-    readonly_fields = [
+    list_filter = ["reason"]  # noqa: RUF012
+    list_select_related = ["payment", "authorized_by"]  # noqa: RUF012
+    search_fields = ["gateway_refund_id", "payment__gateway_charge_id"]  # noqa: RUF012
+    readonly_fields = [  # noqa: RUF012
         "id",
         "payment",
         "amount",
@@ -197,20 +202,20 @@ class RefundAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     ]
-    ordering = ["-refunded_at"]
+    ordering = ["-refunded_at"]  # noqa: RUF012
 
     @admin.display(description="Payment Charge ID", ordering="payment__gateway_charge_id")
-    def payment_charge_id(self, obj):
+    def payment_charge_id(self, obj):  # noqa: ANN001, ANN201
         return obj.payment.gateway_charge_id
 
     @admin.display(description="Authorized By PK", ordering="authorized_by_id")
-    def authorized_by_pk(self, obj):
+    def authorized_by_pk(self, obj):  # noqa: ANN001, ANN201
         return obj.authorized_by_id
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         return False  # Created by gateway receiver only
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False  # Financial records are permanent
 
 
@@ -218,9 +223,10 @@ class RefundAdmin(admin.ModelAdmin):
 # WebhookEvent
 # ---------------------------------------------------------------------------
 
+
 @admin.register(WebhookEvent)
 class WebhookEventAdmin(admin.ModelAdmin):
-    list_display = [
+    list_display = [  # noqa: RUF012
         "gateway_event_id",
         "gateway",
         "event_type",
@@ -229,9 +235,12 @@ class WebhookEventAdmin(admin.ModelAdmin):
         "retry_count",
         "created_at",
     ]
-    list_filter = ["gateway", "signature_verified", "processed"]
-    search_fields = ["gateway_event_id", "event_type"]  # payload excluded: LIKE scan is slow + payload may contain PII
-    readonly_fields = [
+    list_filter = ["gateway", "signature_verified", "processed"]  # noqa: RUF012
+    search_fields = [  # noqa: RUF012
+        "gateway_event_id",
+        "event_type",
+    ]  # payload excluded: LIKE scan is slow + payload may contain PII
+    readonly_fields = [  # noqa: RUF012
         "id",
         "gateway",
         "event_type",
@@ -245,12 +254,12 @@ class WebhookEventAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     ]
-    ordering = ["-created_at"]
+    ordering = ["-created_at"]  # noqa: RUF012
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         return False  # Created by webhook endpoint only
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False  # Audit evidence
 
 
@@ -258,19 +267,20 @@ class WebhookEventAdmin(admin.ModelAdmin):
 # PaymentAuditEntry
 # ---------------------------------------------------------------------------
 
+
 @admin.register(PaymentAuditEntry)
 class PaymentAuditEntryAdmin(admin.ModelAdmin):
-    list_display = [
+    list_display = [  # noqa: RUF012
         "action",
         "actor_pk",
         "payment_intent_reference",
         "actor_ip",
         "created_at",
     ]
-    list_filter = ["action"]
-    list_select_related = ["payment_intent", "actor"]
-    search_fields = ["payment_intent__reference"]
-    readonly_fields = [
+    list_filter = ["action"]  # noqa: RUF012
+    list_select_related = ["payment_intent", "actor"]  # noqa: RUF012
+    search_fields = ["payment_intent__reference"]  # noqa: RUF012
+    readonly_fields = [  # noqa: RUF012
         "id",
         "actor",
         "action",
@@ -282,23 +292,23 @@ class PaymentAuditEntryAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     ]
-    ordering = ["-created_at"]
+    ordering = ["-created_at"]  # noqa: RUF012
 
     @admin.display(description="Actor PK", ordering="actor_id")
-    def actor_pk(self, obj):
+    def actor_pk(self, obj):  # noqa: ANN001, ANN201
         return obj.actor_id
 
     @admin.display(description="Intent Reference", ordering="payment_intent__reference")
-    def payment_intent_reference(self, obj):
+    def payment_intent_reference(self, obj):  # noqa: ANN001, ANN201
         return obj.payment_intent.reference if obj.payment_intent_id else "-"
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         return False  # System-created only
 
-    def has_change_permission(self, request, obj=None):
+    def has_change_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False  # Immutable
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False  # Immutable
 
 
@@ -306,10 +316,11 @@ class PaymentAuditEntryAdmin(admin.ModelAdmin):
 # TenantPaymentConfig
 # ---------------------------------------------------------------------------
 
+
 @admin.register(TenantPaymentConfig)
 class TenantPaymentConfigAdmin(admin.ModelAdmin):
-    list_display = ["id", "use_connect", "is_test_mode", "updated_at"]
-    readonly_fields = [
+    list_display = ["id", "use_connect", "is_test_mode", "updated_at"]  # noqa: RUF012
+    readonly_fields = [  # noqa: RUF012
         "id",
         "stripe_publishable_key",
         "stripe_connect_account_id",
@@ -317,7 +328,7 @@ class TenantPaymentConfigAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     ]
-    fieldsets = [
+    fieldsets = [  # noqa: RUF012
         (
             "Mode",
             {
@@ -357,19 +368,20 @@ class TenantPaymentConfigAdmin(admin.ModelAdmin):
         ),
     ]
 
-    def webhook_secret_display(self, obj):
+    def webhook_secret_display(self, obj) -> str:  # noqa: ANN001
         if obj.webhook_endpoint_secret:
             return f"{'*' * 8} (set — {len(obj.webhook_endpoint_secret)} chars)"
         return "⚠ Not configured"
+
     webhook_secret_display.short_description = "Webhook signing secret"
 
-    def has_change_permission(self, request, obj=None):
+    def has_change_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # is_test_mode controls whether live or test Stripe keys are used.
         # Flipping it via admin could route real donor money to a test account.
         # Changes require a code deploy + environment variable rotation.
         return False
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False
 
 
@@ -377,17 +389,18 @@ class TenantPaymentConfigAdmin(admin.ModelAdmin):
 # CharitySettings
 # ---------------------------------------------------------------------------
 
+
 @admin.register(CharitySettings)
 class CharitySettingsAdmin(admin.ModelAdmin):
-    list_display = [
+    list_display = [  # noqa: RUF012
         "charity_legal_name",
         "charity_registration_number",
         "charity_province",
         "is_active",
     ]
-    list_filter = ["is_active", "charity_province"]
-    readonly_fields = ["id", "created_at", "updated_at"]
-    fieldsets = [
+    list_filter = ["is_active", "charity_province"]  # noqa: RUF012
+    readonly_fields = ["id", "created_at", "updated_at"]  # noqa: RUF012
+    fieldsets = [  # noqa: RUF012
         (
             "Charity Information",
             {
@@ -426,7 +439,7 @@ class CharitySettingsAdmin(admin.ModelAdmin):
         ),
     ]
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # CharitySettings rows are referenced by issued CRA receipts.
         # Deletion would corrupt the audit trail.
         return False
@@ -436,9 +449,10 @@ class CharitySettingsAdmin(admin.ModelAdmin):
 # FeeSchedule
 # ---------------------------------------------------------------------------
 
+
 @admin.register(FeeSchedule)
 class FeeScheduleAdmin(admin.ModelAdmin):
-    list_display = [
+    list_display = [  # noqa: RUF012
         "fee_code",
         "service_type",
         "province",
@@ -448,12 +462,12 @@ class FeeScheduleAdmin(admin.ModelAdmin):
         "expiry_date",
         "is_active",
     ]
-    list_filter = ["province", "is_taxable", "is_active", "service_type"]
-    search_fields = ["fee_code", "description_en"]
-    readonly_fields = ["id", "created_at", "updated_at"]
-    ordering = ["fee_code", "-effective_date"]
+    list_filter = ["province", "is_taxable", "is_active", "service_type"]  # noqa: RUF012
+    search_fields = ["fee_code", "description_en"]  # noqa: RUF012
+    readonly_fields = ["id", "created_at", "updated_at"]  # noqa: RUF012
+    ordering = ["fee_code", "-effective_date"]  # noqa: RUF012
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # FeeSchedule rows are referenced by historical ServiceFeePayment records.
         # Deletion would break audit trail references.
         return False
@@ -463,9 +477,10 @@ class FeeScheduleAdmin(admin.ModelAdmin):
 # TaxRate
 # ---------------------------------------------------------------------------
 
+
 @admin.register(TaxRate)
 class TaxRateAdmin(admin.ModelAdmin):
-    list_display = [
+    list_display = [  # noqa: RUF012
         "province",
         "tax_name_en",
         "federal_rate",
@@ -473,11 +488,11 @@ class TaxRateAdmin(admin.ModelAdmin):
         "combined_rate",
         "effective_date",
     ]
-    search_fields = ["province", "tax_name_en"]
-    readonly_fields = ["id", "created_at", "updated_at"]
-    ordering = ["province"]
+    search_fields = ["province", "tax_name_en"]  # noqa: RUF012
+    readonly_fields = ["id", "created_at", "updated_at"]  # noqa: RUF012
+    ordering = ["province"]  # noqa: RUF012
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # TaxRate rows are embedded in historical receipts by snapshot (tax_rate_applied).
         # Deleting the source row would break backwards reconciliation.
         return False
@@ -487,9 +502,10 @@ class TaxRateAdmin(admin.ModelAdmin):
 # ServiceFeePayment
 # ---------------------------------------------------------------------------
 
+
 @admin.register(ServiceFeePayment)
 class ServiceFeePaymentAdmin(admin.ModelAdmin):
-    list_display = [
+    list_display = [  # noqa: RUF012
         "fee_code",
         "service_request_id",
         "base_amount",
@@ -497,8 +513,8 @@ class ServiceFeePaymentAdmin(admin.ModelAdmin):
         "tax_rate_applied",
         "created_at",
     ]
-    search_fields = ["fee_code"]
-    readonly_fields = [
+    search_fields = ["fee_code"]  # noqa: RUF012
+    readonly_fields = [  # noqa: RUF012
         "id",
         "payment_intent",
         "service_request_id",
@@ -512,10 +528,10 @@ class ServiceFeePaymentAdmin(admin.ModelAdmin):
         "updated_at",
     ]
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         return False
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False
 
 
@@ -523,9 +539,10 @@ class ServiceFeePaymentAdmin(admin.ModelAdmin):
 # DonationCampaign
 # ---------------------------------------------------------------------------
 
+
 @admin.register(DonationCampaign)
 class DonationCampaignAdmin(admin.ModelAdmin):
-    list_display = [
+    list_display = [  # noqa: RUF012
         "slug",
         "name_en",
         "goal_amount",
@@ -534,12 +551,12 @@ class DonationCampaignAdmin(admin.ModelAdmin):
         "is_active",
         "sort_order",
     ]
-    list_filter = ["is_active"]
-    search_fields = ["slug", "name_en"]
-    prepopulated_fields = {"slug": ["name_en"]}
-    readonly_fields = ["id", "created_at", "updated_at"]
+    list_filter = ["is_active"]  # noqa: RUF012
+    search_fields = ["slug", "name_en"]  # noqa: RUF012
+    prepopulated_fields = {"slug": ["name_en"]}  # noqa: RUF012
+    readonly_fields = ["id", "created_at", "updated_at"]  # noqa: RUF012
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # DonationCampaign rows are referenced by Donation records (FK).
         # Deletion would cascade or orphan donation history.
         return False
@@ -549,12 +566,13 @@ class DonationCampaignAdmin(admin.ModelAdmin):
 # Donation
 # ---------------------------------------------------------------------------
 
+
 @admin.register(Donation)
 class DonationAdmin(admin.ModelAdmin):
     # NOTE: donor_name_snapshot and donor_address_snapshot are PII fields (CRA receipt requirement).
     # Access restricted to staff with payments.view_donation permission.
     # These fields are NOT searchable (not in search_fields) to prevent PII in URL params.
-    list_display = [
+    list_display = [  # noqa: RUF012
         "donor_pk",
         "campaign",
         "amount",
@@ -565,10 +583,10 @@ class DonationAdmin(admin.ModelAdmin):
         "status",
         "created_at",
     ]
-    list_filter = ["status", "is_recurring", "is_anonymous", "dedication_type"]
-    list_select_related = ["campaign", "recurring_plan"]
-    search_fields = ["payment_intent__reference"]
-    readonly_fields = [
+    list_filter = ["status", "is_recurring", "is_anonymous", "dedication_type"]  # noqa: RUF012
+    list_select_related = ["campaign", "recurring_plan"]  # noqa: RUF012
+    search_fields = ["payment_intent__reference"]  # noqa: RUF012
+    readonly_fields = [  # noqa: RUF012
         "id",
         "payment_intent",
         "donor",
@@ -588,25 +606,25 @@ class DonationAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     ]
-    ordering = ["-created_at"]
+    ordering = ["-created_at"]  # noqa: RUF012
 
     @admin.display(description="Donor PK", ordering="donor_id")
-    def donor_pk(self, obj):
+    def donor_pk(self, obj):  # noqa: ANN001, ANN201
         return obj.donor_id
 
-    def has_view_permission(self, request, obj=None):
+    def has_view_permission(self, request, obj=None):  # noqa: ANN001, ANN201
         # PIPEDA: donor_name_snapshot and donor_address_snapshot are personal information.
         # Require explicit payments.view_donation permission beyond basic staff status.
         return request.user.is_superuser or request.user.has_perm("payments.view_donation")
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         return False
 
-    def has_change_permission(self, request, obj=None):
+    def has_change_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # Donation records are financial audit evidence — immutable after creation.
         return False
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False
 
 
@@ -614,9 +632,10 @@ class DonationAdmin(admin.ModelAdmin):
 # RecurringGiftPlan
 # ---------------------------------------------------------------------------
 
+
 @admin.register(RecurringGiftPlan)
 class RecurringGiftPlanAdmin(admin.ModelAdmin):
-    list_display = [
+    list_display = [  # noqa: RUF012
         "gateway_subscription_id",
         "donor_pk",
         "campaign",
@@ -626,9 +645,9 @@ class RecurringGiftPlanAdmin(admin.ModelAdmin):
         "next_charge_date",
         "created_at",
     ]
-    list_filter = ["status", "frequency"]
-    search_fields = ["gateway_subscription_id"]
-    readonly_fields = [
+    list_filter = ["status", "frequency"]  # noqa: RUF012
+    search_fields = ["gateway_subscription_id"]  # noqa: RUF012
+    readonly_fields = [  # noqa: RUF012
         "id",
         "donor",
         "campaign",
@@ -644,16 +663,16 @@ class RecurringGiftPlanAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     ]
-    ordering = ["-created_at"]
+    ordering = ["-created_at"]  # noqa: RUF012
 
     @admin.display(description="Donor PK", ordering="donor_id")
-    def donor_pk(self, obj):
+    def donor_pk(self, obj):  # noqa: ANN001, ANN201
         return obj.donor_id
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         return False
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False
 
 
@@ -661,12 +680,13 @@ class RecurringGiftPlanAdmin(admin.ModelAdmin):
 # OfficialDonationReceipt
 # ---------------------------------------------------------------------------
 
+
 @admin.register(OfficialDonationReceipt)
 class OfficialDonationReceiptAdmin(admin.ModelAdmin):
     # list_display contains only non-PII fields.
     # donor_legal_name, donor_address_*, and donor PII are restricted to the
     # detail view which is gated by has_view_permission.
-    list_display = [
+    list_display = [  # noqa: RUF012
         "serial_number",
         "status",
         "receipt_date",
@@ -674,13 +694,13 @@ class OfficialDonationReceiptAdmin(admin.ModelAdmin):
         "is_annual_consolidated",
         "email_sent",
     ]
-    list_filter = ["status", "is_annual_consolidated", "donor_province"]
-    # donor_legal_name excluded from search_fields — PIPEDA: name in URL/logs is a privacy violation.
-    search_fields = ["serial_number", "charity_registration_number"]
+    list_filter = ["status", "is_annual_consolidated", "donor_province"]  # noqa: RUF012
+    # donor_legal_name excluded from search_fields — PIPEDA: name in URL/logs is a privacy violation.  # noqa: E501
+    search_fields = ["serial_number", "charity_registration_number"]  # noqa: RUF012
     # pdf_path is intentionally excluded from readonly_fields, fieldsets, and list_display.
     # PII fields (donor_legal_name, donor_address_*) are in readonly_fields for the
     # detail view only; the detail view is gated by has_view_permission below.
-    readonly_fields = [
+    readonly_fields = [  # noqa: RUF012
         "id",
         "donation",
         "serial_number",
@@ -709,21 +729,21 @@ class OfficialDonationReceiptAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     ]
-    ordering = ["-issued_at"]
+    ordering = ["-issued_at"]  # noqa: RUF012
 
-    def has_view_permission(self, request, obj=None):
+    def has_view_permission(self, request, obj=None):  # noqa: ANN001, ANN201
         # Superusers always have access; other staff need the explicit permission.
         return request.user.is_superuser or request.user.has_perm(
             "payments.view_officialdonationreceipt"
         )
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         return False  # Issued programmatically only
 
-    def has_change_permission(self, request, obj=None):
+    def has_change_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False  # Cancel via receipt.cancel() in code, never via admin
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False  # CRA records are permanent
 
 
@@ -739,7 +759,7 @@ class OfficialDonationReceiptAdmin(admin.ModelAdmin):
 
 @admin.register(GovStackBeneficiary)
 class GovStackBeneficiaryAdmin(admin.ModelAdmin):
-    list_display = [
+    list_display = [  # noqa: RUF012
         "pk",
         "source_bb_id",
         "payment_modality",
@@ -748,11 +768,11 @@ class GovStackBeneficiaryAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     ]
-    list_filter = ["is_active", "payment_modality"]
+    list_filter = ["is_active", "payment_modality"]  # noqa: RUF012
     # payee_functional_id intentionally excluded from search_fields —
     # it is a government-assigned functional ID and should not appear in URL params.
-    search_fields = ["source_bb_id", "registering_institution_id"]
-    readonly_fields = [
+    search_fields = ["source_bb_id", "registering_institution_id"]  # noqa: RUF012
+    readonly_fields = [  # noqa: RUF012
         "id",
         "source_bb_id",
         "payment_modality",
@@ -763,7 +783,7 @@ class GovStackBeneficiaryAdmin(admin.ModelAdmin):
         "updated_at",
     ]
     # payee_functional_id and financial_address are excluded from fieldsets below.
-    fieldsets = [
+    fieldsets = [  # noqa: RUF012
         (
             "Identity",
             {
@@ -791,25 +811,25 @@ class GovStackBeneficiaryAdmin(admin.ModelAdmin):
             {"fields": ["created_at", "updated_at"], "classes": ["collapse"]},
         ),
     ]
-    ordering = ["-created_at"]
+    ordering = ["-created_at"]  # noqa: RUF012
 
     @admin.display(description="Financial Address")
-    def financial_address_status(self, obj) -> str:
+    def financial_address_status(self, obj) -> str:  # noqa: ANN001
         return "✓ Set" if obj.financial_address else "✗ Not set"
 
-    def has_add_permission(self, request) -> bool:
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         return False  # Registered via GovStack API only
 
-    def has_change_permission(self, request, obj=None) -> bool:
+    def has_change_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False  # Updated via GovStack API only
 
-    def has_delete_permission(self, request, obj=None) -> bool:
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False  # Beneficiary records are maintained via the API
 
 
 @admin.register(BulkPaymentBatch)
 class BulkPaymentBatchAdmin(admin.ModelAdmin):
-    list_display = [
+    list_display = [  # noqa: RUF012
         "batch_id",
         "source_bb_id",
         "status",
@@ -818,9 +838,9 @@ class BulkPaymentBatchAdmin(admin.ModelAdmin):
         "failed_amount",
         "created_at",
     ]
-    list_filter = ["status"]
-    search_fields = ["batch_id", "request_id", "source_bb_id"]
-    readonly_fields = [
+    list_filter = ["status"]  # noqa: RUF012
+    search_fields = ["batch_id", "request_id", "source_bb_id"]  # noqa: RUF012
+    readonly_fields = [  # noqa: RUF012
         "id",
         "request_id",
         "source_bb_id",
@@ -835,33 +855,33 @@ class BulkPaymentBatchAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     ]
-    ordering = ["-created_at"]
+    ordering = ["-created_at"]  # noqa: RUF012
 
-    def has_add_permission(self, request) -> bool:
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         return False
 
-    def has_change_permission(self, request, obj=None) -> bool:
+    def has_change_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False  # Status updated by Celery tasks only
 
-    def has_delete_permission(self, request, obj=None) -> bool:
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False  # Financial records are permanent
 
 
 class CreditInstructionInline(admin.TabularInline):
     model = CreditInstruction
-    fields = ["instruction_id", "amount", "currency", "status", "failure_reason"]
-    readonly_fields = ["instruction_id", "amount", "currency", "status", "failure_reason"]
+    fields = ["instruction_id", "amount", "currency", "status", "failure_reason"]  # noqa: RUF012
+    readonly_fields = ["instruction_id", "amount", "currency", "status", "failure_reason"]  # noqa: RUF012
     extra = 0
     can_delete = False
     show_change_link = False
 
-    def has_add_permission(self, request, obj=None) -> bool:
+    def has_add_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False
 
 
 @admin.register(CreditInstruction)
 class CreditInstructionAdmin(admin.ModelAdmin):
-    list_display = [
+    list_display = [  # noqa: RUF012
         "instruction_id",
         "batch_batch_id",
         "amount",
@@ -869,10 +889,10 @@ class CreditInstructionAdmin(admin.ModelAdmin):
         "status",
         "created_at",
     ]
-    list_filter = ["status", "currency"]
-    search_fields = ["instruction_id", "batch__batch_id"]
-    list_select_related = ["batch"]
-    readonly_fields = [
+    list_filter = ["status", "currency"]  # noqa: RUF012
+    search_fields = ["instruction_id", "batch__batch_id"]  # noqa: RUF012
+    list_select_related = ["batch"]  # noqa: RUF012
+    readonly_fields = [  # noqa: RUF012
         "id",
         "batch",
         "instruction_id",
@@ -885,25 +905,25 @@ class CreditInstructionAdmin(admin.ModelAdmin):
         "updated_at",
     ]
     # payee_functional_id intentionally excluded.
-    ordering = ["-created_at"]
+    ordering = ["-created_at"]  # noqa: RUF012
 
     @admin.display(description="Batch ID", ordering="batch__batch_id")
-    def batch_batch_id(self, obj) -> str:
+    def batch_batch_id(self, obj) -> str:  # noqa: ANN001
         return obj.batch.batch_id
 
-    def has_add_permission(self, request) -> bool:
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         return False
 
-    def has_change_permission(self, request, obj=None) -> bool:
+    def has_change_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False
 
-    def has_delete_permission(self, request, obj=None) -> bool:
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False
 
 
 @admin.register(PrepaymentValidationRequest)
 class PrepaymentValidationRequestAdmin(admin.ModelAdmin):
-    list_display = [
+    list_display = [  # noqa: RUF012
         "request_id",
         "batch_id",
         "status",
@@ -911,9 +931,9 @@ class PrepaymentValidationRequestAdmin(admin.ModelAdmin):
         "financial_address_valid",
         "created_at",
     ]
-    list_filter = ["status", "beneficiary_found", "financial_address_valid"]
-    search_fields = ["request_id", "batch_id", "source_bb_id"]
-    readonly_fields = [
+    list_filter = ["status", "beneficiary_found", "financial_address_valid"]  # noqa: RUF012
+    search_fields = ["request_id", "batch_id", "source_bb_id"]  # noqa: RUF012
+    readonly_fields = [  # noqa: RUF012
         "id",
         "request_id",
         "source_bb_id",
@@ -929,21 +949,21 @@ class PrepaymentValidationRequestAdmin(admin.ModelAdmin):
         "updated_at",
     ]
     # payee_functional_id intentionally excluded.
-    ordering = ["-created_at"]
+    ordering = ["-created_at"]  # noqa: RUF012
 
-    def has_add_permission(self, request) -> bool:
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         return False
 
-    def has_change_permission(self, request, obj=None) -> bool:
+    def has_change_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False
 
-    def has_delete_permission(self, request, obj=None) -> bool:
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False
 
 
 @admin.register(GovStackVoucher)
 class GovStackVoucherAdmin(admin.ModelAdmin):
-    list_display = [
+    list_display = [  # noqa: RUF012
         "serial_number",
         "status",
         "amount",
@@ -953,10 +973,10 @@ class GovStackVoucherAdmin(admin.ModelAdmin):
         "redeemed_at",
         "created_at",
     ]
-    list_filter = ["status", "currency", "group_code", "issuing_bb"]
+    list_filter = ["status", "currency", "group_code", "issuing_bb"]  # noqa: RUF012
     # payee_functional_id intentionally excluded from search_fields.
-    search_fields = ["serial_number", "group_code", "issuing_bb", "redemption_transaction_id"]
-    readonly_fields = [
+    search_fields = ["serial_number", "group_code", "issuing_bb", "redemption_transaction_id"]  # noqa: RUF012
+    readonly_fields = [  # noqa: RUF012
         "id",
         "serial_number",
         "voucher_secret_status",
@@ -978,7 +998,7 @@ class GovStackVoucherAdmin(admin.ModelAdmin):
         "updated_at",
     ]
     # payee_functional_id and voucher_secret excluded from fieldsets.
-    fieldsets = [
+    fieldsets = [  # noqa: RUF012
         (
             "Voucher Identity",
             {
@@ -1023,25 +1043,25 @@ class GovStackVoucherAdmin(admin.ModelAdmin):
             },
         ),
     ]
-    ordering = ["-created_at"]
+    ordering = ["-created_at"]  # noqa: RUF012
 
     @admin.display(description="Voucher Secret")
-    def voucher_secret_status(self, obj) -> str:
+    def voucher_secret_status(self, obj) -> str:  # noqa: ANN001
         return "✓ Set (encrypted)" if obj.voucher_secret else "✗ Not set"
 
-    def has_add_permission(self, request) -> bool:
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         return False  # Created via GovStack API only
 
-    def has_change_permission(self, request, obj=None) -> bool:
+    def has_change_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False  # Status transitions via GovStack API only
 
-    def has_delete_permission(self, request, obj=None) -> bool:
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False  # Voucher records are permanent
 
 
 @admin.register(GovStackPaymentAuditEntry)
 class GovStackPaymentAuditEntryAdmin(admin.ModelAdmin):
-    list_display = [
+    list_display = [  # noqa: RUF012
         "action",
         "actor_bb_id",
         "object_type",
@@ -1049,9 +1069,9 @@ class GovStackPaymentAuditEntryAdmin(admin.ModelAdmin):
         "request_id",
         "timestamp",
     ]
-    list_filter = ["action", "object_type"]
-    search_fields = ["action", "actor_bb_id", "object_pk", "request_id"]
-    readonly_fields = [
+    list_filter = ["action", "object_type"]  # noqa: RUF012
+    search_fields = ["action", "actor_bb_id", "object_pk", "request_id"]  # noqa: RUF012
+    readonly_fields = [  # noqa: RUF012
         "id",
         "action",
         "actor_bb_id",
@@ -1061,15 +1081,15 @@ class GovStackPaymentAuditEntryAdmin(admin.ModelAdmin):
         "details",
         "timestamp",
     ]
-    ordering = ["-timestamp"]
+    ordering = ["-timestamp"]  # noqa: RUF012
 
-    def has_add_permission(self, request) -> bool:
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         return False  # System-created only
 
-    def has_change_permission(self, request, obj=None) -> bool:
+    def has_change_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False  # Immutable: append-only log
 
-    def has_delete_permission(self, request, obj=None) -> bool:
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False  # Permanent: cannot be deleted
 
 
@@ -1089,7 +1109,7 @@ class GovStackBillAdmin(admin.ModelAdmin):
     (enforced by PROTECT FK on GovStackBillPayment.bill).
     """
 
-    list_display = [
+    list_display = [  # noqa: RUF012
         "bill_id",
         "status",
         "amount",
@@ -1097,8 +1117,8 @@ class GovStackBillAdmin(admin.ModelAdmin):
         "due_date",
         "created_at",
     ]
-    list_filter = ["status", "currency"]
-    search_fields = ["bill_id", "description", "correlation_id"]
+    list_filter = ["status", "currency"]  # noqa: RUF012
+    search_fields = ["bill_id", "description", "correlation_id"]  # noqa: RUF012
     # bill_id is always read-only — it is a stable external identifier referenced
     # by downstream systems, audit trails, and the P2G API URL path parameter.
     # Changing it after creation would silently break any cached reference held by
@@ -1106,8 +1126,8 @@ class GovStackBillAdmin(admin.ModelAdmin):
     # back to this bill via its external identifier.
     # amount and currency are editable so staff can correct data-entry errors on
     # unpaid bills, but bill_id must never change once the bill is published.
-    readonly_fields = ["id", "bill_id", "created_at", "updated_at"]
-    ordering = ["-created_at"]
+    readonly_fields = ["id", "bill_id", "created_at", "updated_at"]  # noqa: RUF012
+    ordering = ["-created_at"]  # noqa: RUF012
 
     fieldsets = (
         (
@@ -1131,7 +1151,7 @@ class GovStackBillAdmin(admin.ModelAdmin):
         ),
     )
 
-    def has_delete_permission(self, request, obj=None) -> bool:
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # Deleting a bill that has payments attached is blocked at the DB layer
         # (PROTECT FK), but we also block it in admin to give a clear message
         # before the DELETE is even attempted.
@@ -1139,7 +1159,7 @@ class GovStackBillAdmin(admin.ModelAdmin):
             return False
         return True
 
-    def delete_view(self, request, object_id, extra_context=None):
+    def delete_view(self, request, object_id, extra_context=None):  # noqa: ANN001, ANN201
         """
         Override to catch ProtectedError from a TOCTOU race condition.
 
@@ -1188,7 +1208,7 @@ class GovStackBillPaymentAdmin(admin.ModelAdmin):
     a read-only audit view only.
     """
 
-    list_display = [
+    list_display = [  # noqa: RUF012
         "request_id",
         "bill",
         "status",
@@ -1196,9 +1216,9 @@ class GovStackBillPaymentAdmin(admin.ModelAdmin):
         "currency",
         "created_at",
     ]
-    list_filter = ["status", "currency"]
-    search_fields = ["request_id", "payment_reference_id", "correlation_id"]
-    readonly_fields = [
+    list_filter = ["status", "currency"]  # noqa: RUF012
+    search_fields = ["request_id", "payment_reference_id", "correlation_id"]  # noqa: RUF012
+    readonly_fields = [  # noqa: RUF012
         "id",
         "request_id",
         "bill",
@@ -1213,15 +1233,15 @@ class GovStackBillPaymentAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     ]
-    ordering = ["-created_at"]
+    ordering = ["-created_at"]  # noqa: RUF012
 
-    def has_add_permission(self, request) -> bool:
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         return False  # Created via P2G API only
 
-    def has_change_permission(self, request, obj=None) -> bool:
+    def has_change_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False  # Payment records are immutable
 
-    def has_delete_permission(self, request, obj=None) -> bool:
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False  # Payment records are permanent
 
 
@@ -1256,7 +1276,7 @@ class GovStackRegisteredBBAdmin(admin.ModelAdmin):
     No PII is stored here — bb_id is an infrastructure identifier only.
     """
 
-    list_display = [
+    list_display = [  # noqa: RUF012
         "bb_id",
         "is_active",
         "role",
@@ -1264,15 +1284,15 @@ class GovStackRegisteredBBAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     ]
-    list_filter = ["is_active", "role"]
-    search_fields = ["bb_id", "description"]
-    ordering = ["bb_id"]
+    list_filter = ["is_active", "role"]  # noqa: RUF012
+    search_fields = ["bb_id", "description"]  # noqa: RUF012
+    ordering = ["bb_id"]  # noqa: RUF012
     # allowed_platform_tenant_ids intentionally NOT in list_display — it's a
     # JSON list, unsuited to the list view; it is editable via the change
     # form's fieldset below (certifiability-audit fix, Round 2 — HIGH
     # finding: opt-in tenant-registry binding for P2G endpoints).
 
-    def get_readonly_fields(self, request, obj=None):
+    def get_readonly_fields(self, request, obj=None):  # noqa: ANN001, ANN201
         # Timestamps are always auto-set — show as read-only on both forms.
         # bb_id is immutable after creation (it's the lookup key in HTTP headers;
         # renaming it would silently break the calling BB).
@@ -1285,7 +1305,7 @@ class GovStackRegisteredBBAdmin(admin.ModelAdmin):
             return [*base, "bb_id"]
         return base
 
-    fieldsets = [
+    fieldsets = [  # noqa: RUF012
         (
             None,
             {
@@ -1314,11 +1334,11 @@ class GovStackRegisteredBBAdmin(admin.ModelAdmin):
     ]
 
     @admin.display(description="Description")
-    def description_short(self, obj) -> str:
+    def description_short(self, obj) -> str:  # noqa: ANN001
         """Truncate long descriptions to keep list_display readable."""
         return (obj.description[:60] + "…") if len(obj.description) > 60 else obj.description
 
-    def has_delete_permission(self, request, obj=None) -> bool:
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # Deletion is blocked — use is_active=False to suspend a BB.
         # This preserves the record of when the BB was first registered.
         return False

@@ -5,15 +5,25 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('payments', '0017_tighten_payee_functional_id_validator'),
+    dependencies = [  # noqa: RUF012
+        ("payments", "0017_tighten_payee_functional_id_validator"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterField(
-            model_name='govstackbeneficiary',
-            name='source_bb_id',
-            field=models.CharField(db_index=True, help_text='SourceBBID of the registering Building Block. Must be lowercase hex + hyphens.', max_length=20, validators=[django.core.validators.RegexValidator(message="Payee Functional ID must be 1–20 lowercase hex characters and hyphens (e.g. '2ba5ed20-0f42-4eff-8'). Uppercase letters are not permitted.", regex='^[0-9a-f\\-]{1,20}$')], verbose_name='Source BB ID'),
+            model_name="govstackbeneficiary",
+            name="source_bb_id",
+            field=models.CharField(
+                db_index=True,
+                help_text="SourceBBID of the registering Building Block. Must be lowercase hex + hyphens.",
+                max_length=20,
+                validators=[
+                    django.core.validators.RegexValidator(
+                        message="Payee Functional ID must be 1–20 lowercase hex characters and hyphens (e.g. '2ba5ed20-0f42-4eff-8'). Uppercase letters are not permitted.",  # noqa: RUF001
+                        regex="^[0-9a-f\\-]{1,20}$",
+                    )
+                ],
+                verbose_name="Source BB ID",
+            ),
         ),
     ]

@@ -36,9 +36,7 @@ class WorkItemStatus(models.TextChoices):
 
 
 # Statuses from which no further transitions are allowed
-TERMINAL_STATUSES: frozenset[str] = frozenset(
-    {WorkItemStatus.COMPLETED, WorkItemStatus.CANCELLED}
-)
+TERMINAL_STATUSES: frozenset[str] = frozenset({WorkItemStatus.COMPLETED, WorkItemStatus.CANCELLED})
 
 # Valid transitions: {from_status: {to_status, ...}}
 VALID_TRANSITIONS: dict[str, set[str]] = {
@@ -55,10 +53,10 @@ VALID_TRANSITIONS: dict[str, set[str]] = {
 
 # SLA hours by priority level (1=Critical, 2=High, 3=Normal, 4=Low)
 SLA_HOURS: dict[int, int] = {
-    1: 4,     # Critical — 4 hours
-    2: 24,    # High — 1 business day
-    3: 120,   # Normal — 5 business days (approx.)
-    4: 240,   # Low — 10 business days (approx.)
+    1: 4,  # Critical — 4 hours
+    2: 24,  # High — 1 business day
+    3: 120,  # Normal — 5 business days (approx.)
+    4: 240,  # Low — 10 business days (approx.)
 }
 
 
@@ -166,8 +164,8 @@ class WorkItem(BaseModel):
     class Meta:
         verbose_name = _("Work item")
         verbose_name_plural = _("Work items")
-        ordering = ["priority", "created_at"]
-        indexes = [
+        ordering = ["priority", "created_at"]  # noqa: RUF012
+        indexes = [  # noqa: RUF012
             models.Index(fields=["assigned_to", "status"]),
             models.Index(fields=["content_type", "object_id"]),
             models.Index(fields=["status", "due_at"]),
@@ -228,18 +226,16 @@ class WorkItemHistory(BaseModel):
     class Meta:
         verbose_name = _("Work item history")
         verbose_name_plural = _("Work item history entries")
-        ordering = ["created_at"]
+        ordering = ["created_at"]  # noqa: RUF012
 
     def __str__(self) -> str:
         ts = self.created_at.strftime("%Y-%m-%d %H:%M") if self.created_at else "?"
         return f"{self.work_item.title}: {self.action} at {ts}"
 
-    def save(self, *args, **kwargs) -> None:
+    def save(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         # Enforce immutability — history rows are append-only
         if not self._state.adding:
-            raise ValueError(
-                "WorkItemHistory records are immutable. Create a new record instead."
-            )
+            raise ValueError("WorkItemHistory records are immutable. Create a new record instead.")
         super().save(*args, **kwargs)
 
 
@@ -276,7 +272,7 @@ class WorkItemComment(BaseModel):
     class Meta:
         verbose_name = _("Work item comment")
         verbose_name_plural = _("Work item comments")
-        ordering = ["created_at"]
+        ordering = ["created_at"]  # noqa: RUF012
 
     def __str__(self) -> str:
         author = self.author.display_name if self.author else "Unknown"

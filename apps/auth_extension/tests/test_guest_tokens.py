@@ -1,6 +1,7 @@
 """Tests for anonymous/guest session token support."""
-from django.test import TestCase, RequestFactory
+
 from django.contrib.sessions.backends.db import SessionStore
+from django.test import RequestFactory, TestCase
 
 from apps.auth_extension.tokens import (
     GUEST_SESSION_KEY,
@@ -73,7 +74,8 @@ class GuestTokenTest(TestCase):
     def test_guest_session_view_authenticated_user_clears_token(self):
         """Authenticated users visiting /account/guest/ should have guest token cleared."""
         from django.contrib.auth import get_user_model
-        User = get_user_model()
+
+        User = get_user_model()  # noqa: N806
         user = User.objects.create_user(email="auth@example.com", password="TestPass123!")
         self.client.force_login(user)
         # Pre-seed a token
@@ -84,9 +86,7 @@ class GuestTokenTest(TestCase):
         self.assertNotIn(GUEST_SESSION_KEY, self.client.session)
 
     def test_guest_session_view_json_returns_token(self):
-        response = self.client.get(
-            GUEST_URL, HTTP_ACCEPT="application/json"
-        )
+        response = self.client.get(GUEST_URL, HTTP_ACCEPT="application/json")
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertIn("guest_token", data)

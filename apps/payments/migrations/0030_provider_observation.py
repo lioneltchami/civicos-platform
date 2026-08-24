@@ -1,16 +1,23 @@
-from django.db import migrations, models
-import django.db.models.deletion
 import uuid
 
+import django.db.models.deletion
+from django.db import migrations, models
+
+
 class Migration(migrations.Migration):
-    dependencies = [("payments", "0029_alter_callbackdelivery_created_at_and_more")]
-    operations = [
+    dependencies = [("payments", "0029_alter_callbackdelivery_created_at_and_more")]  # noqa: RUF012
+    operations = [  # noqa: RUF012
         migrations.CreateModel(
             name="ProviderObservation",
             fields=[
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
-                ("id", models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=uuid.uuid4, editable=False, primary_key=True, serialize=False
+                    ),
+                ),
                 ("tenant_id", models.CharField(db_index=True, max_length=100)),
                 ("observation_kind", models.CharField(max_length=20)),
                 ("observation_id", models.CharField(max_length=160)),
@@ -24,8 +31,33 @@ class Migration(migrations.Migration):
                 ("binding_hash", models.CharField(max_length=64)),
                 ("accepted_finality", models.BooleanField(db_index=True, default=False)),
                 ("metadata", models.JSONField(default=dict)),
-                ("attempt", models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name="observations", to="payments.paymentattempt")),
+                (
+                    "attempt",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="observations",
+                        to="payments.paymentattempt",
+                    ),
+                ),
             ],
-            options={"indexes": [models.Index(fields=["tenant_id", "attempt", "created_at"], name="gs_obs_tenant_attempt_idx")], "constraints": [models.UniqueConstraint(fields=["observation_kind", "observation_id"], name="gs_observation_kind_id_uniq"), models.UniqueConstraint(condition=models.Q(("accepted_finality", True)), fields=["attempt", "accepted_finality"], name="gs_one_accepted_finality")]},
+            options={
+                "indexes": [
+                    models.Index(
+                        fields=["tenant_id", "attempt", "created_at"],
+                        name="gs_obs_tenant_attempt_idx",
+                    )
+                ],
+                "constraints": [
+                    models.UniqueConstraint(
+                        fields=["observation_kind", "observation_id"],
+                        name="gs_observation_kind_id_uniq",
+                    ),
+                    models.UniqueConstraint(
+                        condition=models.Q(("accepted_finality", True)),
+                        fields=["attempt", "accepted_finality"],
+                        name="gs_one_accepted_finality",
+                    ),
+                ],
+            },
         )
     ]

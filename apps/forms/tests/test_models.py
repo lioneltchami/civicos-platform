@@ -1,7 +1,9 @@
 """Tests for Form building block models."""
+
 import uuid
-from django.test import TestCase
+
 from django.contrib.auth import get_user_model
+from django.test import TestCase
 from wagtail.models import Page
 
 User = get_user_model()
@@ -22,6 +24,7 @@ def make_user(email=None, is_staff=False):
 def make_form_page(title="Test Form", consent_text="", retention_days=365):
     """Create a FormPage as a child of the root page."""
     from apps.forms.models import FormPage
+
     root_page = Page.objects.filter(depth=1).first()
     if root_page is None:
         root_page = Page.add_root(title="Root", slug="root")
@@ -38,9 +41,12 @@ def make_form_page(title="Test Form", consent_text="", retention_days=365):
     return form_page
 
 
-def make_form_field(form_page, label="Full name", field_type="singleline", is_pii=False, required=True):
+def make_form_field(
+    form_page, label="Full name", field_type="singleline", is_pii=False, required=True
+):
     """Create a FormField on a FormPage."""
     from apps.forms.models import FormField
+
     return FormField.objects.create(
         page=form_page,
         label=label,
@@ -53,8 +59,10 @@ def make_form_field(form_page, label="Full name", field_type="singleline", is_pi
 
 def make_submission(form_page, form_data=None, consent_given=True):
     """Create a FormSubmission directly (bypassing the form view)."""
-    from apps.forms.models import FormSubmission
     from django.utils import timezone
+
+    from apps.forms.models import FormSubmission
+
     return FormSubmission.objects.create(
         page=form_page,
         form_data=form_data or {"full_name": "Test Citizen"},
@@ -97,7 +105,15 @@ class FormFieldTest(TestCase):
         self.assertNotEqual(field.clean_name, "")
 
     def test_multiple_field_types_accepted(self):
-        for ftype in ("singleline", "multiline", "email", "number", "checkboxes", "radio", "dropdown"):
+        for ftype in (
+            "singleline",
+            "multiline",
+            "email",
+            "number",
+            "checkboxes",
+            "radio",
+            "dropdown",
+        ):
             field = make_form_field(self.page, label=f"Field {ftype}", field_type=ftype)
             self.assertEqual(field.field_type, ftype)
 
@@ -116,7 +132,7 @@ class FormSubmissionTest(TestCase):
         self.assertIsNotNone(sub.expires_at)
 
     def test_submission_ordering_newest_first(self):
-        sub1 = make_submission(self.page, form_data={"name": "A"})
+        make_submission(self.page, form_data={"name": "A"})
         sub2 = make_submission(self.page, form_data={"name": "B"})
         subs = list(self.page.civicos_form_submissions.all())
         # Newest first: sub2 was created after sub1
@@ -147,10 +163,13 @@ class FormSubmissionTest(TestCase):
     def test_redact_pii_leaves_non_pii_fields_intact(self):
         make_form_field(self.page, label="Full name", is_pii=True)
         make_form_field(self.page, label="Issue description", is_pii=False)
-        sub = make_submission(self.page, form_data={
-            "full_name": "Alice Smith",
-            "issue_description": "Pothole on Main St",
-        })
+        sub = make_submission(
+            self.page,
+            form_data={
+                "full_name": "Alice Smith",
+                "issue_description": "Pothole on Main St",
+            },
+        )
         sub.redact_pii()
         sub.refresh_from_db()
         self.assertEqual(sub.form_data["issue_description"], "Pothole on Main St")
@@ -186,6 +205,7 @@ class FormSubmissionTest(TestCase):
     def test_submission_deleted_with_page(self):
         """FormSubmission is CASCADE-deleted when its FormPage is deleted."""
         from apps.forms.models import FormSubmission
+
         sub = make_submission(self.page)
         pk = sub.pk
         self.page.delete()

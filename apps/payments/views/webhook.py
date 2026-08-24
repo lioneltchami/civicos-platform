@@ -18,6 +18,7 @@ Logging:
 - Log event_id and event_type (not payload content — may contain PII).
 - Log the error TYPE only on signature failure, not the raw error message.
 """
+
 import copy
 import json
 import logging
@@ -78,7 +79,7 @@ def _strip_pii_from_payload(payload: dict) -> dict:
 
 @csrf_exempt
 @require_POST
-def stripe_webhook(request):
+def stripe_webhook(request):  # noqa: ANN001, ANN201
     """
     Receive and queue Stripe webhook events.
 
@@ -108,7 +109,9 @@ def stripe_webhook(request):
     webhook_secret = config.webhook_endpoint_secret or ""
 
     if not webhook_secret:
-        logger.error("payments.webhook.empty_secret — TenantPaymentConfig.webhook_endpoint_secret is not set")
+        logger.error(
+            "payments.webhook.empty_secret — TenantPaymentConfig.webhook_endpoint_secret is not set"
+        )
         return HttpResponse("Webhook secret not configured", status=400)
 
     gateway = get_gateway()
@@ -185,6 +188,7 @@ def stripe_webhook(request):
     # inline risks a fast Celery worker dequeuing the task before the
     # WebhookEvent row is visible → DoesNotExist → silent data loss.
     from apps.payments.tasks import process_stripe_webhook
+
     _pk = str(webhook_event.pk)
     transaction.on_commit(lambda: process_stripe_webhook.delay(_pk))
 

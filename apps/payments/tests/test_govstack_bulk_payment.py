@@ -105,14 +105,14 @@ Harness identifiers:
   Bulk unit+:   RequestID="RequestID222" SourceBBID="SourceBBID22" BatchID="BatchID22222"
   Prepay smoke: RequestID="abcdef123456" SourceBBID="sourceBBID12" BatchID="batchID12345"
   Prepay unit+: RequestID="d5267933-c71" SourceBBID="e680db9f-223" BatchID="aa4533fc-018"
-"""
+"""  # noqa: E501, RUF002
+
 from __future__ import annotations
 
 import json
 from decimal import Decimal
 
 from django.test import TestCase, override_settings
-
 from rest_framework.test import APIClient
 
 from apps.payments.govstack_exceptions import DuplicateBatchError, DuplicateValidationRequestError
@@ -132,43 +132,42 @@ from apps.payments.govstack_serializers import (
 )
 from apps.payments.govstack_services import GovStackBulkPaymentService
 
-
 # ---------------------------------------------------------------------------
 # Constants  (mirror harness identifiers exactly)
 # ---------------------------------------------------------------------------
 
 # Bulk Payment harness
-BP_REQUEST_ID_1  = "RequestID111"   # 12 chars
-BP_SOURCE_BB_1   = "SourceBBID11"   # 12 chars, mixed-case alphanumeric
-BP_BATCH_ID_1    = "BatchID11111"   # 12 chars
-BP_INSTR_ID_1    = "InstructionID111"  # 16 chars
-BP_PAYEE_ID_1    = "PayeeFunctionalID111"  # 20 chars
+BP_REQUEST_ID_1 = "RequestID111"  # 12 chars
+BP_SOURCE_BB_1 = "SourceBBID11"  # 12 chars, mixed-case alphanumeric
+BP_BATCH_ID_1 = "BatchID11111"  # 12 chars
+BP_INSTR_ID_1 = "InstructionID111"  # 16 chars
+BP_PAYEE_ID_1 = "PayeeFunctionalID111"  # 20 chars
 
-BP_REQUEST_ID_2  = "RequestID222"   # 12 chars
-BP_SOURCE_BB_2   = "SourceBBID22"   # 12 chars
-BP_BATCH_ID_2    = "BatchID22222"   # 12 chars
-BP_INSTR_ID_2    = "InstructionID222"  # 16 chars
-BP_PAYEE_ID_2    = "PayeeFunctionalID222"  # 20 chars
+BP_REQUEST_ID_2 = "RequestID222"  # 12 chars
+BP_SOURCE_BB_2 = "SourceBBID22"  # 12 chars
+BP_BATCH_ID_2 = "BatchID22222"  # 12 chars
+BP_INSTR_ID_2 = "InstructionID222"  # 16 chars
+BP_PAYEE_ID_2 = "PayeeFunctionalID222"  # 20 chars
 
 # Prepayment Validation harness (smoke)
-PV_REQUEST_ID_1  = "abcdef123456"   # 12 chars
-PV_SOURCE_BB_1   = "sourceBBID12"   # 12 chars
-PV_BATCH_ID_1    = "batchID12345"   # 12 chars
-PV_INSTR_ID_1    = "instructionID123"  # 16 chars
-PV_PAYEE_ID_1    = "PayeeFunctionalID123"  # 20 chars
+PV_REQUEST_ID_1 = "abcdef123456"  # 12 chars
+PV_SOURCE_BB_1 = "sourceBBID12"  # 12 chars
+PV_BATCH_ID_1 = "batchID12345"  # 12 chars
+PV_INSTR_ID_1 = "instructionID123"  # 16 chars
+PV_PAYEE_ID_1 = "PayeeFunctionalID123"  # 20 chars
 
 # Prepayment Validation harness (unit)
-PV_REQUEST_ID_2  = "d5267933-c71"   # 12 chars
-PV_SOURCE_BB_2   = "e680db9f-223"   # 12 chars
-PV_BATCH_ID_2    = "aa4533fc-018"   # 12 chars
-PV_INSTR_ID_2    = "0947d8d7-0bdb-40"  # 16 chars
-PV_PAYEE_ID_2    = "a98bc16e-f724-410e-b"  # 20 chars
+PV_REQUEST_ID_2 = "d5267933-c71"  # 12 chars
+PV_SOURCE_BB_2 = "e680db9f-223"  # 12 chars
+PV_BATCH_ID_2 = "aa4533fc-018"  # 12 chars
+PV_INSTR_ID_2 = "0947d8d7-0bdb-40"  # 16 chars
+PV_PAYEE_ID_2 = "a98bc16e-f724-410e-b"  # 20 chars
 
-INVALID_ID       = "invalid"        # 7 chars — harness negative test value
+INVALID_ID = "invalid"  # 7 chars — harness negative test value
 
-BULK_PAYMENT_URL         = "/govstack/payments/bulk-payment"
-PREPAY_VALIDATION_URL    = "/govstack/payments/prepayment-validation"
-PREPAY_RESPONSE_URL      = "/govstack/payments/prepayment-validation-response"
+BULK_PAYMENT_URL = "/govstack/payments/bulk-payment"
+PREPAY_VALIDATION_URL = "/govstack/payments/prepayment-validation"
+PREPAY_RESPONSE_URL = "/govstack/payments/prepayment-validation-response"
 
 # NOTE: No _NO_THROTTLE override needed.  The test settings (config.settings.test)
 # already configure "govstack_bb": "10000/minute" in DEFAULT_THROTTLE_RATES, which
@@ -219,19 +218,22 @@ def _prepay_body(
         "RequestID": request_id,
         "SourceBBID": source_bb,
         "BatchID": batch_id,
-        "CreditInstructions": [{
-            "InstructionID": instr_id,
-            "PayeeFunctionalID": payee_id,
-            "Amount": amount,
-            "Currency": currency,
-            "Narration": narration,
-        }],
+        "CreditInstructions": [
+            {
+                "InstructionID": instr_id,
+                "PayeeFunctionalID": payee_id,
+                "Amount": amount,
+                "Currency": currency,
+                "Narration": narration,
+            }
+        ],
     }
 
 
 # ============================================================================
 # A.  BulkPayment — harness scenarios
 # ============================================================================
+
 
 class BulkPaymentHarnessTest(TestCase):
     """Wave 3 BulkPayment: all 7 harness scenarios."""
@@ -273,12 +275,14 @@ class BulkPaymentHarnessTest(TestCase):
         body = {
             "RequestID": BP_REQUEST_ID_1,
             "BatchID": BP_BATCH_ID_1,
-            "CreditInstructions": [{
-                "InstructionID": BP_INSTR_ID_1,
-                "PayeeFunctionalID": BP_PAYEE_ID_1,
-                "Amount": 100,
-                "Currency": "USD",
-            }],
+            "CreditInstructions": [
+                {
+                    "InstructionID": BP_INSTR_ID_1,
+                    "PayeeFunctionalID": BP_PAYEE_ID_1,
+                    "Amount": 100,
+                    "Currency": "USD",
+                }
+            ],
         }
         resp = self.client.post(BULK_PAYMENT_URL, data=body, format="json")
         data = resp.json()
@@ -292,12 +296,14 @@ class BulkPaymentHarnessTest(TestCase):
         body = {
             "RequestID": BP_REQUEST_ID_1,
             "SourceBBID": BP_SOURCE_BB_1,
-            "CreditInstructions": [{
-                "InstructionID": BP_INSTR_ID_1,
-                "PayeeFunctionalID": BP_PAYEE_ID_1,
-                "Amount": 100,
-                "Currency": "USD",
-            }],
+            "CreditInstructions": [
+                {
+                    "InstructionID": BP_INSTR_ID_1,
+                    "PayeeFunctionalID": BP_PAYEE_ID_1,
+                    "Amount": 100,
+                    "Currency": "USD",
+                }
+            ],
         }
         resp = self.client.post(BULK_PAYMENT_URL, data=body, format="json")
         data = resp.json()
@@ -353,6 +359,7 @@ class BulkPaymentHarnessTest(TestCase):
 # B.  PrepaymentValidation — harness scenarios (ALL HTTP 200)
 # ============================================================================
 
+
 class PrepaymentValidationHarnessTest(TestCase):
     """Wave 3 PrepaymentValidation: all 15 harness scenarios (always HTTP 200)."""
 
@@ -388,13 +395,15 @@ class PrepaymentValidationHarnessTest(TestCase):
     # B3 — Chained two-step: POST /prepayment-validation then /prepayment-validation-response
     def test_b3_chained_two_step_response(self):
         # Step 1: POST /prepayment-validation
-        self._post(_prepay_body(
-            request_id=PV_REQUEST_ID_2,
-            source_bb=PV_SOURCE_BB_2,
-            batch_id=PV_BATCH_ID_2,
-            instr_id=PV_INSTR_ID_2,
-            payee_id=PV_PAYEE_ID_2,
-        ))
+        self._post(
+            _prepay_body(
+                request_id=PV_REQUEST_ID_2,
+                source_bb=PV_SOURCE_BB_2,
+                batch_id=PV_BATCH_ID_2,
+                instr_id=PV_INSTR_ID_2,
+                payee_id=PV_PAYEE_ID_2,
+            )
+        )
 
         # Step 2: POST /prepayment-validation-response
         resp = self.client.post(
@@ -420,16 +429,18 @@ class PrepaymentValidationHarnessTest(TestCase):
     def test_b4_missing_source_bb_id(self):
         body = {
             "BatchID": PV_BATCH_ID_1,
-            "CreditInstructions": [{
-                "InstructionID": PV_INSTR_ID_1,
-                "PayeeFunctionalID": PV_PAYEE_ID_1,
-                "Amount": 100,
-                "Currency": "USD",
-                "Narration": "Narration",
-            }],
+            "CreditInstructions": [
+                {
+                    "InstructionID": PV_INSTR_ID_1,
+                    "PayeeFunctionalID": PV_PAYEE_ID_1,
+                    "Amount": 100,
+                    "Currency": "USD",
+                    "Narration": "Narration",
+                }
+            ],
         }
         status, data = self._post(body)
-        self.assertEqual(status, 200)          # ALWAYS 200 for prepayment-validation
+        self.assertEqual(status, 200)  # ALWAYS 200 for prepayment-validation
         self.assertEqual(data["ResponseCode"], "01")
         self.assertTrue(len(data["ResponseDescription"]) >= 1)
 
@@ -437,13 +448,15 @@ class PrepaymentValidationHarnessTest(TestCase):
     def test_b5_missing_batch_id(self):
         body = {
             "SourceBBID": PV_SOURCE_BB_1,
-            "CreditInstructions": [{
-                "InstructionID": PV_INSTR_ID_1,
-                "PayeeFunctionalID": PV_PAYEE_ID_1,
-                "Amount": 100,
-                "Currency": "USD",
-                "Narration": "Narration",
-            }],
+            "CreditInstructions": [
+                {
+                    "InstructionID": PV_INSTR_ID_1,
+                    "PayeeFunctionalID": PV_PAYEE_ID_1,
+                    "Amount": 100,
+                    "Currency": "USD",
+                    "Narration": "Narration",
+                }
+            ],
         }
         status, data = self._post(body)
         self.assertEqual(status, 200)
@@ -498,13 +511,15 @@ class PrepaymentValidationHarnessTest(TestCase):
             "RequestID": PV_REQUEST_ID_1,
             "SourceBBID": PV_SOURCE_BB_1,
             "BatchID": PV_BATCH_ID_1,
-            "CreditInstructions": [{
-                "InstructionID": PV_INSTR_ID_1,
-                "PayeeFunctionalID": PV_PAYEE_ID_1,
-                "Amount": 100,
-                "Currency": "USD",
-                # Narration intentionally omitted
-            }],
+            "CreditInstructions": [
+                {
+                    "InstructionID": PV_INSTR_ID_1,
+                    "PayeeFunctionalID": PV_PAYEE_ID_1,
+                    "Amount": 100,
+                    "Currency": "USD",
+                    # Narration intentionally omitted
+                }
+            ],
         }
         status, data = self._post(body)
         self.assertEqual(status, 200)
@@ -514,7 +529,7 @@ class PrepaymentValidationHarnessTest(TestCase):
     # B12 — "Invalid SourceBBID" (harness sends partial body → missing other fields)
     def test_b12_invalid_source_bb_id_partial_body(self):
         # Harness sends only SourceBBID (partial body) — missing BatchID, CreditInstructions
-        body = {"SourceBBID": "sourceBBID"}   # 10 chars, passes _validate_bb_id
+        body = {"SourceBBID": "sourceBBID"}  # 10 chars, passes _validate_bb_id
         status, data = self._post(body)
         # Failure is due to MISSING required fields, not invalid SourceBBID value
         self.assertEqual(status, 200)
@@ -522,7 +537,7 @@ class PrepaymentValidationHarnessTest(TestCase):
 
     # B13 — "Invalid BatchID" partial body
     def test_b13_invalid_batch_id_partial_body(self):
-        body = {"BatchID": "batchID"}   # 7 chars, passes _validate_bb_id
+        body = {"BatchID": "batchID"}  # 7 chars, passes _validate_bb_id
         status, data = self._post(body)
         self.assertEqual(status, 200)
         self.assertEqual(data["ResponseCode"], "01")
@@ -557,6 +572,7 @@ class PrepaymentValidationHarnessTest(TestCase):
 # C.  G2P envelope invariants
 # ============================================================================
 
+
 class G2PEnvelopeInvariantsTest(TestCase):
     """Verify G2P response envelope structure and security constraints."""
 
@@ -586,7 +602,7 @@ class G2PEnvelopeInvariantsTest(TestCase):
     def test_c3_prepayment_error_is_always_200(self):
         resp = self.client.post(
             PREPAY_VALIDATION_URL,
-            data={},   # empty body — all required fields missing
+            data={},  # empty body — all required fields missing
             format="json",
         )
         self.assertEqual(resp.status_code, 200)
@@ -596,7 +612,10 @@ class G2PEnvelopeInvariantsTest(TestCase):
     def test_c4_response_description_never_empty(self):
         cases = [
             (BULK_PAYMENT_URL, _bulk_body()),
-            (BULK_PAYMENT_URL, {"SourceBBID": INVALID_ID, "BatchID": BP_BATCH_ID_2, "CreditInstructions": []}),
+            (
+                BULK_PAYMENT_URL,
+                {"SourceBBID": INVALID_ID, "BatchID": BP_BATCH_ID_2, "CreditInstructions": []},
+            ),
         ]
         for url, body in cases:
             with self.subTest(url=url):
@@ -613,13 +632,17 @@ class G2PEnvelopeInvariantsTest(TestCase):
     def test_c6_payee_functional_id_never_in_response(self):
         resp = self.client.post(BULK_PAYMENT_URL, data=_bulk_body(), format="json")
         raw = resp.content.decode()
-        self.assertNotIn(BP_PAYEE_ID_1, raw,
-                         msg="PayeeFunctionalID appeared in BulkPayment response body")
+        self.assertNotIn(
+            BP_PAYEE_ID_1, raw, msg="PayeeFunctionalID appeared in BulkPayment response body"
+        )
 
         resp2 = self.client.post(PREPAY_VALIDATION_URL, data=_prepay_body(), format="json")
         raw2 = resp2.content.decode()
-        self.assertNotIn(PV_PAYEE_ID_1, raw2,
-                         msg="PayeeFunctionalID appeared in PrepaymentValidation response body")
+        self.assertNotIn(
+            PV_PAYEE_ID_1,
+            raw2,
+            msg="PayeeFunctionalID appeared in PrepaymentValidation response body",
+        )
 
     # C7 — PrepaymentValidationResponse always returns HTTP 200
     def test_c7_prepayment_response_always_200(self):
@@ -635,10 +658,11 @@ class G2PEnvelopeInvariantsTest(TestCase):
 # D.  GovStackBulkPaymentService — service layer
 # ============================================================================
 
+
 class BulkPaymentServiceTest(TestCase):
     """Unit tests for GovStackBulkPaymentService.receive_batch() and friends."""
 
-    _INSTRUCTIONS = [
+    _INSTRUCTIONS = [  # noqa: RUF012
         {
             "InstructionID": BP_INSTR_ID_1,
             "PayeeFunctionalID": BP_PAYEE_ID_1,
@@ -649,12 +673,12 @@ class BulkPaymentServiceTest(TestCase):
     ]
 
     def _receive(self, **kwargs) -> BulkPaymentBatch:
-        defaults = dict(
-            request_id=BP_REQUEST_ID_1,
-            source_bb_id=BP_SOURCE_BB_1,
-            batch_id=BP_BATCH_ID_1,
-            instructions=self._INSTRUCTIONS,
-        )
+        defaults = {
+            "request_id": BP_REQUEST_ID_1,
+            "source_bb_id": BP_SOURCE_BB_1,
+            "batch_id": BP_BATCH_ID_1,
+            "instructions": self._INSTRUCTIONS,
+        }
         defaults.update(kwargs)
         return GovStackBulkPaymentService.receive_batch(**defaults)
 
@@ -672,8 +696,18 @@ class BulkPaymentServiceTest(TestCase):
     # D3 — receive_batch() creates one CreditInstruction per item
     def test_d3_creates_credit_instructions(self):
         instructions = [
-            {"InstructionID": "inst1", "PayeeFunctionalID": "payee001", "Amount": Decimal("50.00"), "Currency": "USD"},
-            {"InstructionID": "inst2", "PayeeFunctionalID": "payee002", "Amount": Decimal("75.00"), "Currency": "USD"},
+            {
+                "InstructionID": "inst1",
+                "PayeeFunctionalID": "payee001",
+                "Amount": Decimal("50.00"),
+                "Currency": "USD",
+            },
+            {
+                "InstructionID": "inst2",
+                "PayeeFunctionalID": "payee002",
+                "Amount": Decimal("75.00"),
+                "Currency": "USD",
+            },
         ]
         batch = self._receive(
             batch_id="BatchID99999",
@@ -684,8 +718,18 @@ class BulkPaymentServiceTest(TestCase):
     # D4 — receive_batch() computes total_amount correctly
     def test_d4_total_amount_computed(self):
         instructions = [
-            {"InstructionID": "inst1", "PayeeFunctionalID": "payee001", "Amount": Decimal("100.00"), "Currency": "USD"},
-            {"InstructionID": "inst2", "PayeeFunctionalID": "payee002", "Amount": Decimal("250.50"), "Currency": "USD"},
+            {
+                "InstructionID": "inst1",
+                "PayeeFunctionalID": "payee001",
+                "Amount": Decimal("100.00"),
+                "Currency": "USD",
+            },
+            {
+                "InstructionID": "inst2",
+                "PayeeFunctionalID": "payee002",
+                "Amount": Decimal("250.50"),
+                "Currency": "USD",
+            },
         ]
         batch = self._receive(
             batch_id="BatchIDtotal",
@@ -722,28 +766,32 @@ class BulkPaymentServiceTest(TestCase):
             object_pk=str(batch.pk),
         )
         details = entry.details
-        self.assertNotIn("payee_functional_id", details,
-                         msg="payee_functional_id must NEVER appear in audit details")
+        self.assertNotIn(
+            "payee_functional_id",
+            details,
+            msg="payee_functional_id must NEVER appear in audit details",
+        )
         # Verify it's not hidden in any nested value either
         raw = json.dumps(details)
-        self.assertNotIn(BP_PAYEE_ID_1, raw,
-                         msg="PayeeFunctionalID value must not appear in audit details")
+        self.assertNotIn(
+            BP_PAYEE_ID_1, raw, msg="PayeeFunctionalID value must not appear in audit details"
+        )
 
 
 class PrepaymentValidationServiceTest(TestCase):
-    """Unit tests for GovStackBulkPaymentService.validate_prepayment() and get_validation_result()."""
+    """Unit tests for GovStackBulkPaymentService.validate_prepayment() and get_validation_result()."""  # noqa: E501
 
     def _validate(self, **kwargs) -> PrepaymentValidationRequest:
-        defaults = dict(
-            request_id=PV_REQUEST_ID_1,
-            source_bb_id=PV_SOURCE_BB_1,
-            batch_id=PV_BATCH_ID_1,
-            instruction_id=PV_INSTR_ID_1,
-            payee_functional_id=PV_PAYEE_ID_1,
-            amount=Decimal("100.00"),
-            currency="USD",
-            narration="Narration",
-        )
+        defaults = {
+            "request_id": PV_REQUEST_ID_1,
+            "source_bb_id": PV_SOURCE_BB_1,
+            "batch_id": PV_BATCH_ID_1,
+            "instruction_id": PV_INSTR_ID_1,
+            "payee_functional_id": PV_PAYEE_ID_1,
+            "amount": Decimal("100.00"),
+            "currency": "USD",
+            "narration": "Narration",
+        }
         defaults.update(kwargs)
         return GovStackBulkPaymentService.validate_prepayment(**defaults)
 
@@ -795,11 +843,15 @@ class PrepaymentValidationServiceTest(TestCase):
             object_pk=str(pvr.pk),
         )
         details = entry.details
-        self.assertNotIn("payee_functional_id", details,
-                         msg="payee_functional_id must NEVER appear in audit details")
+        self.assertNotIn(
+            "payee_functional_id",
+            details,
+            msg="payee_functional_id must NEVER appear in audit details",
+        )
         raw = json.dumps(details)
-        self.assertNotIn(PV_PAYEE_ID_1, raw,
-                         msg="PayeeFunctionalID value must not appear in audit details")
+        self.assertNotIn(
+            PV_PAYEE_ID_1, raw, msg="PayeeFunctionalID value must not appear in audit details"
+        )
 
     # D14 — get_validation_result() returns 0 failed cases for PENDING records
     def test_d14_pending_records_are_not_counted_as_failures(self):
@@ -859,12 +911,14 @@ class PrepaymentValidationServiceTest(TestCase):
         # Must use InstructionID — NEVER PayeeFunctionalID
         self.assertEqual(failed["InstructionID"], PV_INSTR_ID_2)
         self.assertIn("FailureReason", failed)
-        self.assertNotIn("PayeeFunctionalID", failed,
-                         msg="PayeeFunctionalID must NEVER appear in FailedAccounts")
+        self.assertNotIn(
+            "PayeeFunctionalID", failed, msg="PayeeFunctionalID must NEVER appear in FailedAccounts"
+        )
         # PV_PAYEE_ID_2 must not appear anywhere in the result
         raw = json.dumps(result)
-        self.assertNotIn(PV_PAYEE_ID_2, raw,
-                         msg="PayeeFunctionalID value must never appear in validation result")
+        self.assertNotIn(
+            PV_PAYEE_ID_2, raw, msg="PayeeFunctionalID value must never appear in validation result"
+        )
 
     # D17 — get_validation_result() counts COMPLETED records with financial_address_valid=False
     def test_d17_invalid_financial_address_appears_in_failed_accounts(self):
@@ -951,13 +1005,15 @@ class PrepaymentValidationServiceTest(TestCase):
         # PII must not appear anywhere in the result
         self.assertNotIn("PayeeFunctionalID", failed)
         raw = json.dumps(result)
-        self.assertNotIn(PV_PAYEE_ID_2, raw,
-                         msg="PayeeFunctionalID value must never appear in validation result")
+        self.assertNotIn(
+            PV_PAYEE_ID_2, raw, msg="PayeeFunctionalID value must never appear in validation result"
+        )
 
 
 # ============================================================================
 # F.  Critical bug regression tests (post-review fixes)
 # ============================================================================
+
 
 class BulkPaymentCriticalFixTests(TestCase):
     """
@@ -986,7 +1042,7 @@ class BulkPaymentCriticalFixTests(TestCase):
             data=_bulk_body(
                 request_id=BP_REQUEST_ID_1,
                 source_bb=BP_SOURCE_BB_1,
-                batch_id="BatchIDcorrF1",   # unique for this test
+                batch_id="BatchIDcorrF1",  # unique for this test
             ),
             HTTP_X_CORRELATIONID=uuid_corr_id,
             format="json",
@@ -1030,12 +1086,14 @@ class BulkPaymentCriticalFixTests(TestCase):
     # F2b — DuplicateBatchError raised by service directly
     def test_f2b_service_raises_duplicate_batch_error(self):
         """Service raises DuplicateBatchError (not IntegrityError) on duplicate batch_id."""
-        instructions = [{
-            "InstructionID": BP_INSTR_ID_1,
-            "PayeeFunctionalID": BP_PAYEE_ID_1,
-            "Amount": Decimal("100.00"),
-            "Currency": "USD",
-        }]
+        instructions = [
+            {
+                "InstructionID": BP_INSTR_ID_1,
+                "PayeeFunctionalID": BP_PAYEE_ID_1,
+                "Amount": Decimal("100.00"),
+                "Currency": "USD",
+            }
+        ]
         GovStackBulkPaymentService.receive_batch(
             request_id=BP_REQUEST_ID_1,
             source_bb_id=BP_SOURCE_BB_1,
@@ -1046,7 +1104,7 @@ class BulkPaymentCriticalFixTests(TestCase):
             GovStackBulkPaymentService.receive_batch(
                 request_id=BP_REQUEST_ID_2,
                 source_bb_id=BP_SOURCE_BB_2,
-                batch_id="BatchIDsvcdup1",   # same batch_id
+                batch_id="BatchIDsvcdup1",  # same batch_id
                 instructions=instructions,
             )
         # batch_id is stored as attribute (not in message) to avoid it appearing
@@ -1090,9 +1148,7 @@ class BulkPaymentCriticalFixTests(TestCase):
         self.assertIn("exactly one", data["ResponseDescription"])
         # Confirm no PrepaymentValidationRequest was created (both instructions rejected)
         self.assertFalse(
-            PrepaymentValidationRequest.objects.filter(
-                request_id=PV_REQUEST_ID_1
-            ).exists()
+            PrepaymentValidationRequest.objects.filter(request_id=PV_REQUEST_ID_1).exists()
         )
 
     # F4 — long correlation ID (100 chars) is accepted end-to-end
@@ -1124,7 +1180,7 @@ class BulkPaymentCriticalFixTests(TestCase):
         After the fix: DuplicateValidationRequestError caught in view → HTTP 200, ResponseCode "01".
         """
         body = _prepay_body(
-            request_id="req-dup-F5aa",   # 12 chars, unique to this test
+            request_id="req-dup-F5aa",  # 12 chars, unique to this test
             source_bb=PV_SOURCE_BB_1,
             batch_id=PV_BATCH_ID_1,
         )
@@ -1136,8 +1192,11 @@ class BulkPaymentCriticalFixTests(TestCase):
 
         # Second request with identical RequestID — must be G2P error at HTTP 200, NOT 500
         resp2 = self.client.post(PREPAY_VALIDATION_URL, data=body, format="json")
-        self.assertEqual(resp2.status_code, 200,
-                         msg="/prepayment-validation must ALWAYS return HTTP 200 even for errors")
+        self.assertEqual(
+            resp2.status_code,
+            200,
+            msg="/prepayment-validation must ALWAYS return HTTP 200 even for errors",
+        )
         data2 = resp2.json()
         self.assertEqual(data2["ResponseCode"], "01")
         self.assertIn("ResponseDescription", data2)
@@ -1146,8 +1205,11 @@ class BulkPaymentCriticalFixTests(TestCase):
         # G2P spec requires RequestID to be echoed back in the envelope — this is
         # correct and expected behaviour. The RequestID appearing in the `RequestID`
         # field is fine; it must NOT appear in the `ResponseDescription` narrative.
-        self.assertNotIn("req-dup-F5aa", data2.get("ResponseDescription", ""),
-                         msg="Duplicate RequestID must not appear in the ResponseDescription narrative")
+        self.assertNotIn(
+            "req-dup-F5aa",
+            data2.get("ResponseDescription", ""),
+            msg="Duplicate RequestID must not appear in the ResponseDescription narrative",
+        )
 
     # F5b — DuplicateValidationRequestError raised by service on duplicate request_id
     def test_f5b_service_raises_duplicate_validation_request_error(self):
@@ -1155,16 +1217,16 @@ class BulkPaymentCriticalFixTests(TestCase):
         Service layer raises DuplicateValidationRequestError (not raw IntegrityError)
         on duplicate request_id. The request_id is stored as attribute, not in the message.
         """
-        kwargs = dict(
-            request_id="req-svc-F5b1",   # 12 chars
-            source_bb_id=PV_SOURCE_BB_1,
-            batch_id=PV_BATCH_ID_1,
-            instruction_id=PV_INSTR_ID_1,
-            payee_functional_id=PV_PAYEE_ID_1,
-            amount=Decimal("100.00"),
-            currency="USD",
-            narration="Narration",
-        )
+        kwargs = {
+            "request_id": "req-svc-F5b1",  # 12 chars
+            "source_bb_id": PV_SOURCE_BB_1,
+            "batch_id": PV_BATCH_ID_1,
+            "instruction_id": PV_INSTR_ID_1,
+            "payee_functional_id": PV_PAYEE_ID_1,
+            "amount": Decimal("100.00"),
+            "currency": "USD",
+            "narration": "Narration",
+        }
         # First call — succeeds
         GovStackBulkPaymentService.validate_prepayment(**kwargs)
 
@@ -1181,6 +1243,7 @@ class BulkPaymentCriticalFixTests(TestCase):
 # ============================================================================
 # E.  Serializer tests
 # ============================================================================
+
 
 class BulkPaymentSerializerTest(TestCase):
     """Tests for BulkPaymentRequestSerializer field constraints."""
@@ -1205,7 +1268,7 @@ class BulkPaymentSerializerTest(TestCase):
 
     # E1 — Accepts valid harness SourceBBID (12 chars, mixed case)
     def test_e1_accepts_valid_source_bb_id(self):
-        ser = self._ser(SourceBBID=BP_SOURCE_BB_1)   # "SourceBBID11" = 12 chars
+        ser = self._ser(SourceBBID=BP_SOURCE_BB_1)  # "SourceBBID11" = 12 chars
         self.assertTrue(ser.is_valid(), ser.errors)
 
     # E2 — Rejects "invalid" SourceBBID (7 chars, fails min_length=10)
@@ -1216,7 +1279,7 @@ class BulkPaymentSerializerTest(TestCase):
 
     # E3 — Accepts valid harness BatchID (12 chars)
     def test_e3_accepts_valid_batch_id(self):
-        ser = self._ser(BatchID=BP_BATCH_ID_1)   # "BatchID11111" = 12 chars
+        ser = self._ser(BatchID=BP_BATCH_ID_1)  # "BatchID11111" = 12 chars
         self.assertTrue(ser.is_valid(), ser.errors)
 
     # E4 — Rejects "invalid" BatchID (7 chars, fails min_length=10)
@@ -1233,31 +1296,31 @@ class BulkPaymentSerializerTest(TestCase):
 
     # Also verify 10-char boundary: exactly 10 chars should be accepted
     def test_e1b_accepts_ten_char_source_bb_id(self):
-        ser = self._ser(SourceBBID="aBcD123456")   # exactly 10 chars
+        ser = self._ser(SourceBBID="aBcD123456")  # exactly 10 chars
         self.assertTrue(ser.is_valid(), ser.errors)
 
     # 9 chars should be rejected
     def test_e2b_rejects_nine_char_source_bb_id(self):
-        ser = self._ser(SourceBBID="aBcD12345")    # 9 chars
+        ser = self._ser(SourceBBID="aBcD12345")  # 9 chars
         self.assertFalse(ser.is_valid())
         self.assertIn("SourceBBID", ser.errors)
 
     # E10 — exactly-12-char RequestID is accepted (live spec: g2pResponseSchema
     # RequestID is {minLength: 12, maxLength: 12}).
     def test_e10_exactly_12_char_request_id_accepted(self):
-        ser = self._ser(RequestID="RequestID111")   # exactly 12 chars
+        ser = self._ser(RequestID="RequestID111")  # exactly 12 chars
         self.assertTrue(ser.is_valid(), ser.errors)
         self.assertEqual(ser.validated_data["RequestID"], "RequestID111")
 
     # E11 — an 11-char RequestID is rejected (too short per live spec)
     def test_e11_eleven_char_request_id_rejected(self):
-        ser = self._ser(RequestID="RequestID11")   # 11 chars
+        ser = self._ser(RequestID="RequestID11")  # 11 chars
         self.assertFalse(ser.is_valid())
         self.assertIn("RequestID", ser.errors)
 
     # E12 — a 13-char RequestID is rejected (too long per live spec)
     def test_e12_thirteen_char_request_id_rejected(self):
-        ser = self._ser(RequestID="RequestID1111")   # 13 chars
+        ser = self._ser(RequestID="RequestID1111")  # 13 chars
         self.assertFalse(ser.is_valid())
         self.assertIn("RequestID", ser.errors)
 
@@ -1298,66 +1361,74 @@ class PrepaymentValidationRequestSerializerTest(TestCase):
 
     # E14 — exactly-12-char RequestID is accepted
     def test_e14_exactly_12_char_request_id_accepted(self):
-        ser = self._ser(RequestID="abcdef123456")   # exactly 12 chars
+        ser = self._ser(RequestID="abcdef123456")  # exactly 12 chars
         self.assertTrue(ser.is_valid(), ser.errors)
         self.assertEqual(ser.validated_data["RequestID"], "abcdef123456")
 
     # E15 — an 11-char RequestID is rejected
     def test_e15_eleven_char_request_id_rejected(self):
-        ser = self._ser(RequestID="abcdef12345")   # 11 chars
+        ser = self._ser(RequestID="abcdef12345")  # 11 chars
         self.assertFalse(ser.is_valid())
         self.assertIn("RequestID", ser.errors)
 
     # E16 — a 13-char RequestID is rejected
     def test_e16_thirteen_char_request_id_rejected(self):
-        ser = self._ser(RequestID="abcdef1234567")   # 13 chars
+        ser = self._ser(RequestID="abcdef1234567")  # 13 chars
         self.assertFalse(ser.is_valid())
         self.assertIn("RequestID", ser.errors)
 
 
 class PrepaymentSerializerTest(TestCase):
-    """Tests for PrepaymentCreditInstructionSerializer and PrepaymentValidationResponseAckSerializer."""
+    """Tests for PrepaymentCreditInstructionSerializer and PrepaymentValidationResponseAckSerializer."""  # noqa: E501
 
     # E6 — PrepaymentCreditInstructionSerializer: Narration IS required
     def test_e6_prepayment_narration_is_required(self):
-        ser = PrepaymentCreditInstructionSerializer(data={
-            "InstructionID": PV_INSTR_ID_1,
-            "PayeeFunctionalID": PV_PAYEE_ID_1,
-            "Amount": "100.00",
-            "Currency": "USD",
-            # Narration omitted
-        })
+        ser = PrepaymentCreditInstructionSerializer(
+            data={
+                "InstructionID": PV_INSTR_ID_1,
+                "PayeeFunctionalID": PV_PAYEE_ID_1,
+                "Amount": "100.00",
+                "Currency": "USD",
+                # Narration omitted
+            }
+        )
         self.assertFalse(ser.is_valid())
         self.assertIn("Narration", ser.errors)
 
     # E7 — CreditInstructionSerializer (used by bulk): Narration is optional
     def test_e7_bulk_narration_is_optional(self):
-        ser = CreditInstructionSerializer(data={
-            "InstructionID": BP_INSTR_ID_1,
-            "PayeeFunctionalID": BP_PAYEE_ID_1,
-            "Amount": "100.00",
-            "Currency": "USD",
-            # Narration omitted — should still be valid
-        })
+        ser = CreditInstructionSerializer(
+            data={
+                "InstructionID": BP_INSTR_ID_1,
+                "PayeeFunctionalID": BP_PAYEE_ID_1,
+                "Amount": "100.00",
+                "Currency": "USD",
+                # Narration omitted — should still be valid
+            }
+        )
         self.assertTrue(ser.is_valid(), ser.errors)
         self.assertEqual(ser.validated_data["Narration"], "")
 
     # E8 — PrepaymentValidationResponseAckSerializer: field is Source_BatchID (with underscore)
     def test_e8_ack_serializer_has_source_underscore_batch_id(self):
-        ser = PrepaymentValidationResponseAckSerializer(data={
-            "RequestID": PV_REQUEST_ID_2,
-            "Source_BatchID": PV_BATCH_ID_2,   # correct: underscore
-        })
+        ser = PrepaymentValidationResponseAckSerializer(
+            data={
+                "RequestID": PV_REQUEST_ID_2,
+                "Source_BatchID": PV_BATCH_ID_2,  # correct: underscore
+            }
+        )
         self.assertTrue(ser.is_valid(), ser.errors)
         # The validated data contains Source_BatchID
         self.assertEqual(ser.validated_data["Source_BatchID"], PV_BATCH_ID_2)
 
     # E9 — SourceBatchID (no underscore) is not recognised — silently drops
     def test_e9_ack_serializer_ignores_source_batch_id_no_underscore(self):
-        ser = PrepaymentValidationResponseAckSerializer(data={
-            "RequestID": PV_REQUEST_ID_2,
-            "SourceBatchID": PV_BATCH_ID_2,   # wrong: no underscore
-        })
+        ser = PrepaymentValidationResponseAckSerializer(
+            data={
+                "RequestID": PV_REQUEST_ID_2,
+                "SourceBatchID": PV_BATCH_ID_2,  # wrong: no underscore
+            }
+        )
         # Serializer is still valid (Source_BatchID is optional, defaults to "")
         self.assertTrue(ser.is_valid(), ser.errors)
         # But Source_BatchID defaults to "" because the key didn't match
@@ -1462,7 +1533,9 @@ class BulkPaymentAndPrepaymentAuthTest(TestCase):
         self.assertIn(resp.status_code, (401, 403))
 
     @override_settings(GOVSTACK_REQUIRE_REGISTERED_BB=True)
-    def test_g11_prepayment_validation_response_unregistered_header_production_mode_returns_401(self):
+    def test_g11_prepayment_validation_response_unregistered_header_production_mode_returns_401(
+        self,
+    ):
         self.client.defaults["HTTP_X_REGISTERING_INSTITUTION_ID"] = "NOT-REGISTERED"
         resp = self.client.post(PREPAY_RESPONSE_URL, data=PREPAY_RESPONSE_BODY, format="json")
         self.assertIn(resp.status_code, (401, 403))
@@ -1473,4 +1546,3 @@ class BulkPaymentAndPrepaymentAuthTest(TestCase):
         self.client.defaults["HTTP_X_REGISTERING_INSTITUTION_ID"] = "REGISTERED-BB"
         resp = self.client.post(PREPAY_RESPONSE_URL, data=PREPAY_RESPONSE_BODY, format="json")
         self.assertEqual(resp.status_code, 200)
-

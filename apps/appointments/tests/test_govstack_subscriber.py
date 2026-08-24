@@ -8,7 +8,8 @@ Covers 4 endpoints:
   GET    /govstack/scheduler/subscriber/list_details
 
 Tests are numbered S1–S29 matching the Wave C specification.
-"""
+"""  # noqa: RUF002
+
 from __future__ import annotations
 
 import json
@@ -22,7 +23,6 @@ from apps.appointments.services.govstack_subscriber import (
     subscriber_create,
     subscriber_delete,
     subscriber_list,
-    subscriber_modify,
 )
 
 User = get_user_model()
@@ -42,6 +42,7 @@ _AUTH = {"requestor_id": "test-bb", "request_token": "test-token"}
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _qs(**extra):
     """Build a URL query string with GovStack auth + any extras."""
@@ -78,6 +79,7 @@ def _create_subscriber(
 # Base test case
 # ===========================================================================
 
+
 class SubscriberBaseTestCase(TestCase):
     """Shared setup for all subscriber HTTP endpoint tests."""
 
@@ -99,11 +101,12 @@ class SubscriberBaseTestCase(TestCase):
 
 
 # ===========================================================================
-# S1–S7: POST /subscriber/new
+# S1–S7: POST /subscriber/new  # noqa: RUF003
 # ===========================================================================
 
+
 class SubscriberNewTests(SubscriberBaseTestCase):
-    """S1–S7: POST /subscriber/new"""
+    """S1–S7: POST /subscriber/new"""  # noqa: RUF002
 
     # S1
     def test_s1_post_new_returns_200_with_subscriber_id(self):
@@ -114,9 +117,15 @@ class SubscriberNewTests(SubscriberBaseTestCase):
         (and its own example Gherkin fixture) define 200 as the success
         status for this operation.
         """
-        qry = {"subscriber_details": {"name": "Bob Jones", "email": "bob@example.com",
-                                    "category": "individual", "phone": "+15005550002",
-                                    "alert_preference": "email"}}
+        qry = {
+            "subscriber_details": {
+                "name": "Bob Jones",
+                "email": "bob@example.com",
+                "category": "individual",
+                "phone": "+15005550002",
+                "alert_preference": "email",
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
@@ -150,8 +159,9 @@ class SubscriberNewTests(SubscriberBaseTestCase):
     # S4
     def test_s4_post_new_invalid_alert_preference_returns_400(self):
         """S4: POST /subscriber/new with invalid alert_preference returns 400."""
-        qry = {"subscriber_details": {"email": "ap@example.com",
-                                    "alert_preference": "carrier_pigeon"}}
+        qry = {
+            "subscriber_details": {"email": "ap@example.com", "alert_preference": "carrier_pigeon"}
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
         data = resp.json()
@@ -161,8 +171,14 @@ class SubscriberNewTests(SubscriberBaseTestCase):
     # S5
     def test_s5_post_new_creates_user_and_profile(self):
         """S5: POST /subscriber/new creates both User and GovStackSubscriberProfile."""
-        qry = {"subscriber_details": {"name": "Carol Doe", "email": "carol@example.com",
-                                    "category": "individual", "alert_preference": "sms"}}
+        qry = {
+            "subscriber_details": {
+                "name": "Carol Doe",
+                "email": "carol@example.com",
+                "category": "individual",
+                "alert_preference": "sms",
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 200)
         subscriber_id = int(resp.json()["subscriber_id"])
@@ -209,13 +225,22 @@ class SubscriberNewTests(SubscriberBaseTestCase):
     # S32
     def test_s32_post_new_phone_too_long_returns_400(self):
         """S32: Phone number exceeding 20 chars returns 400 instead of silent truncation."""
-        resp = self._post({"subscriber_details": {"email": "phone_test@example.com", "phone": "1" * 21}})
+        resp = self._post(
+            {"subscriber_details": {"email": "phone_test@example.com", "phone": "1" * 21}}
+        )
         self.assertEqual(resp.status_code, 400)
 
     # S33
     def test_s33_post_new_http_alert_url_returns_400(self):
         """S33: http:// alert_url (not https) returns 400."""
-        resp = self._post({"subscriber_details": {"email": "httptest@example.com", "alert_url": "http://example.com/callback"}})
+        resp = self._post(
+            {
+                "subscriber_details": {
+                    "email": "httptest@example.com",
+                    "alert_url": "http://example.com/callback",
+                }
+            }
+        )
         self.assertEqual(resp.status_code, 400)
 
     # S34
@@ -272,8 +297,12 @@ class SubscriberNewTests(SubscriberBaseTestCase):
     # S41
     def test_s41_post_new_status_poll_url_http_returns_400(self):
         """S41 — http:// status_poll_url returns 400."""
-        qry = {"subscriber_details": {"email": "spoll@example.com",
-                                    "status_poll_url": "http://example.com/poll"}}
+        qry = {
+            "subscriber_details": {
+                "email": "spoll@example.com",
+                "status_poll_url": "http://example.com/poll",
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
 
@@ -281,6 +310,7 @@ class SubscriberNewTests(SubscriberBaseTestCase):
 # ===========================================================================
 # S47: spec-literal wire format (locks in FIX 1 — wrong inner details key)
 # ===========================================================================
+
 
 class SubscriberSpecWireFormatTests(SubscriberBaseTestCase):
     """
@@ -325,11 +355,12 @@ class SubscriberSpecWireFormatTests(SubscriberBaseTestCase):
 
 
 # ===========================================================================
-# S8–S13: PUT /subscriber/modifications
+# S8–S13: PUT /subscriber/modifications  # noqa: RUF003
 # ===========================================================================
 
+
 class SubscriberModificationsTests(SubscriberBaseTestCase):
-    """S8–S13: PUT /subscriber/modifications"""
+    """S8–S13: PUT /subscriber/modifications"""  # noqa: RUF002
 
     def setUp(self):
         self.profile = _create_subscriber(email="modify@example.com", name="Original Name")
@@ -396,7 +427,7 @@ class SubscriberModificationsTests(SubscriberBaseTestCase):
     # S30
     def test_s30_modify_duplicate_email_returns_400(self):
         """S30: Changing to an already-registered email returns 400, not 500."""
-        sub1 = _create_subscriber(email="first@example.com")
+        _create_subscriber(email="first@example.com")
         sub2 = _create_subscriber(email="second@example.com")
         resp = self._put(
             {"details": {"email": "first@example.com"}},
@@ -410,11 +441,12 @@ class SubscriberModificationsTests(SubscriberBaseTestCase):
 
 
 # ===========================================================================
-# S14–S17: DELETE /subscriber
+# S14–S17: DELETE /subscriber  # noqa: RUF003
 # ===========================================================================
 
+
 class SubscriberDeleteTests(SubscriberBaseTestCase):
-    """S14–S17: DELETE /subscriber"""
+    """S14–S17: DELETE /subscriber"""  # noqa: RUF002
 
     def setUp(self):
         self.profile = _create_subscriber(email="delete@example.com", name="Delete Me")
@@ -460,14 +492,17 @@ class SubscriberDeleteTests(SubscriberBaseTestCase):
 
 
 # ===========================================================================
-# S18–S26: GET /subscriber/list_details
+# S18–S26: GET /subscriber/list_details  # noqa: RUF003
 # ===========================================================================
 
+
 class SubscriberListDetailsTests(SubscriberBaseTestCase):
-    """S18–S26: GET /subscriber/list_details"""
+    """S18–S26: GET /subscriber/list_details"""  # noqa: RUF002
 
     def setUp(self):
-        self.p1 = _create_subscriber(email="alice@list.com", name="Alice Smith", category="individual")
+        self.p1 = _create_subscriber(
+            email="alice@list.com", name="Alice Smith", category="individual"
+        )
         self.p2 = _create_subscriber(email="bob@list.com", name="Bob Jones", category="group")
 
     # S18
@@ -545,7 +580,7 @@ class SubscriberListDetailsTests(SubscriberBaseTestCase):
 
     # S22
     def test_s22_list_with_email_details_required_returns_email(self):
-        """S22: GET /subscriber/list_details with subscriber_details_required email=true returns email."""
+        """S22: GET /subscriber/list_details with subscriber_details_required email=true returns email."""  # noqa: E501
         qry = {
             "subscriber_filter": {"subscriber_id": str(self.p1.user_id)},
             "subscriber_details_required": {"email": True},
@@ -559,7 +594,7 @@ class SubscriberListDetailsTests(SubscriberBaseTestCase):
 
     # S23
     def test_s23_list_always_includes_subscriber_id(self):
-        """S23: GET /subscriber/list_details always includes subscriber_id even with empty details_required."""
+        """S23: GET /subscriber/list_details always includes subscriber_id even with empty details_required."""  # noqa: E501
         qry = {"subscriber_details_required": {}}
         resp = self._get(qry)
         self.assertEqual(resp.status_code, 200)
@@ -619,18 +654,21 @@ class SubscriberListDetailsTests(SubscriberBaseTestCase):
     def test_s42_list_nonexistent_alert_url_filter_returns_empty(self):
         """S42 — alert_url filter actually filters (not silently ignored)."""
         _create_subscriber(email="al1@example.com")  # no alert_url
-        resp = self._get({"subscriber_filter": {"alert_url": "https://notregistered.example.com/hook"}})
+        resp = self._get(
+            {"subscriber_filter": {"alert_url": "https://notregistered.example.com/hook"}}
+        )
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(len(data), 0)  # filter actually applied
 
 
 # ===========================================================================
-# S27–S29: Service-level tests (direct imports)
+# S27–S29: Service-level tests (direct imports)  # noqa: RUF003
 # ===========================================================================
 
+
 class SubscriberServiceTests(TestCase):
-    """S27–S29: Direct service layer tests."""
+    """S27–S29: Direct service layer tests."""  # noqa: RUF002
 
     # S27
     def test_s27_subscriber_create_creates_user_and_profile(self):
@@ -668,8 +706,8 @@ class SubscriberServiceTests(TestCase):
         bob_profile = GovStackSubscriberProfile.objects.get(user__email="bob_a@example.com")
         charlie_profile = GovStackSubscriberProfile.objects.get(user__email="charlie@example.com")
 
-        self.assertIn(str(alice_profile.user_id), returned_ids)   # first_name matches
-        self.assertIn(str(bob_profile.user_id), returned_ids)     # last_name matches
+        self.assertIn(str(alice_profile.user_id), returned_ids)  # first_name matches
+        self.assertIn(str(bob_profile.user_id), returned_ids)  # last_name matches
         self.assertNotIn(str(charlie_profile.user_id), returned_ids)
 
     # S29
@@ -689,11 +727,12 @@ class SubscriberServiceTests(TestCase):
 
 
 # ===========================================================================
-# S43–S46: Wrong HTTP method tests
+# S43–S46: Wrong HTTP method tests  # noqa: RUF003
 # ===========================================================================
 
+
 class SubscriberViewMethodTests(TestCase):
-    """S43–S46 — Wrong HTTP methods return 405."""
+    """S43–S46 — Wrong HTTP methods return 405."""  # noqa: RUF002
 
     def test_s43_get_on_new_returns_405(self):
         """S43: GET on POST-only /subscriber/new returns 405."""

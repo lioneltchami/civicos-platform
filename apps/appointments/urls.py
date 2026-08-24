@@ -9,8 +9,10 @@ Views are implemented progressively across waves:
 
 This stub registers the namespace so that the url include in config/urls.py
 resolves without error during Waves 1–4 (models, services, tasks only).
-"""
+"""  # noqa: RUF002
+
 from django.urls import path
+
 from .evidence_views import scheduler_status
 
 app_name = "appointments"

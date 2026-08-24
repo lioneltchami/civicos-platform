@@ -20,7 +20,7 @@ class HeadingBlock(blocks.StructBlock):
     """
     A section heading with configurable level (h2–h4).
     h1 is reserved for the page title — editors cannot add h1 blocks.
-    """
+    """  # noqa: RUF002
 
     text = blocks.CharBlock(required=True, label=_("Heading text"))
     level = blocks.ChoiceBlock(
@@ -48,7 +48,7 @@ class RichTextBlock(blocks.RichTextBlock):
         icon = "pilcrow"
         label = _("Rich text")
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         kwargs.setdefault(
             "features",
             ["bold", "italic", "link", "ol", "ul", "document-link"],
@@ -169,6 +169,6 @@ class ContentStreamBlock(blocks.StreamBlock):
     alert = AlertBlock()
 
     class Meta:
-        block_counts = {
+        block_counts = {  # noqa: RUF012
             "call_to_action": {"max_num": 3},
         }

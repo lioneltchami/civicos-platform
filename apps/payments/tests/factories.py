@@ -5,6 +5,7 @@ Provides reusable helpers that were previously duplicated across
 test_integration_donation_flow.py, test_receipt_tasks.py, and
 test_portal_views.py.
 """
+
 from django.db.models import Model as DjangoModel
 
 
@@ -28,6 +29,7 @@ def make_fake_save(counter, year=2026):
         with patch.object(OfficialDonationReceipt, "save", make_fake_save(counter)):
             ...
     """
+
     def fake_save(receipt_instance, *args, **kwargs):
         """Returns True if rate limit is exceeded."""
         if not receipt_instance.serial_number:
@@ -56,6 +58,7 @@ def make_fixed_serial_fake_save(serial):
                           make_fixed_serial_fake_save(serial)):
             ...
     """
+
     def fake_save(receipt_instance, *args, **kwargs):
         """Returns True if rate limit is exceeded."""
         if not receipt_instance.serial_number:

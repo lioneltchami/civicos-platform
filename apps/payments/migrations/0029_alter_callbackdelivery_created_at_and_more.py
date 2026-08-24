@@ -4,40 +4,39 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('payments', '0028_item02_audit_lifecycle_actions'),
+    dependencies = [  # noqa: RUF012
+        ("payments", "0028_item02_audit_lifecycle_actions"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterField(
-            model_name='callbackdelivery',
-            name='created_at',
-            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='Created at'),
+            model_name="callbackdelivery",
+            name="created_at",
+            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at"),
         ),
         migrations.AlterField(
-            model_name='callbackdelivery',
-            name='updated_at',
-            field=models.DateTimeField(auto_now=True, verbose_name='Updated at'),
+            model_name="callbackdelivery",
+            name="updated_at",
+            field=models.DateTimeField(auto_now=True, verbose_name="Updated at"),
         ),
         migrations.AlterField(
-            model_name='paymentattempt',
-            name='created_at',
-            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='Created at'),
+            model_name="paymentattempt",
+            name="created_at",
+            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at"),
         ),
         migrations.AlterField(
-            model_name='paymentattempt',
-            name='updated_at',
-            field=models.DateTimeField(auto_now=True, verbose_name='Updated at'),
+            model_name="paymentattempt",
+            name="updated_at",
+            field=models.DateTimeField(auto_now=True, verbose_name="Updated at"),
         ),
         migrations.AlterField(
-            model_name='paymentreconciliation',
-            name='created_at',
-            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='Created at'),
+            model_name="paymentreconciliation",
+            name="created_at",
+            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at"),
         ),
         migrations.AlterField(
-            model_name='paymentreconciliation',
-            name='updated_at',
-            field=models.DateTimeField(auto_now=True, verbose_name='Updated at'),
+            model_name="paymentreconciliation",
+            name="updated_at",
+            field=models.DateTimeField(auto_now=True, verbose_name="Updated at"),
         ),
     ]

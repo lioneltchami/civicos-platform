@@ -5,9 +5,9 @@ URL configuration for the Consent & Privacy API.
 
 Mounted at /api/v1/consent/ by apps.api.urls.
 """
-from django.urls import path
+from django.urls import path  # noqa: E402
 
-from . import api_views
+from . import api_views  # noqa: E402
 
 urlpatterns = [
     path(

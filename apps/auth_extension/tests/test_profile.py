@@ -1,9 +1,11 @@
 """Tests for profile management views."""
-from django.test import TestCase, override_settings
+
 from django.contrib.auth import get_user_model
+from django.test import TestCase, override_settings
 
 try:
     from allauth.account.models import EmailAddress
+
     HAS_ALLAUTH = True
 except ImportError:
     HAS_ALLAUTH = False
@@ -20,9 +22,7 @@ LANGUAGE_URL = "/account/language/"
 def create_verified_user(email="user@example.com", password=VALID_PASSWORD):
     user = User.objects.create_user(email=email, password=password)
     if HAS_ALLAUTH:
-        EmailAddress.objects.create(
-            user=user, email=email, primary=True, verified=True
-        )
+        EmailAddress.objects.create(user=user, email=email, primary=True, verified=True)
     return user
 
 
@@ -37,9 +37,7 @@ def force_otp_login(client, user):
     from django_otp.plugins.otp_static.models import StaticDevice
 
     client.force_login(user)
-    device, _ = StaticDevice.objects.get_or_create(
-        user=user, defaults={"name": "test-device"}
-    )
+    device, _ = StaticDevice.objects.get_or_create(user=user, defaults={"name": "test-device"})
     session = client.session
     session[DEVICE_ID_SESSION_KEY] = device.persistent_id
     session.save()

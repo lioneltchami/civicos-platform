@@ -31,8 +31,12 @@ class PrepaymentExecutionGateTests(TransactionTestCase):
 
     def test_success_and_same_key_replay_create_one_admission(self):
         request = self.make_request()
-        first = admit_prepayment_execution(validation_request_id=request.pk, execution_key="execution-1")
-        second = admit_prepayment_execution(validation_request_id=request.pk, execution_key="execution-1")
+        first = admit_prepayment_execution(
+            validation_request_id=request.pk, execution_key="execution-1"
+        )
+        second = admit_prepayment_execution(
+            validation_request_id=request.pk, execution_key="execution-1"
+        )
         self.assertEqual(first.pk, second.pk)
         self.assertEqual(PrepaymentExecution.objects.count(), 1)
 
@@ -40,13 +44,30 @@ class PrepaymentExecutionGateTests(TransactionTestCase):
         request = self.make_request()
         admit_prepayment_execution(validation_request_id=request.pk, execution_key="execution-1")
         with self.assertRaises(PrepaymentExecutionKeyConflict):
-            admit_prepayment_execution(validation_request_id=request.pk, execution_key="execution-2")
+            admit_prepayment_execution(
+                validation_request_id=request.pk, execution_key="execution-2"
+            )
 
         cases = [
-            (PrepaymentValidationRequest.STATUS_PENDING, True, True, PrepaymentValidationNotCompleted),
+            (
+                PrepaymentValidationRequest.STATUS_PENDING,
+                True,
+                True,
+                PrepaymentValidationNotCompleted,
+            ),
             (PrepaymentValidationRequest.STATUS_FAILED, True, True, PrepaymentValidationFailed),
-            (PrepaymentValidationRequest.STATUS_COMPLETED, False, True, PrepaymentBeneficiaryNotFound),
-            (PrepaymentValidationRequest.STATUS_COMPLETED, True, False, PrepaymentFinancialAddressInvalid),
+            (
+                PrepaymentValidationRequest.STATUS_COMPLETED,
+                False,
+                True,
+                PrepaymentBeneficiaryNotFound,
+            ),
+            (
+                PrepaymentValidationRequest.STATUS_COMPLETED,
+                True,
+                False,
+                PrepaymentFinancialAddressInvalid,
+            ),
         ]
         for offset, (status, beneficiary, address, error) in enumerate(cases, start=2):
             invalid = self.make_request(
@@ -56,13 +77,17 @@ class PrepaymentExecutionGateTests(TransactionTestCase):
                 financial_address_valid=address,
             )
             with self.assertRaises(error):
-                admit_prepayment_execution(validation_request_id=invalid.pk, execution_key=f"execution-{offset}")
+                admit_prepayment_execution(
+                    validation_request_id=invalid.pk, execution_key=f"execution-{offset}"
+                )
         self.assertEqual(PrepaymentExecution.objects.count(), 1)
 
     def test_rollback_leaves_no_execution_admission(self):
         request = self.make_request()
         with self.assertRaises(RuntimeError):
             with transaction.atomic():
-                admit_prepayment_execution(validation_request_id=request.pk, execution_key="rollback-key")
+                admit_prepayment_execution(
+                    validation_request_id=request.pk, execution_key="rollback-key"
+                )
                 raise RuntimeError("force rollback")
         self.assertFalse(PrepaymentExecution.objects.filter(execution_key="rollback-key").exists())

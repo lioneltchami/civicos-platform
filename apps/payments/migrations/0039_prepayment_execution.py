@@ -5,13 +5,18 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("payments", "0038_payment_execution_intent")]
+    dependencies = [("payments", "0038_payment_execution_intent")]  # noqa: RUF012
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.CreateModel(
             name="PrepaymentExecution",
             fields=[
-                ("id", models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=uuid.uuid4, editable=False, primary_key=True, serialize=False
+                    ),
+                ),
                 ("execution_key", models.CharField(max_length=160, unique=True)),
                 ("admitted_at", models.DateTimeField(auto_now_add=True, db_index=True)),
                 (

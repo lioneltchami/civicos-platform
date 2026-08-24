@@ -17,11 +17,12 @@ All views require staff login + explicit permission. No PII is passed to
 templates — amounts, counts, and fee codes only. Actor PK (UUID) is logged,
 never actor email (PIPEDA).
 """
+
 from __future__ import annotations
 
 import calendar
 import logging
-from datetime import date, timedelta
+from datetime import date
 
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.http import HttpResponseBadRequest
@@ -30,7 +31,7 @@ from django.views.generic import TemplateView, View
 
 from apps.forms.utils import _mask_ip
 from apps.reports.exports.csv_export import export_reconciliation_csv, export_revenue_csv
-from apps.reports.forms import DateRangeForm, MAX_RANGE_DAYS
+from apps.reports.forms import DateRangeForm
 from apps.reports.models import ExportRecord
 from apps.reports.services.financial import (
     get_failed_payments,
@@ -46,13 +47,14 @@ logger = logging.getLogger("apps.reports.views.financial")
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _current_toronto_ym() -> tuple[int, int]:
     """Return (year, month) in America/Toronto local time."""
     now_local = timezone.localtime(timezone.now())
     return now_local.year, now_local.month
 
 
-def _parse_year_month(request) -> tuple[int, int] | None:
+def _parse_year_month(request) -> tuple[int, int] | None:  # noqa: ANN001
     """
     Parse ?year=YYYY&month=M from request.GET.
 
@@ -73,6 +75,7 @@ def _parse_year_month(request) -> tuple[int, int] | None:
 # Dashboard view
 # ---------------------------------------------------------------------------
 
+
 class FinancialDashboardView(LoginRequiredMixin, PermissionRequiredMixin, TemplateView):
     """
     Monthly financial summary dashboard.
@@ -88,7 +91,7 @@ class FinancialDashboardView(LoginRequiredMixin, PermissionRequiredMixin, Templa
     permission_required = "payments.view_financialreport"
     template_name = "reports/financial/dashboard.html"
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         from apps.reports.models import ReportSnapshot
 
         ctx = super().get_context_data(**kwargs)
@@ -97,7 +100,7 @@ class FinancialDashboardView(LoginRequiredMixin, PermissionRequiredMixin, Templa
         ym = _parse_year_month(self.request)
         year, month = ym if ym else (current_year, current_month)
 
-        is_current_month = (year == current_year and month == current_month)
+        is_current_month = year == current_year and month == current_month
 
         # ── Determine data source ─────────────────────────────────────────────
         source = "realtime"
@@ -115,7 +118,7 @@ class FinancialDashboardView(LoginRequiredMixin, PermissionRequiredMixin, Templa
                 # Deserialise Decimal strings stored in JSONB
                 from decimal import Decimal as _Dec
 
-                def _d(v):
+                def _d(v):  # noqa: ANN001, ANN202
                     try:
                         return _Dec(v)
                     except Exception:
@@ -166,12 +169,9 @@ class FinancialDashboardView(LoginRequiredMixin, PermissionRequiredMixin, Templa
         failed_count = get_failed_payments(year, month).count()
 
         # ── Recent monthly snapshots (summary table / sparkline) ──────────────
-        recent_snapshots = (
-            ReportSnapshot.objects.filter(
-                report_type=ReportSnapshot.REPORT_TYPE_FINANCIAL,
-            )
-            .order_by("-period_year", "-period_month")[:6]
-        )
+        recent_snapshots = ReportSnapshot.objects.filter(
+            report_type=ReportSnapshot.REPORT_TYPE_FINANCIAL,
+        ).order_by("-period_year", "-period_month")[:6]
 
         logger.info(
             "reports.views.financial.dashboard user_pk=%s year=%s month=%s source=%s",
@@ -181,23 +181,26 @@ class FinancialDashboardView(LoginRequiredMixin, PermissionRequiredMixin, Templa
             source,
         )
 
-        ctx.update({
-            "year": year,
-            "month": month,
-            "month_label": f"{calendar.month_name[month]} {year}",
-            "is_current_month": is_current_month,
-            "data_source": source,
-            "revenue": revenue,
-            "refunds": refunds,
-            "failed_count": failed_count,
-            "recent_snapshots": recent_snapshots,
-        })
+        ctx.update(
+            {
+                "year": year,
+                "month": month,
+                "month_label": f"{calendar.month_name[month]} {year}",
+                "is_current_month": is_current_month,
+                "data_source": source,
+                "revenue": revenue,
+                "refunds": refunds,
+                "failed_count": failed_count,
+                "recent_snapshots": recent_snapshots,
+            }
+        )
         return ctx
 
 
 # ---------------------------------------------------------------------------
 # Reconciliation table view
 # ---------------------------------------------------------------------------
+
 
 class ReconciliationView(LoginRequiredMixin, PermissionRequiredMixin, TemplateView):
     """
@@ -217,7 +220,7 @@ class ReconciliationView(LoginRequiredMixin, PermissionRequiredMixin, TemplateVi
     # Full dataset is always available via the CSV export.
     MAX_DISPLAY_ROWS = 200
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         from decimal import Decimal
 
         ctx = super().get_context_data(**kwargs)
@@ -262,24 +265,27 @@ class ReconciliationView(LoginRequiredMixin, PermissionRequiredMixin, TemplateVi
                 for p in qs[: self.MAX_DISPLAY_ROWS]
             ]
 
-        ctx.update({
-            "form": form,
-            "payments": payments,
-            "period_start": period_start,
-            "period_end": period_end,
-            "total_paid": total_paid,
-            "total_refunded": total_refunded,
-            "net": net,
-            "count": count,
-            "truncated": truncated,
-            "max_display_rows": self.MAX_DISPLAY_ROWS,
-        })
+        ctx.update(
+            {
+                "form": form,
+                "payments": payments,
+                "period_start": period_start,
+                "period_end": period_end,
+                "total_paid": total_paid,
+                "total_refunded": total_refunded,
+                "net": net,
+                "count": count,
+                "truncated": truncated,
+                "max_display_rows": self.MAX_DISPLAY_ROWS,
+            }
+        )
         return ctx
 
 
 # ---------------------------------------------------------------------------
 # Export views
 # ---------------------------------------------------------------------------
+
 
 class ReconciliationExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
     """
@@ -293,7 +299,7 @@ class ReconciliationExportView(LoginRequiredMixin, PermissionRequiredMixin, View
 
     permission_required = "payments.export_financialreport"
 
-    def get(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         # ── Parse and validate inputs via DateRangeForm (single source of truth) ──
         # DateRangeForm validates start/end presence, ISO format, end≥start, and
         # the MAX_RANGE_DAYS cap — no need to duplicate that logic here.
@@ -340,7 +346,7 @@ class RevenueExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
 
     permission_required = "payments.export_financialreport"
 
-    def get(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         # ── Parse inputs ──────────────────────────────────────────────────────
         try:
             year = int(request.GET["year"])
@@ -348,9 +354,7 @@ class RevenueExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
             if not (2000 <= year <= 2100) or not (1 <= month <= 12):
                 raise ValueError("Out of range")
         except (KeyError, ValueError, TypeError):
-            return HttpResponseBadRequest(
-                "Missing or invalid 'year'/'month' parameters."
-            )
+            return HttpResponseBadRequest("Missing or invalid 'year'/'month' parameters.")
 
         # ── Audit record ──────────────────────────────────────────────────────
         # row_count = number of distinct fee-code rows in the CSV (one per label).
@@ -394,7 +398,7 @@ class MonthlySummaryPdfView(LoginRequiredMixin, PermissionRequiredMixin, View):
 
     permission_required = "payments.export_financialreport"
 
-    def get(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         year = kwargs.get("year")
         month = kwargs.get("month")
 
@@ -406,6 +410,7 @@ class MonthlySummaryPdfView(LoginRequiredMixin, PermissionRequiredMixin, View):
         # are produced. If WeasyPrint raises (missing C libs, OOM, template error)
         # we must not record a completed export that never reached the client.
         from apps.reports.exports.pdf_export import export_monthly_summary_pdf
+
         response = export_monthly_summary_pdf(year, month)
 
         # ── Audit record (written only if PDF generation succeeded) ──────────
@@ -423,7 +428,9 @@ class MonthlySummaryPdfView(LoginRequiredMixin, PermissionRequiredMixin, View):
 
         logger.info(
             "reports.views.financial.monthly_summary_pdf actor_pk=%s year=%s month=%s",
-            request.user.pk, year, month,
+            request.user.pk,
+            year,
+            month,
         )
 
         return response

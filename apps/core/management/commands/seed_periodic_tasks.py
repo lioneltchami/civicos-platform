@@ -11,6 +11,7 @@ Tasks seeded:
   - flush-expired-jwt-tokens  (daily @ 03:00 UTC)
   - check-sla-breaches        (every 15 minutes)
 """
+
 from django.core.management.base import BaseCommand
 from django_celery_beat.models import CrontabSchedule, IntervalSchedule, PeriodicTask
 
@@ -18,7 +19,7 @@ from django_celery_beat.models import CrontabSchedule, IntervalSchedule, Periodi
 class Command(BaseCommand):
     help = "Seed Celery beat periodic tasks (idempotent)"
 
-    def handle(self, *args, **options):
+    def handle(self, *args, **options) -> None:  # noqa: ANN002, ANN003
         self._seed_flush_expired_tokens()
         self._seed_check_sla_breaches()
         self._seed_cleanup_export_files()
@@ -33,7 +34,7 @@ class Command(BaseCommand):
 
     # ------------------------------------------------------------------
 
-    def _seed_flush_expired_tokens(self):
+    def _seed_flush_expired_tokens(self) -> None:
         """Purge expired JWT blacklist tokens daily at 03:00 UTC."""
         schedule, _ = CrontabSchedule.objects.get_or_create(
             minute="0",
@@ -61,7 +62,7 @@ class Command(BaseCommand):
         verb = "created" if created else "updated"
         self.stdout.write(f"  flush-expired-jwt-tokens: {verb}")
 
-    def _seed_check_sla_breaches(self):
+    def _seed_check_sla_breaches(self) -> None:
         """Check for SLA breaches every 15 minutes."""
         schedule, _ = CrontabSchedule.objects.get_or_create(
             minute="*/15",
@@ -81,15 +82,14 @@ class Command(BaseCommand):
                 "clocked": None,
                 "enabled": True,
                 "description": (
-                    "Mark overdue WorkItems as SLA-breached. "
-                    "Runs every 15 minutes; idempotent."
+                    "Mark overdue WorkItems as SLA-breached. " "Runs every 15 minutes; idempotent."
                 ),
             },
         )
         verb = "created" if created else "updated"
         self.stdout.write(f"  check-sla-breaches: {verb}")
 
-    def _seed_cleanup_export_files(self):
+    def _seed_cleanup_export_files(self) -> None:
         """Delete expired PIPEDA data export files daily at 04:00 UTC."""
         schedule, _ = CrontabSchedule.objects.get_or_create(
             minute="0",
@@ -129,7 +129,7 @@ class Command(BaseCommand):
     # This matches the project-wide naming convention used by all other BBs.
     # ------------------------------------------------------------------
 
-    def _seed_check_expiring_screenings(self):
+    def _seed_check_expiring_screenings(self) -> None:
         """Alert coordinators of VSC / PRC records expiring within 30 days — daily 08:00 Toronto."""
         schedule, _ = CrontabSchedule.objects.get_or_create(
             minute="0",
@@ -158,8 +158,8 @@ class Command(BaseCommand):
         verb = "created" if created else "updated"
         self.stdout.write(f"  volunteers-check-expiring-screenings: {verb}")
 
-    def _seed_check_expiring_certifications(self):
-        """Alert coordinators of volunteer certifications expiring within 30 days — daily 08:00 Toronto."""
+    def _seed_check_expiring_certifications(self) -> None:
+        """Alert coordinators of volunteer certifications expiring within 30 days — daily 08:00 Toronto."""  # noqa: E501
         schedule, _ = CrontabSchedule.objects.get_or_create(
             minute="0",
             hour="8",
@@ -187,8 +187,8 @@ class Command(BaseCommand):
         verb = "created" if created else "updated"
         self.stdout.write(f"  volunteers-check-expiring-certifications: {verb}")
 
-    def _seed_send_monthly_hours_summary(self):
-        """Email each active volunteer their approved-hours summary for the prior month — 1st @ 09:00 Toronto."""
+    def _seed_send_monthly_hours_summary(self) -> None:
+        """Email each active volunteer their approved-hours summary for the prior month — 1st @ 09:00 Toronto."""  # noqa: E501
         schedule, _ = CrontabSchedule.objects.get_or_create(
             minute="0",
             hour="9",
@@ -216,7 +216,7 @@ class Command(BaseCommand):
         verb = "created" if created else "updated"
         self.stdout.write(f"  volunteers-send-monthly-hours-summary: {verb}")
 
-    def _seed_compute_volunteer_impact_snapshot(self):
+    def _seed_compute_volunteer_impact_snapshot(self) -> None:
         """Compute and store the monthly volunteer impact ReportSnapshot — 2nd @ 03:00 Toronto."""
         schedule, _ = CrontabSchedule.objects.get_or_create(
             minute="0",
@@ -250,8 +250,8 @@ class Command(BaseCommand):
     # Document Management BB
     # ------------------------------------------------------------------
 
-    def _seed_cleanup_stale_pending_uploads(self):
-        """Delete Document rows stuck in PENDING_UPLOAD beyond the presigned URL TTL — every 30 min."""
+    def _seed_cleanup_stale_pending_uploads(self) -> None:
+        """Delete Document rows stuck in PENDING_UPLOAD beyond the presigned URL TTL — every 30 min."""  # noqa: E501
         schedule, _ = IntervalSchedule.objects.get_or_create(
             every=30,
             period=IntervalSchedule.MINUTES,

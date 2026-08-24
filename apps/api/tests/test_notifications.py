@@ -58,8 +58,7 @@ def _bearer(client, user):
     )
     if resp.status_code != 200:
         raise RuntimeError(
-            f"Token fetch failed for {user.email}: "
-            f"status={resp.status_code} data={resp.data}"
+            f"Token fetch failed for {user.email}: " f"status={resp.status_code} data={resp.data}"
         )
     return {"HTTP_AUTHORIZATION": f"Bearer {resp.data['access']}"}
 
@@ -195,8 +194,19 @@ class NotificationListTests(TestCase):
         resp = self.client.get(LIST_URL, **_bearer(self.client, self.citizen))
 
         item = resp.data["results"][0]
-        for field in ("id", "subject", "body", "channel", "status", "is_read", "read_at", "created_at"):
-            self.assertIn(field, item, f"Expected field '{field}' missing from notification list response")
+        for field in (
+            "id",
+            "subject",
+            "body",
+            "channel",
+            "status",
+            "is_read",
+            "read_at",
+            "created_at",
+        ):
+            self.assertIn(
+                field, item, f"Expected field '{field}' missing from notification list response"
+            )
 
 
 class NotificationDetailTests(TestCase):
@@ -384,7 +394,7 @@ class MarkNotificationReadTests(TestCase):
         self.assertEqual(resp.status_code, 404)
 
     def test_post_read_nonexistent_returns_civicos_error_envelope(self):
-        # The 404 from /read/ must use the civicos error envelope (not a flat {"detail": "Not found."}).
+        # The 404 from /read/ must use the civicos error envelope (not a flat {"detail": "Not found."}).  # noqa: E501
         resp = self.client.post(
             _read_url(uuid.uuid4()),
             {},
@@ -393,7 +403,9 @@ class MarkNotificationReadTests(TestCase):
         )
 
         self.assertEqual(resp.status_code, 404)
-        self.assertIn("error", resp.data, "404 must use civicos error envelope, not flat {'detail': ...}")
+        self.assertIn(
+            "error", resp.data, "404 must use civicos error envelope, not flat {'detail': ...}"
+        )
         error = resp.data["error"]
         self.assertEqual(error["code"], "not_found")
         self.assertIn("message", error)

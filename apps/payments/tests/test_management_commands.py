@@ -6,6 +6,7 @@ Covers:
   donor addresses and reports them without PII.
 - postal_address field: verifiable on the User model after migration.
 """
+
 import uuid
 from datetime import date
 from decimal import Decimal
@@ -16,11 +17,10 @@ from django.core.management import call_command
 from django.test import TestCase
 
 from apps.payments.models import (
+    DONATION_STATUS_COMPLETED,
     Donation,
-    DonationCampaign,
     OfficialDonationReceipt,
     PaymentIntent,
-    DONATION_STATUS_COMPLETED,
 )
 
 User = get_user_model()
@@ -30,8 +30,9 @@ User = get_user_model()
 # Fixture helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_user(email=None, postal_address=""):
-    email = email or "user_{}@example.com".format(uuid.uuid4().hex[:6])
+    email = email or f"user_{uuid.uuid4().hex[:6]}@example.com"
     return User.objects.create_user(
         email=email,
         password="TestPass123!",
@@ -47,7 +48,7 @@ def _make_intent(user):
         purpose=PaymentIntent.PURPOSE_DONATION,
         status=PaymentIntent.STATUS_COMPLETED,
         gateway=PaymentIntent.GATEWAY_STRIPE,
-        gateway_intent_id="pi_{}".format(uuid.uuid4().hex[:8]),
+        gateway_intent_id=f"pi_{uuid.uuid4().hex[:8]}",
     )
 
 
@@ -71,7 +72,7 @@ PLACEHOLDER = "[Address required - update donor profile]"
 
 
 def _make_receipt(donation, address_line1="123 Main St"):
-    serial = "2026-{}".format(str(uuid.uuid4().int % 1000000).zfill(6))
+    serial = f"2026-{str(uuid.uuid4().int % 1000000).zfill(6)}"
     receipt = OfficialDonationReceipt(
         donation=donation,
         status=OfficialDonationReceipt.RECEIPT_STATUS_ISSUED,
@@ -102,6 +103,7 @@ def _make_receipt(donation, address_line1="123 Main St"):
 # Tests: postal_address field on User model
 # ---------------------------------------------------------------------------
 
+
 class UserPostalAddressFieldTest(TestCase):
     """Verify the postal_address field exists and persists after migration."""
 
@@ -117,6 +119,7 @@ class UserPostalAddressFieldTest(TestCase):
 
     def test_field_max_length_500(self):
         from django.db import models as djmodels
+
         field = User._meta.get_field("postal_address")
         self.assertIsInstance(field, djmodels.CharField)
         self.assertEqual(field.max_length, 500)
@@ -127,8 +130,8 @@ class UserPostalAddressFieldTest(TestCase):
 # Tests: check_missing_donor_addresses management command
 # ---------------------------------------------------------------------------
 
-class CheckMissingDonorAddressesTest(TestCase):
 
+class CheckMissingDonorAddressesTest(TestCase):
     def _call_cmd(self, *args, **kwargs):
         out = StringIO()
         call_command("check_missing_donor_addresses", *args, stdout=out, **kwargs)
@@ -184,7 +187,7 @@ class CheckMissingDonorAddressesTest(TestCase):
         output = self._call_cmd("--csv")
         self.assertIn("serial_number,donor_pk,donation_date", output)
         self.assertIn(receipt.serial_number, output)
-        matching = [l for l in output.splitlines() if receipt.serial_number in l]
+        matching = [l for l in output.splitlines() if receipt.serial_number in l]  # noqa: E741
         self.assertTrue(len(matching) >= 1)
         self.assertIn(",", matching[0])
 

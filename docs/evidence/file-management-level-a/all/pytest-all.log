@@ -1,13 +1,13 @@
-COMMAND: /usr/bin/python3 -m pytest apps/documents/tests --color=no --junitxml /home/ubuntu/file_management_level_a_reports/junit-all.xml --cov=apps.documents --cov-report=xml:/home/ubuntu/file_management_level_a_reports/coverage-all.xml --cov-report=term-missing
+COMMAND: /home/ubuntu/civicos-pr1-candidate-venv/bin/python -m pytest apps/documents/tests --color=no --junitxml /home/ubuntu/pr1-ruff-file-management-rerun-20260824/all/junit-all.xml --cov=apps.documents --cov-report=xml:/home/ubuntu/pr1-ruff-file-management-rerun-20260824/all/coverage-all.xml --cov-report=term-missing
 LAYER: all
 COLLECTED: 1159
 
 ============================= test session starts ==============================
 platform linux -- Python 3.12.3, pytest-8.3.3, pluggy-1.6.0
-django: version: 5.2.3, settings: config.settings.test (from env)
+django: version: 5.2.17, settings: config.settings.test (from env)
 rootdir: <workspace>
 configfile: pyproject.toml
-plugins: anyio-4.14.2, django-4.9.0, time-machine-2.16.0, cov-6.0.0, xdist-3.6.1, Faker-33.0.0
+plugins: anyio-4.14.2, time-machine-2.16.0, Faker-33.0.0, xdist-3.6.1, django-4.9.0, cov-6.0.0
 collected 1159 items
 
 apps/documents/tests/test_access_tokens.py ............................. [  2%]
@@ -56,226 +56,214 @@ apps/documents/tests/test_integration.py ...........                     [ 97%]
 apps/documents/tests/test_services_upload.py ........................    [100%]
 
 =============================== warnings summary ===============================
-../../../usr/local/lib/python3.12/dist-packages/wagtail/blocks/field_block.py:321: 2 warnings
-apps/documents/tests/test_access_tokens.py: 8 warnings
-  /usr/local/lib/python3.12/dist-packages/wagtail/blocks/field_block.py:321: RemovedInDjango60Warning: The default scheme will be changed from 'http' to 'https' in Django 6.0. Pass the forms.URLField.assume_scheme argument to silence this warning, or set the FORMS_URLFIELD_ASSUME_HTTPS transitional setting to True to opt into using 'https' as the new default scheme.
-    self.field = forms.URLField(
-
-apps/payments/models.py:193
-  <workspace>/apps/payments/models.py:193: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:195
+  <workspace>/apps/payments/models.py:195: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:197
-  <workspace>/apps/payments/models.py:197: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:199
+  <workspace>/apps/payments/models.py:199: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:350
-  <workspace>/apps/payments/models.py:350: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:352
+  <workspace>/apps/payments/models.py:352: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:354
-  <workspace>/apps/payments/models.py:354: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:356
+  <workspace>/apps/payments/models.py:356: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:358
-  <workspace>/apps/payments/models.py:358: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:360
+  <workspace>/apps/payments/models.py:360: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:362
-  <workspace>/apps/payments/models.py:362: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:364
+  <workspace>/apps/payments/models.py:364: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:499
-  <workspace>/apps/payments/models.py:499: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:500
+  <workspace>/apps/payments/models.py:500: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:697
-  <workspace>/apps/payments/models.py:697: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:700
+  <workspace>/apps/payments/models.py:700: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:1005
-  <workspace>/apps/payments/models.py:1005: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:1013
+  <workspace>/apps/payments/models.py:1013: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:1009
-  <workspace>/apps/payments/models.py:1009: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:1017
+  <workspace>/apps/payments/models.py:1017: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:1190
-  <workspace>/apps/payments/models.py:1190: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:1205
+  <workspace>/apps/payments/models.py:1205: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:1194
-  <workspace>/apps/payments/models.py:1194: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:1209
+  <workspace>/apps/payments/models.py:1209: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:1569
-  <workspace>/apps/payments/models.py:1569: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:1591
+  <workspace>/apps/payments/models.py:1591: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:1573
-  <workspace>/apps/payments/models.py:1573: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:1595
+  <workspace>/apps/payments/models.py:1595: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:1577
-  <workspace>/apps/payments/models.py:1577: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:1599
+  <workspace>/apps/payments/models.py:1599: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:1581
-  <workspace>/apps/payments/models.py:1581: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:1603
+  <workspace>/apps/payments/models.py:1603: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:1585
-  <workspace>/apps/payments/models.py:1585: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:1607
+  <workspace>/apps/payments/models.py:1607: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:1819
-  <workspace>/apps/payments/models.py:1819: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:1847
+  <workspace>/apps/payments/models.py:1847: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:1823
-  <workspace>/apps/payments/models.py:1823: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:1851
+  <workspace>/apps/payments/models.py:1851: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/models.py:1832
-  <workspace>/apps/payments/models.py:1832: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/models.py:1860
+  <workspace>/apps/payments/models.py:1860: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/volunteers/models.py:565
-  <workspace>/apps/volunteers/models.py:565: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/volunteers/models.py:547
+  <workspace>/apps/volunteers/models.py:547: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/volunteers/models.py:889
-  <workspace>/apps/volunteers/models.py:889: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/volunteers/models.py:860
+  <workspace>/apps/volunteers/models.py:860: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/volunteers/models.py:1118
-  <workspace>/apps/volunteers/models.py:1118: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/volunteers/models.py:1084
+  <workspace>/apps/volunteers/models.py:1084: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/volunteers/models.py:1631
-  <workspace>/apps/volunteers/models.py:1631: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/volunteers/models.py:1588
+  <workspace>/apps/volunteers/models.py:1588: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/volunteers/models.py:1836
-  <workspace>/apps/volunteers/models.py:1836: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/volunteers/models.py:1796
+  <workspace>/apps/volunteers/models.py:1796: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/govstack_models.py:1128
-  <workspace>/apps/payments/govstack_models.py:1128: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/govstack_models.py:1136
+  <workspace>/apps/payments/govstack_models.py:1136: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-apps/payments/govstack_models.py:1272
-  <workspace>/apps/payments/govstack_models.py:1272: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+apps/payments/govstack_models.py:1281
+  <workspace>/apps/payments/govstack_models.py:1281: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     models.CheckConstraint(
 
-../../../usr/local/lib/python3.12/dist-packages/django/db/models/fields/__init__.py:1148
-../../../usr/local/lib/python3.12/dist-packages/django/db/models/fields/__init__.py:1148
-apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-  /usr/local/lib/python3.12/dist-packages/django/db/models/fields/__init__.py:1148: RemovedInDjango60Warning: The default scheme will be changed from 'http' to 'https' in Django 6.0. Pass the forms.URLField.assume_scheme argument to silence this warning, or set the FORMS_URLFIELD_ASSUME_HTTPS transitional setting to True to opt into using 'https' as the new default scheme.
+../civicos-pr1-candidate-venv/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1148
+../civicos-pr1-candidate-venv/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1148
+  /home/ubuntu/civicos-pr1-candidate-venv/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1148: RemovedInDjango60Warning: The default scheme will be changed from 'http' to 'https' in Django 6.0. Pass the forms.URLField.assume_scheme argument to silence this warning, or set the FORMS_URLFIELD_ASSUME_HTTPS transitional setting to True to opt into using 'https' as the new default scheme.
     return form_class(**defaults)
 
 apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-  <workspace>/apps/consent/migrations/0007_govstack_alignment.py:246: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+  <workspace>/apps/consent/migrations/0007_govstack_alignment.py:377: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     constraint=models.CheckConstraint(
 
 apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-  <workspace>/apps/payments/migrations/0001_initial.py:1057: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+  <workspace>/apps/payments/migrations/0001_initial.py:1030: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     constraint=models.CheckConstraint(
 
 apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-  <workspace>/apps/payments/migrations/0001_initial.py:1679: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+  <workspace>/apps/payments/migrations/0001_initial.py:1638: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     constraint=models.CheckConstraint(
 
 apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-  <workspace>/apps/payments/migrations/0001_initial.py:1686: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+  <workspace>/apps/payments/migrations/0001_initial.py:1645: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     constraint=models.CheckConstraint(
 
 apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-  <workspace>/apps/payments/migrations/0001_initial.py:1696: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+  <workspace>/apps/payments/migrations/0001_initial.py:1656: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     constraint=models.CheckConstraint(
 
 apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-  <workspace>/apps/payments/migrations/0001_initial.py:1703: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+  <workspace>/apps/payments/migrations/0001_initial.py:1663: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     constraint=models.CheckConstraint(
 
 apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-  <workspace>/apps/payments/migrations/0001_initial.py:1724: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+  <workspace>/apps/payments/migrations/0001_initial.py:1684: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     constraint=models.CheckConstraint(
 
 apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-  <workspace>/apps/payments/migrations/0001_initial.py:1774: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+  <workspace>/apps/payments/migrations/0001_initial.py:1736: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     constraint=models.CheckConstraint(
 
 apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-  <workspace>/apps/payments/migrations/0001_initial.py:1781: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+  <workspace>/apps/payments/migrations/0001_initial.py:1743: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     constraint=models.CheckConstraint(
 
 apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-  <workspace>/apps/payments/migrations/0001_initial.py:1788: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+  <workspace>/apps/payments/migrations/0001_initial.py:1750: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     constraint=models.CheckConstraint(
 
 apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-  <workspace>/apps/payments/migrations/0001_initial.py:1795: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+  <workspace>/apps/payments/migrations/0001_initial.py:1757: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     constraint=models.CheckConstraint(
 
 apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-  <workspace>/apps/payments/migrations/0001_initial.py:1802: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+  <workspace>/apps/payments/migrations/0001_initial.py:1764: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     constraint=models.CheckConstraint(
 
 apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-  <workspace>/apps/payments/migrations/0001_initial.py:1827: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+  <workspace>/apps/payments/migrations/0001_initial.py:1789: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     constraint=models.CheckConstraint(
 
 apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-  <workspace>/apps/payments/migrations/0001_initial.py:1834: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+  <workspace>/apps/payments/migrations/0001_initial.py:1796: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     constraint=models.CheckConstraint(
+
+apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
+  <workspace>/apps/payments/migrations/0020_govstack_p2g_models.py:148: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
+  <workspace>/apps/payments/migrations/0020_govstack_p2g_models.py:296: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
 
 apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
   <workspace>/apps/payments/migrations/0005_add_receipt_amount_constraints.py:27: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     constraint=models.CheckConstraint(
 
 apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-  <workspace>/apps/payments/migrations/0009_add_refund_and_servicefeepayment_constraints.py:25: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+  <workspace>/apps/payments/migrations/0009_add_refund_and_servicefeepayment_constraints.py:24: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     constraint=models.CheckConstraint(
 
 apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-  <workspace>/apps/payments/migrations/0009_add_refund_and_servicefeepayment_constraints.py:32: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+  <workspace>/apps/payments/migrations/0009_add_refund_and_servicefeepayment_constraints.py:31: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     constraint=models.CheckConstraint(
 
 apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-  <workspace>/apps/payments/migrations/0020_govstack_p2g_models.py:149: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
-    models.CheckConstraint(
-
-apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-  <workspace>/apps/payments/migrations/0020_govstack_p2g_models.py:297: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
-    models.CheckConstraint(
-
-apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-  <workspace>/apps/volunteers/migrations/0002_wave1_fixes.py:96: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+  <workspace>/apps/volunteers/migrations/0001_initial.py:648: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     constraint=models.CheckConstraint(
 
 apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-  <workspace>/apps/volunteers/migrations/0002_wave1_fixes.py:122: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+  <workspace>/apps/volunteers/migrations/0001_initial.py:863: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     constraint=models.CheckConstraint(
 
 apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-  <workspace>/apps/volunteers/migrations/0001_initial.py:375: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+  <workspace>/apps/volunteers/migrations/0001_initial.py:1152: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     constraint=models.CheckConstraint(
 
 apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-  <workspace>/apps/volunteers/migrations/0001_initial.py:509: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+  <workspace>/apps/volunteers/migrations/0002_wave1_fixes.py:95: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     constraint=models.CheckConstraint(
 
 apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-  <workspace>/apps/volunteers/migrations/0001_initial.py:693: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+  <workspace>/apps/volunteers/migrations/0002_wave1_fixes.py:121: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
     constraint=models.CheckConstraint(
-
-apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
-  /usr/local/lib/python3.12/dist-packages/wagtail/admin/forms/choosers.py:35: RemovedInDjango60Warning: The default scheme will be changed from 'http' to 'https' in Django 6.0. Pass the forms.URLField.assume_scheme argument to silence this warning, or set the FORMS_URLFIELD_ASSUME_HTTPS transitional setting to True to opt into using 'https' as the new default scheme.
-    url = URLOrAbsolutePathField(required=True, label=_("URL"))
 
 apps/documents/tests/test_api.py: 112 warnings
 apps/documents/tests/test_pipeda.py: 3 warnings
@@ -284,36 +272,36 @@ apps/documents/tests/test_views_http_contract.py: 31 warnings
 apps/documents/tests/test_views_staff.py: 28 warnings
 apps/documents/tests/test_wave5_views.py: 73 warnings
 apps/documents/tests/test_wcag.py: 33 warnings
-  /usr/local/lib/python3.12/dist-packages/django/core/handlers/base.py:61: UserWarning: No directory at: <workspace>/staticfiles/
+  /home/ubuntu/civicos-pr1-candidate-venv/lib/python3.12/site-packages/django/core/handlers/base.py:61: UserWarning: No directory at: <workspace>/staticfiles/
     mw_instance = middleware(adapted_handler)
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-- generated xml file: /home/ubuntu/file_management_level_a_reports/junit-all.xml -
+- generated xml file: /home/ubuntu/pr1-ruff-file-management-rerun-20260824/all/junit-all.xml -
 
 ---------- coverage: platform linux, python 3.12.3-final-0 -----------
 Name                                                           Stmts   Miss  Cover   Missing
 --------------------------------------------------------------------------------------------
 apps/documents/admin.py                                           71      6    92%   278, 282-291, 380
 apps/documents/apps.py                                            38     14    63%   68-92
-apps/documents/forms.py                                           74      6    92%   134, 151, 159, 169, 242, 354
-apps/documents/management/commands/manage_legal_hold.py           54     54     0%   35-175
-apps/documents/management/commands/migrate_existing_files.py     191     95    50%   148, 152-159, 171-175, 188-291, 303-307, 320-430, 442-446, 459-563, 615-623
+apps/documents/forms.py                                           73      6    92%   134, 150, 156, 166, 236, 346
+apps/documents/management/commands/manage_legal_hold.py           53     53     0%   35-172
+apps/documents/management/commands/migrate_existing_files.py     191     95    50%   148, 152-159, 171-173, 188-287, 299-301, 320-418, 430-432, 451-550, 602-610
 apps/documents/models.py                                         143      0   100%
 apps/documents/receivers.py                                       14      0   100%
-apps/documents/services/download.py                              117      9    92%   154-155, 392, 420-424, 462-464, 509-510
-apps/documents/services/retention.py                             238     23    90%   198, 349-353, 373-378, 382, 387, 391, 408-409, 463-468, 501, 615, 621, 626, 673-680, 810, 890, 931
-apps/documents/services/upload.py                                337     73    78%   65-66, 73-74, 329-338, 406-407, 460, 554-562, 664, 712, 810, 913-914, 931-932, 943-949, 993, 1005-1023, 1046, 1065, 1072-1089, 1108-1114, 1138, 1145-1158, 1235, 1318-1320, 1349
-apps/documents/services/versioning.py                            123     34    72%   122-133, 144-149, 153-159, 188, 190, 195, 216, 252-257, 268, 275-280, 282-288, 389-418, 445-446
+apps/documents/services/download.py                              116      9    92%   149-150, 384, 412-416, 454-456, 501-502
+apps/documents/services/retention.py                             238     23    90%   197, 348-352, 372-377, 381, 385, 387, 404-405, 458-463, 496, 610, 616, 621, 670-677, 805, 883, 922
+apps/documents/services/upload.py                                336     73    78%   64-65, 72-73, 324-333, 401-402, 457, 551-559, 658, 702, 800, 903-904, 921-922, 933-939, 981, 993-1011, 1032, 1051, 1058-1075, 1092-1098, 1122, 1129-1142, 1215, 1302-1304, 1334
+apps/documents/services/versioning.py                            123     34    72%   123-134, 143-146, 150-156, 181, 183, 188, 207, 240-245, 256, 261-266, 268-274, 375-404, 431-432
 apps/documents/signals.py                                          9      0   100%
-apps/documents/tasks.py                                          417     51    88%   174-210, 226-231, 255-256, 300, 344-345, 719, 1030-1039, 1061-1067, 1288-1289, 1399-1400, 1407-1412, 1520-1528, 1738-1739, 1741-1742, 1746-1747, 1749
+apps/documents/tasks.py                                          416     51    88%   174-206, 222-227, 249-250, 295, 339-340, 711, 1020-1029, 1051-1057, 1273-1274, 1381-1382, 1389-1394, 1503-1511, 1721-1722, 1724-1725, 1729-1730, 1732
 apps/documents/urls.py                                             6      0   100%
-apps/documents/views/citizen.py                                  146     13    91%   93-94, 443-451, 545-550, 560-565
-apps/documents/views/staff.py                                    122      2    98%   257-258
+apps/documents/views/citizen.py                                  146     13    91%   94-95, 446-454, 543-548, 558-563
+apps/documents/views/staff.py                                    122      2    98%   247-248
 --------------------------------------------------------------------------------------------
-TOTAL                                                           2100    380    82%
-Coverage XML written to file /home/ubuntu/file_management_level_a_reports/coverage-all.xml
+TOTAL                                                           2095    379    82%
+Coverage XML written to file /home/ubuntu/pr1-ruff-file-management-rerun-20260824/all/coverage-all.xml
 
-Required test coverage of 80.0% reached. Total coverage: 81.90%
-================ 1159 passed, 387 warnings in 153.54s (0:02:33) ================
+Required test coverage of 80.0% reached. Total coverage: 81.91%
+================ 1159 passed, 373 warnings in 135.99s (0:02:15) ================
 
 EXIT_CODE: 0

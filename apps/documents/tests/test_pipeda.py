@@ -27,7 +27,6 @@ from django.http import Http404
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
-
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
 
@@ -126,6 +125,7 @@ class IDORPreventionTests(TestCase):
     def test_not_403_for_non_owned_document(self):
         """Explicitly verify PermissionDenied is NOT raised (would confirm existence)."""
         from django.core.exceptions import PermissionDenied
+
         try:
             issue_access_token(user=self.attacker, document=self.doc)
         except Http404:
@@ -143,6 +143,7 @@ class IDORPreventionTests(TestCase):
         arbitrary exception (masking IDOR violations).
         """
         from django.contrib.auth.models import AnonymousUser
+
         anon = AnonymousUser()
         with self.assertRaises(Http404):
             issue_access_token(user=anon, document=self.doc)
@@ -172,7 +173,8 @@ class IDORPreventionTests(TestCase):
         client.credentials(HTTP_AUTHORIZATION=_token_auth(self.attacker))
         response = client.get(url)
         self.assertEqual(
-            response.status_code, 404,
+            response.status_code,
+            404,
             "IDOR: attacker must receive 404 (not 403) for a non-owned document UUID",
         )
 
@@ -260,7 +262,8 @@ class ScanGateTests(TestCase):
         client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
         response = client.post(url)
         self.assertEqual(
-            response.status_code, 404,
+            response.status_code,
+            404,
             "Scan gate: SCANNING document must return 404 via the request-download API endpoint",
         )
 
@@ -352,12 +355,17 @@ class StorageKeyLeakageTests(TestCase):
 
         # Check raw response bytes (value leakage or nested serialisation)
         body = response.content.decode()
-        self.assertNotIn('"storage_key"', body,
-                         "storage_key field name must not appear in JSON response")
-        self.assertNotIn('"_storage_key"', body,
-                         "_storage_key field name must not appear in JSON response")
-        self.assertNotIn(self.doc._storage_key, body,
-                         "Raw storage key path value must not appear in JSON response")
+        self.assertNotIn(
+            '"storage_key"', body, "storage_key field name must not appear in JSON response"
+        )
+        self.assertNotIn(
+            '"_storage_key"', body, "_storage_key field name must not appear in JSON response"
+        )
+        self.assertNotIn(
+            self.doc._storage_key,
+            body,
+            "Raw storage key path value must not appear in JSON response",
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -401,6 +409,7 @@ class LegalHoldAbsoluteBlockTests(TestCase):
         self.assertTrue(self.doc.legal_hold)
 
         from apps.documents.services.retention import release_legal_hold
+
         release_legal_hold(document=self.doc, released_by=self.user)
         self.doc.refresh_from_db()
         self.assertFalse(self.doc.legal_hold)
@@ -539,13 +548,15 @@ class QuarantineSignalPIITests(TestCase):
 
         # Explicit named assertion for original_filename (PIPEDA §4.5 minimisation)
         self.assertNotIn(
-            "original_filename", received,
+            "original_filename",
+            received,
             "PIPEDA violation: original_filename must NOT be in document_quarantined signal kwargs",
         )
         # Also assert the raw filename value does not appear anywhere in the signal
         for key, value in received.items():
             self.assertNotIn(
-                doc.original_filename, str(value),
+                doc.original_filename,
+                str(value),
                 f"PIPEDA violation: filename value leaked in signal kwarg '{key}'",
             )
 
@@ -567,7 +578,8 @@ class OriginalFilenameAuditTests(TestCase):
         self.cat = _make_category()
         # Include PII in original_filename to make leakage detectable
         self.doc = _make_document(
-            self.user, self.cat,
+            self.user,
+            self.cat,
         )
         # Override original_filename with something detectably PII
         self.doc.original_filename = f"John_Smith_SIN123456789_{uuid.uuid4().hex}.pdf"
@@ -615,17 +627,19 @@ class IPMaskingTests(TestCase):
         self.assertIsNotNone(masked)
         # Last 80 bits zeroed — mask should zero from 4th group onwards
         import ipaddress
+
         addr = ipaddress.ip_address(masked)
-        network = ipaddress.ip_network(f"2001:db8:1234::/48", strict=False)
+        network = ipaddress.ip_network("2001:db8:1234::/48", strict=False)
         self.assertIn(addr, network)
 
     def test_ipv6_full_mask(self):
         masked = _mask_ip("2001:0db8:85a3:0000:0000:8a2e:0370:7334")
         self.assertIsNotNone(masked)
         # Last 80 bits (5 groups of 16 bits) are zeroed
-        parts = masked.split(":")
+        masked.split(":")
         # IPv6 addresses may be compressed — just verify it's a valid address
         import ipaddress
+
         addr = ipaddress.ip_address(masked)
         # The last 80 bits should be zero
         int_val = int(addr)
@@ -713,7 +727,6 @@ class StaffIDORBypassTests(TestCase):
 
 
 class AccessTokenSecurityTests(TestCase):
-
     def setUp(self):
         self.user = _make_user()
         self.cat = _make_category()
@@ -815,10 +828,14 @@ class RecordEventAtomicityTests(TestCase):
         doc = _make_document(user, cat)
         issue_access_token(user=user, document=doc)
 
-        entry = AuditLogEntry.objects.filter(
-            resource_id=str(doc.pk),
-            event_type=AuditEventType.RECORD_VIEWED,
-        ).order_by("-timestamp").first()
+        entry = (
+            AuditLogEntry.objects.filter(
+                resource_id=str(doc.pk),
+                event_type=AuditEventType.RECORD_VIEWED,
+            )
+            .order_by("-timestamp")
+            .first()
+        )
 
         self.assertIsNotNone(entry)
         self.assertEqual(entry.actor_id, str(user.pk))

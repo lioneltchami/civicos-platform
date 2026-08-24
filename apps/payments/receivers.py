@@ -12,17 +12,19 @@ Security invariants:
 - Only serial_number, donation_pk, and error TYPE are logged.
 - Exceptions are caught and logged — signal receivers must not crash callers.
 """
+
 from __future__ import annotations
 
 import logging
 
 from django.db import transaction
-from django.utils.timezone import localtime, now as timezone_now
+from django.utils.timezone import localtime
+from django.utils.timezone import now as timezone_now
 
 logger = logging.getLogger("apps.payments.receivers")
 
 
-def on_donation_completed(sender, donation, payment, **kwargs):
+def on_donation_completed(sender, donation, payment, **kwargs) -> None:  # noqa: ANN001, ANN003
     """
     Fire when a donation payment succeeds (donation_completed signal).
 
@@ -38,8 +40,8 @@ def on_donation_completed(sender, donation, payment, **kwargs):
     from decimal import Decimal
 
     from apps.payments.models import (
-        CharitySettings,
         DONATION_STATUS_COMPLETED,
+        CharitySettings,
         OfficialDonationReceipt,
     )
     from apps.payments.tasks_receipts import generate_and_send_receipt
@@ -83,6 +85,7 @@ def on_donation_completed(sender, donation, payment, **kwargs):
 
         # Parse individual donor address fields from snapshot
         from apps.payments.tasks_receipts import _parse_donor_address
+
         donor_address_parts = _parse_donor_address(donation.donor_address_snapshot)
 
         with transaction.atomic():
@@ -134,12 +137,11 @@ def on_donation_completed(sender, donation, payment, **kwargs):
                 is_annual_consolidated=False,
             )
             receipt_pk_str = str(receipt.pk)
-            transaction.on_commit(
-                lambda: generate_and_send_receipt.delay(receipt_pk_str)
-            )
+            transaction.on_commit(lambda: generate_and_send_receipt.delay(receipt_pk_str))
 
-            def _send_receipt_issued():
+            def _send_receipt_issued() -> None:
                 from apps.payments.signals import receipt_issued
+
                 receipt_issued.send(
                     sender=OfficialDonationReceipt,
                     receipt=receipt,
@@ -163,7 +165,7 @@ def on_donation_completed(sender, donation, payment, **kwargs):
         )
 
 
-def on_receipt_issued(sender, receipt, donation, **kwargs):
+def on_receipt_issued(sender, receipt, donation, **kwargs) -> None:  # noqa: ANN001, ANN003
     """
     Hook fired when an OfficialDonationReceipt is issued (receipt_issued signal).
 

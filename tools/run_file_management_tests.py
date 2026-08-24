@@ -6,6 +6,7 @@ starts containers, calls network services, or invokes the pinned official
 GovStack harness. Its artifacts are local diagnostic evidence, not conformance
 or certification evidence.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -14,8 +15,8 @@ import os
 import re
 import subprocess
 import sys
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SCOPE = "apps/documents/tests"
@@ -46,10 +47,14 @@ def load_layer_manifest() -> dict[str, list[str]]:
     except (OSError, json.JSONDecodeError) as error:
         raise RuntimeError(f"unable to read layer manifest: {error}") from error
     if payload.get("scope_root") != DEFAULT_SCOPE:
-        raise RuntimeError("layer manifest scope_root does not match the canonical File Management scope")
+        raise RuntimeError(
+            "layer manifest scope_root does not match the canonical File Management scope"
+        )
     layers = payload.get("layers")
     if not isinstance(layers, dict) or set(layers) != {"unit", "integration", "e2e"}:
-        raise RuntimeError("layer manifest must define exactly unit, integration, and e2e selections")
+        raise RuntimeError(
+            "layer manifest must define exactly unit, integration, and e2e selections"
+        )
     resolved: dict[str, list[str]] = {}
     for layer, names in layers.items():
         if not isinstance(names, list) or not names:
@@ -57,7 +62,9 @@ def load_layer_manifest() -> dict[str, list[str]]:
         paths = [f"{DEFAULT_SCOPE}/{name}" for name in names]
         missing = [path for path in paths if not (ROOT / path).is_file()]
         if missing:
-            raise RuntimeError(f"layer {layer!r} references missing test modules: {', '.join(missing)}")
+            raise RuntimeError(
+                f"layer {layer!r} references missing test modules: {', '.join(missing)}"
+            )
         resolved[layer] = paths
     return resolved
 
@@ -74,7 +81,7 @@ def redact(text: str) -> str:
 
 
 def run_and_capture(command: Iterable[str], *, env: dict[str, str]) -> tuple[int, str]:
-    completed = subprocess.run(
+    completed = subprocess.run(  # noqa: S603
         list(command),
         cwd=ROOT,
         env=env,
@@ -110,7 +117,9 @@ def main() -> int:
     collection_log.write_text(redact(collect_output), encoding="utf-8")
     if collect_code != 0:
         raw.write_text(
-            redact(f"COLLECTION COMMAND: {' '.join(base_command)} --collect-only -q\n\n{collect_output}"),
+            redact(
+                f"COLLECTION COMMAND: {' '.join(base_command)} --collect-only -q\n\n{collect_output}"  # noqa: E501
+            ),
             encoding="utf-8",
         )
         print(f"File Management collection failed; see {collection_log}", file=sys.stderr)
@@ -120,7 +129,9 @@ def main() -> int:
     collected = int(match.group(1)) if match else 0
     if collected == 0:
         raw.write_text(
-            redact(f"ERROR: selector produced zero tests\nCOMMAND: {' '.join(base_command)}\n\n{collect_output}"),
+            redact(
+                f"ERROR: selector produced zero tests\nCOMMAND: {' '.join(base_command)}\n\n{collect_output}"  # noqa: E501
+            ),
             encoding="utf-8",
         )
         print(f"zero tests collected for layer={args.layer}; see {collection_log}", file=sys.stderr)
@@ -144,7 +155,9 @@ def main() -> int:
     )
     if args.collect_only:
         raw.write_text(
-            redact(f"COLLECTION COMMAND: {' '.join(base_command)} --collect-only -q\n\n{collect_output}"),
+            redact(
+                f"COLLECTION COMMAND: {' '.join(base_command)} --collect-only -q\n\n{collect_output}"  # noqa: E501
+            ),
             encoding="utf-8",
         )
         return 0
@@ -166,7 +179,7 @@ def main() -> int:
     exit_code, output = run_and_capture(command, env=env)
     raw.write_text(
         redact(
-            f"COMMAND: {' '.join(command)}\nLAYER: {args.layer}\nCOLLECTED: {collected}\n\n{output}\nEXIT_CODE: {exit_code}\n"
+            f"COMMAND: {' '.join(command)}\nLAYER: {args.layer}\nCOLLECTED: {collected}\n\n{output}\nEXIT_CODE: {exit_code}\n"  # noqa: E501
         ),
         encoding="utf-8",
     )

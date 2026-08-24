@@ -48,4 +48,3 @@ app.conf.task_default_queue = "default"
 # Do NOT set app.conf.task_routes here — programmatic assignment via app.conf
 # takes precedence over settings-based CELERY_TASK_ROUTES (loaded via
 # config_from_object) and would silently override all routes defined in base.py.
-

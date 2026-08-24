@@ -38,12 +38,13 @@ User model
 ----------
 CivicOS uses auth_extension.User with email as the unique identifier.
 """
+
 from __future__ import annotations
 
 import uuid
 from datetime import timedelta
 from io import BytesIO
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
@@ -114,31 +115,31 @@ def make_user(**kwargs) -> User:
 
 
 def make_category(**kwargs) -> DocumentCategory:
-    defaults = dict(
-        name_en="API Test Category",
-        name_fr="Catégorie test API",
-        slug=_slug(),
-        allowed_mime_types=["application/pdf"],
-        max_size_bytes=0,
-        min_retention_days=730,
-        max_retention_days=2555,
-        staff_only=False,
-        is_transitory=False,
-    )
+    defaults = {
+        "name_en": "API Test Category",
+        "name_fr": "Catégorie test API",
+        "slug": _slug(),
+        "allowed_mime_types": ["application/pdf"],
+        "max_size_bytes": 0,
+        "min_retention_days": 730,
+        "max_retention_days": 2555,
+        "staff_only": False,
+        "is_transitory": False,
+    }
     defaults.update(kwargs)
     return DocumentCategory.objects.create(**defaults)
 
 
 def make_document(user: User, category: DocumentCategory, **kwargs) -> Document:
-    defaults = dict(
-        category=category,
-        uploaded_by=user,
-        original_filename="test.pdf",
-        _storage_key=f"quarantine/documents/{uuid.uuid4()}.bin",
-        mime_type="application/pdf",
-        size_bytes=1024,
-        scan_status=Document.ScanStatus.ACTIVE,
-    )
+    defaults = {
+        "category": category,
+        "uploaded_by": user,
+        "original_filename": "test.pdf",
+        "_storage_key": f"quarantine/documents/{uuid.uuid4()}.bin",
+        "mime_type": "application/pdf",
+        "size_bytes": 1024,
+        "scan_status": Document.ScanStatus.ACTIVE,
+    }
     defaults.update(kwargs)
     return Document.objects.create(**defaults)
 
@@ -206,28 +207,20 @@ class CitizenUnauthenticatedTests(TestCase):
         self.assertEqual(response.status_code, 302)
 
     def test_detail_unauthenticated_returns_302(self) -> None:
-        response = self.client.get(
-            reverse("documents:detail", args=[self.doc.pk])
-        )
+        response = self.client.get(reverse("documents:detail", args=[self.doc.pk]))
         self.assertEqual(response.status_code, 302)
 
     def test_download_unauthenticated_returns_302(self) -> None:
-        response = self.client.get(
-            reverse("documents:download", args=[self.doc.pk])
-        )
+        response = self.client.get(reverse("documents:download", args=[self.doc.pk]))
         self.assertEqual(response.status_code, 302)
 
     def test_token_redeem_unauthenticated_returns_302(self) -> None:
         fake_token = "a" * 64
-        response = self.client.get(
-            reverse("documents:token-redeem", args=[fake_token])
-        )
+        response = self.client.get(reverse("documents:token-redeem", args=[fake_token]))
         self.assertEqual(response.status_code, 302)
 
     def test_confirm_unauthenticated_returns_302(self) -> None:
-        response = self.client.post(
-            reverse("documents:upload-confirm", args=[uuid.uuid4()])
-        )
+        response = self.client.post(reverse("documents:upload-confirm", args=[uuid.uuid4()]))
         self.assertEqual(response.status_code, 302)
 
 
@@ -280,9 +273,7 @@ class UploadInitHttpTests(TestCase):
         When validate_upload_request raises PermissionDenied (e.g. staff-only
         category), the view catches it and returns HTTP 403.
         """
-        with patch(
-            "apps.documents.views.citizen.validate_upload_request"
-        ) as mock_service:
+        with patch("apps.documents.views.citizen.validate_upload_request") as mock_service:
             mock_service.side_effect = PermissionDenied("Staff-only category.")
             response = self.client.post(self.url, data=self._valid_post_data())
 
@@ -292,9 +283,7 @@ class UploadInitHttpTests(TestCase):
         """
         An unhandled exception from validate_upload_request returns HTTP 500.
         """
-        with patch(
-            "apps.documents.views.citizen.validate_upload_request"
-        ) as mock_service:
+        with patch("apps.documents.views.citizen.validate_upload_request") as mock_service:
             mock_service.side_effect = RuntimeError("Storage backend unavailable.")
             response = self.client.post(self.url, data=self._valid_post_data())
 
@@ -391,16 +380,12 @@ class DownloadHttpTests(TestCase):
         GET /docs/<pk>/download/ on an ACTIVE document issues a token and
         redirects to /docs/dl/<token>/.
         """
-        doc = make_document(
-            self.user, self.category, scan_status=Document.ScanStatus.ACTIVE
-        )
+        doc = make_document(self.user, self.category, scan_status=Document.ScanStatus.ACTIVE)
         token = make_token(self.user, doc)
 
         with patch("apps.documents.views.citizen.issue_access_token") as mock_issue:
             mock_issue.return_value = token
-            response = self.client.get(
-                reverse("documents:download", args=[doc.pk])
-            )
+            response = self.client.get(reverse("documents:download", args=[doc.pk]))
 
         self.assertEqual(response.status_code, 302)
         location = response["Location"]
@@ -414,9 +399,7 @@ class DownloadHttpTests(TestCase):
         scanning_doc = make_document(
             self.user, self.category, scan_status=Document.ScanStatus.SCANNING
         )
-        response = self.client.get(
-            reverse("documents:download", args=[scanning_doc.pk])
-        )
+        response = self.client.get(reverse("documents:download", args=[scanning_doc.pk]))
         self.assertEqual(response.status_code, 404)
 
     def test_get_wrong_user_doc_returns_404(self) -> None:
@@ -424,12 +407,8 @@ class DownloadHttpTests(TestCase):
         A document owned by a different user returns HTTP 404 to prevent IDOR.
         The citizen must not learn whether the document exists.
         """
-        other_doc = make_document(
-            self.other, self.category, scan_status=Document.ScanStatus.ACTIVE
-        )
-        response = self.client.get(
-            reverse("documents:download", args=[other_doc.pk])
-        )
+        other_doc = make_document(self.other, self.category, scan_status=Document.ScanStatus.ACTIVE)
+        response = self.client.get(reverse("documents:download", args=[other_doc.pk]))
         self.assertEqual(response.status_code, 404)
 
     def test_302_location_does_not_contain_storage_key(self) -> None:
@@ -448,9 +427,7 @@ class DownloadHttpTests(TestCase):
 
         with patch("apps.documents.views.citizen.issue_access_token") as mock_issue:
             mock_issue.return_value = token
-            response = self.client.get(
-                reverse("documents:download", args=[doc.pk])
-            )
+            response = self.client.get(reverse("documents:download", args=[doc.pk]))
 
         self.assertEqual(response.status_code, 302)
         location = response["Location"]
@@ -657,16 +634,12 @@ class StaffHttpContractTests(TestCase):
 
     def test_staff_detail_authenticated_no_perm_returns_403(self) -> None:
         """GET /docs/staff/<pk>/ without view_all_documents → 403."""
-        response = self.client.get(
-            reverse("documents:staff-detail", args=[self.doc.pk])
-        )
+        response = self.client.get(reverse("documents:staff-detail", args=[self.doc.pk]))
         self.assertEqual(response.status_code, 403)
 
     def test_legal_hold_view_no_perm_returns_403(self) -> None:
         """GET /docs/staff/<pk>/legal-hold/ without manage_legal_hold → 403."""
-        response = self.client.get(
-            reverse("documents:legal-hold", args=[self.doc.pk])
-        )
+        response = self.client.get(reverse("documents:legal-hold", args=[self.doc.pk]))
         self.assertEqual(response.status_code, 403)
 
     def test_quarantine_list_no_perm_returns_403(self) -> None:
@@ -676,9 +649,7 @@ class StaffHttpContractTests(TestCase):
 
     def test_audit_log_no_perm_returns_403(self) -> None:
         """GET /docs/staff/<pk>/audit/ without view_all_documents → 403."""
-        response = self.client.get(
-            reverse("documents:audit-log", args=[self.doc.pk])
-        )
+        response = self.client.get(reverse("documents:audit-log", args=[self.doc.pk]))
         self.assertEqual(response.status_code, 403)
 
 

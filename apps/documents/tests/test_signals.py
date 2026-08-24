@@ -15,7 +15,7 @@ Rules:
 
 import uuid
 from datetime import timedelta
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
@@ -95,7 +95,7 @@ def _grant_manage_legal_hold(user):
 class SignalDeclarationTests(TestCase):
     """All 8 document signals must be django.dispatch.Signal instances."""
 
-    EXPECTED_SIGNALS = [
+    EXPECTED_SIGNALS = [  # noqa: RUF012
         "document_upload_initiated",
         "document_confirmed",
         "document_scan_clean",
@@ -112,17 +112,17 @@ class SignalDeclarationTests(TestCase):
                 obj = getattr(doc_signals, name, None)
                 self.assertIsNotNone(obj, f"signals.{name} is not defined")
                 self.assertIsInstance(
-                    obj, Signal,
+                    obj,
+                    Signal,
                     f"signals.{name} is {type(obj).__name__}, expected Signal",
                 )
 
     def test_no_extra_signals_exported(self):
         """Signal count: exactly 8."""
-        all_signals = [
-            name for name, val in vars(doc_signals).items()
-            if isinstance(val, Signal)
-        ]
-        self.assertEqual(len(all_signals), 8, f"Expected 8 signals, found {len(all_signals)}: {all_signals}")
+        all_signals = [name for name, val in vars(doc_signals).items() if isinstance(val, Signal)]
+        self.assertEqual(
+            len(all_signals), 8, f"Expected 8 signals, found {len(all_signals)}: {all_signals}"
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -131,7 +131,6 @@ class SignalDeclarationTests(TestCase):
 
 
 class SoftDeletedSignalTests(TestCase):
-
     def setUp(self):
         self.user = _make_user()
         self.cat = _make_category()
@@ -223,7 +222,6 @@ class SoftDeletedSignalTests(TestCase):
 
 
 class HardDeletedSignalTests(TestCase):
-
     def setUp(self):
         self.user = _make_user()
         self.cat = _make_category()
@@ -301,7 +299,6 @@ class HardDeletedSignalTests(TestCase):
 
 
 class LegalHoldChangedSignalTests(TestCase):
-
     def setUp(self):
         self.user = _make_user()
         self.user = _grant_manage_legal_hold(self.user)
@@ -442,6 +439,7 @@ class QuarantineSignalPIITests(TestCase):
         This is a documentation enforcement test.
         """
         import inspect
+
         module_source = inspect.getsource(doc_signals)
         # The PIPEDA note about no uploader PII must be present
         self.assertIn("MUST NOT", module_source)
@@ -502,7 +500,9 @@ class QuarantineSignalPIITests(TestCase):
             # Confirm no unexpected extra keys (beyond signal/sender injected by Django)
             allowed = {"signal", "sender", "document_pk", "scan_engine_result"}
             extra = set(kwargs.keys()) - allowed
-            self.assertSetEqual(extra, set(), f"Unexpected PII kwargs in quarantined signal: {extra}")
+            self.assertSetEqual(
+                extra, set(), f"Unexpected PII kwargs in quarantined signal: {extra}"
+            )
         finally:
             doc_signals.document_quarantined.disconnect(capturing_receiver)
 
@@ -551,12 +551,15 @@ class UploadInitiatedSignalContractTests(TestCase):
                 "fields": {"key": "some-key", "policy": "abc"},
                 "expires_at": "2099-01-01T00:00:00Z",
             }
-            with patch(
-                "apps.documents.services.upload._generate_presigned_post",
-                return_value=fake_presigned,
-            ), patch(
-                "apps.documents.services.retention.schedule_expiry",
-                return_value=None,
+            with (
+                patch(
+                    "apps.documents.services.upload._generate_presigned_post",
+                    return_value=fake_presigned,
+                ),
+                patch(
+                    "apps.documents.services.retention.schedule_expiry",
+                    return_value=None,
+                ),
             ):
                 result = validate_upload_request(
                     user=self.user,
@@ -630,27 +633,35 @@ class DocumentConfirmedSignalContractTests(TestCase):
 
         doc_signals.document_confirmed.connect(capturing_receiver, weak=False)
         try:
-            with patch(
-                "apps.documents.services.upload._verify_file_exists",
-                return_value=None,
-            ), patch(
-                "apps.documents.services.upload._read_first_bytes",
-                return_value=b"%PDF-1.4",
-            ), patch(
-                "apps.documents.services.upload._validate_magic_bytes",
-                return_value=None,  # None = magic bypassed; mime_type unchanged
-            ), patch(
-                # Layer 5b: PDF encryption check reads full file before _check_pdf_encryption.
-                "apps.documents.services.upload._read_full_file",
-                return_value=b"%PDF-1.4 dummy",
-            ), patch(
-                "apps.documents.services.upload._check_pdf_encryption",
-            ), patch(
-                "apps.audit.services.record_event",
-                return_value=None,
-            ), patch(
-                "apps.documents.tasks.scan_document.apply_async",
-                return_value=None,
+            with (
+                patch(
+                    "apps.documents.services.upload._verify_file_exists",
+                    return_value=None,
+                ),
+                patch(
+                    "apps.documents.services.upload._read_first_bytes",
+                    return_value=b"%PDF-1.4",
+                ),
+                patch(
+                    "apps.documents.services.upload._validate_magic_bytes",
+                    return_value=None,  # None = magic bypassed; mime_type unchanged
+                ),
+                patch(
+                    # Layer 5b: PDF encryption check reads full file before _check_pdf_encryption.
+                    "apps.documents.services.upload._read_full_file",
+                    return_value=b"%PDF-1.4 dummy",
+                ),
+                patch(
+                    "apps.documents.services.upload._check_pdf_encryption",
+                ),
+                patch(
+                    "apps.audit.services.record_event",
+                    return_value=None,
+                ),
+                patch(
+                    "apps.documents.tasks.scan_document.apply_async",
+                    return_value=None,
+                ),
             ):
                 with self.captureOnCommitCallbacks(execute=True):
                     confirm_upload(user=self.user, doc_id=str(self.doc.pk))
@@ -682,7 +693,6 @@ class DocumentConfirmedSignalContractTests(TestCase):
 
 
 class VersionCreatedSignalContractTests(TestCase):
-
     def test_version_created_kwarg_contract(self):
         """
         Documented kwargs: root_document_pk (str), new_version_pk (str), version_number (int)
@@ -718,7 +728,6 @@ class VersionCreatedSignalContractTests(TestCase):
 
 
 class ScanCleanSignalContractTests(TestCase):
-
     def test_scan_clean_kwarg_contract(self):
         """Documented kwargs: document_pk (str) only."""
         user = _make_user()
@@ -758,6 +767,7 @@ class SendRobustTests(TestCase):
         A handler raising an exception must not prevent soft_delete() from
         completing — send_robust() captures exceptions instead of re-raising.
         """
+
         def bad_handler(**kwargs):
             raise RuntimeError("Simulated handler failure")
 

@@ -2,9 +2,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("appointments", "0019_scheduler_runtime_core")]
+    dependencies = [("appointments", "0019_scheduler_runtime_core")]  # noqa: RUF012
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddField(
             model_name="scheduleroutbox",
             name="publisher_generation",
@@ -27,6 +27,9 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="scheduleroutbox",
-            index=models.Index(fields=["published_at", "publisher_lease_expires_at"], name="appt_sched_pub_lease_idx"),
+            index=models.Index(
+                fields=["published_at", "publisher_lease_expires_at"],
+                name="appt_sched_pub_lease_idx",
+            ),
         ),
     ]

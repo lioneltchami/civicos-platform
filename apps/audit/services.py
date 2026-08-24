@@ -12,7 +12,7 @@ from typing import Any
 
 from django.db import transaction
 
-from .models import AuditEventType, AuditLogEntry
+from .models import AuditLogEntry
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +90,7 @@ _UNSET = object()  # sentinel — distinguishes "caller passed ''" from "use def
 
 
 def record_event_from_request(
-    request,
+    request,  # noqa: ANN001
     *,
     event_type: str,
     outcome: str = "success",
@@ -127,7 +127,8 @@ def record_event_from_request(
     return record_event(
         event_type=event_type,
         outcome=outcome,
-        actor_id=audit_ctx.get("actor_id") or (str(user.pk) if user and user.is_authenticated else None),
+        actor_id=audit_ctx.get("actor_id")
+        or (str(user.pk) if user and user.is_authenticated else None),
         actor_email=resolved_email,
         actor_ip=audit_ctx.get("actor_ip", ""),
         actor_user_agent=audit_ctx.get("actor_user_agent", ""),
@@ -137,7 +138,7 @@ def record_event_from_request(
         after_state=after_state,
         event_detail=event_detail,
         request_id=audit_ctx.get("request_id", ""),
-        session_id=(
-            getattr(getattr(request, "session", None), "session_key", None) or ""
-        ) if hasattr(request, "session") else "",
+        session_id=(getattr(getattr(request, "session", None), "session_key", None) or "")
+        if hasattr(request, "session")
+        else "",
     )

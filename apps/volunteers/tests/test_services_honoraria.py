@@ -11,11 +11,12 @@ Conventions:
   - Decimal() for all monetary comparisons.
   - PIPEDA: volunteers referenced by profile PK only in assertions.
 """
+
 from __future__ import annotations
 
 import threading
 import unittest
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -55,27 +56,27 @@ def _make_user(email=None, password="testpass!", **kwargs):
 
 def _make_program(**kwargs):
     n = _uid()
-    defaults = dict(
-        name_en=f"Program {n}",
-        name_fr=f"Programme {n}",
-        slug=f"hprog-{n}",
-        cra_category="welfare",
-    )
+    defaults = {
+        "name_en": f"Program {n}",
+        "name_fr": f"Programme {n}",
+        "slug": f"hprog-{n}",
+        "cra_category": "welfare",
+    }
     defaults.update(kwargs)
     return Program.objects.create(**defaults)
 
 
 def _make_opportunity(program, *, slug=None, status="published", **kwargs):
     n = _uid()
-    defaults = dict(
-        title_en=f"Opportunity {n}",
-        title_fr=f"Opportunité {n}",
-        slug=slug or f"hopp-{n}",
-        description_en="Description",
-        description_fr="Description FR",
-        program=program,
-        status=status,
-    )
+    defaults = {
+        "title_en": f"Opportunity {n}",
+        "title_fr": f"Opportunité {n}",
+        "slug": slug or f"hopp-{n}",
+        "description_en": "Description",
+        "description_fr": "Description FR",
+        "program": program,
+        "status": status,
+    }
     defaults.update(kwargs)
     return Opportunity.objects.create(**defaults)
 
@@ -121,6 +122,7 @@ def _make_honorarium(volunteer, amount, payment_type=None, payment_date=None, cr
 # Shared base — coordinator + volunteer profile
 # ---------------------------------------------------------------------------
 
+
 class HonorariumBaseTestCase(TestCase):
     """
     Shared fixtures for honorarium service tests.
@@ -160,8 +162,8 @@ class HonorariumBaseTestCase(TestCase):
 # cumulative_ytd() tests
 # ===========================================================================
 
-class CumulativeYtdTests(HonorariumBaseTestCase):
 
+class CumulativeYtdTests(HonorariumBaseTestCase):
     def test_returns_zero_for_no_records(self):
         """cumulative_ytd() returns Decimal('0') when the volunteer has no honoraria."""
         total = cumulative_ytd(self.volunteer_profile, year=2026)
@@ -169,10 +171,12 @@ class CumulativeYtdTests(HonorariumBaseTestCase):
 
     def test_counts_honorarium_type_only(self):
         """Expense reimbursements are NOT counted toward CRA thresholds."""
-        _make_honorarium(self.volunteer_profile, "300.00",
-                         payment_type=Honorarium.PAYMENT_TYPE_EXPENSE)
-        _make_honorarium(self.volunteer_profile, "100.00",
-                         payment_type=Honorarium.PAYMENT_TYPE_HONORARIUM)
+        _make_honorarium(
+            self.volunteer_profile, "300.00", payment_type=Honorarium.PAYMENT_TYPE_EXPENSE
+        )
+        _make_honorarium(
+            self.volunteer_profile, "100.00", payment_type=Honorarium.PAYMENT_TYPE_HONORARIUM
+        )
         total = cumulative_ytd(self.volunteer_profile, year=date.today().year)
         self.assertEqual(total, Decimal("100.00"))
 
@@ -187,8 +191,7 @@ class CumulativeYtdTests(HonorariumBaseTestCase):
     def test_excludes_different_year(self):
         """Honoraria in a different calendar year are not counted."""
         last_year = date.today().year - 1
-        _make_honorarium(self.volunteer_profile, "400.00",
-                         payment_date=date(last_year, 6, 1))
+        _make_honorarium(self.volunteer_profile, "400.00", payment_date=date(last_year, 6, 1))
         total = cumulative_ytd(self.volunteer_profile, year=date.today().year)
         self.assertEqual(total, Decimal("0"))
 
@@ -203,8 +206,8 @@ class CumulativeYtdTests(HonorariumBaseTestCase):
 # create_honorarium() — permission tests
 # ===========================================================================
 
-class CreateHonorariumPermissionTests(HonorariumBaseTestCase):
 
+class CreateHonorariumPermissionTests(HonorariumBaseTestCase):
     def test_raises_permission_denied_without_add_honorarium_perm(self):
         """create_honorarium() raises PermissionDenied for users lacking add_honorarium."""
         with self.assertRaises(PermissionDenied):
@@ -229,8 +232,8 @@ class CreateHonorariumPermissionTests(HonorariumBaseTestCase):
 # create_honorarium() — payment type validation
 # ===========================================================================
 
-class CreateHonorariumPaymentTypeTests(HonorariumBaseTestCase):
 
+class CreateHonorariumPaymentTypeTests(HonorariumBaseTestCase):
     def test_raises_value_error_for_invalid_payment_type(self):
         """create_honorarium() raises ValueError for unknown payment_type strings."""
         with self.assertRaises(ValueError):
@@ -277,6 +280,7 @@ class CreateHonorariumPaymentTypeTests(HonorariumBaseTestCase):
 # ===========================================================================
 # CRA threshold boundary tests
 # ===========================================================================
+
 
 @override_settings(
     VOLUNTEER_CRA_ALERT_THRESHOLD=450,
@@ -339,8 +343,9 @@ class CraThresholdTests(HonorariumBaseTestCase):
         $900 expense_reimbursement + $500 PAYMENT_TYPE_HONORARIUM should NOT trigger
         the hard block because expenses are excluded from CRA threshold calculation.
         """
-        _make_honorarium(self.volunteer_profile, "900.00",
-                         payment_type=Honorarium.PAYMENT_TYPE_EXPENSE)
+        _make_honorarium(
+            self.volunteer_profile, "900.00", payment_type=Honorarium.PAYMENT_TYPE_EXPENSE
+        )
         # Only $500 honorarium — should NOT hit hard block
         h = self._create_via_service("500.00")
         self.assertIsNotNone(h.pk)
@@ -357,6 +362,7 @@ class CraThresholdTests(HonorariumBaseTestCase):
 # ===========================================================================
 # Signal dispatch tests — uses captureOnCommitCallbacks
 # ===========================================================================
+
 
 @override_settings(
     VOLUNTEER_CRA_ALERT_THRESHOLD=450,
@@ -376,6 +382,7 @@ class HonorariumSignalTests(HonorariumBaseTestCase):
     def test_honorarium_created_signal_fired(self):
         """honorarium_created signal fires once after a successful create."""
         from apps.volunteers.signals import honorarium_created
+
         received = []
 
         def handler(sender, **kwargs):
@@ -397,6 +404,7 @@ class HonorariumSignalTests(HonorariumBaseTestCase):
     def test_t4a_signal_fired_when_threshold_reached(self, mock_send):
         """t4a_threshold_reached fires when YTD crosses $500."""
         from apps.volunteers.signals import t4a_threshold_reached
+
         _make_honorarium(self.volunteer_profile, "400.00")
         received = []
 
@@ -415,6 +423,7 @@ class HonorariumSignalTests(HonorariumBaseTestCase):
     def test_cra_alert_signal_fired_when_near_threshold(self, mock_send):
         """CRA alert fires at $450; T4A must NOT also fire (mutually exclusive via elif)."""
         from apps.volunteers.signals import cra_alert_threshold_reached, t4a_threshold_reached
+
         _make_honorarium(self.volunteer_profile, "400.00")
         alert_received = []
         t4a_received = []
@@ -435,8 +444,9 @@ class HonorariumSignalTests(HonorariumBaseTestCase):
             self.assertIn("ytd_total", alert_received[0])
             # H-3 fix: assert the exact YTD value ($400 pre-existing + $50 new = $450)
             self.assertEqual(alert_received[0]["ytd_total"], Decimal("450.00"))
-            self.assertEqual(len(t4a_received), 0,
-                             "T4A signal must NOT fire when only alert threshold reached")
+            self.assertEqual(
+                len(t4a_received), 0, "T4A signal must NOT fire when only alert threshold reached"
+            )
         finally:
             cra_alert_threshold_reached.disconnect(_alert_handler)
             t4a_threshold_reached.disconnect(_t4a_handler)
@@ -444,6 +454,7 @@ class HonorariumSignalTests(HonorariumBaseTestCase):
     def test_no_alert_signal_below_alert_threshold(self):
         """No cra_alert_threshold_reached or t4a_threshold_reached for $100 honorarium."""
         from apps.volunteers.signals import cra_alert_threshold_reached, t4a_threshold_reached
+
         alert_received = []
         t4a_received = []
 
@@ -467,6 +478,7 @@ class HonorariumSignalTests(HonorariumBaseTestCase):
     def test_t4a_signal_not_fired_for_expense_reimbursement(self):
         """No threshold signals fire for expense_reimbursement, even for large amounts."""
         from apps.volunteers.signals import cra_alert_threshold_reached, t4a_threshold_reached
+
         alert_received = []
         t4a_received = []
 
@@ -497,6 +509,7 @@ class HonorariumSignalTests(HonorariumBaseTestCase):
     def test_honorarium_created_signal_kwargs_include_created_by(self):
         """honorarium_created signal passes created_by in kwargs."""
         from apps.volunteers.signals import honorarium_created
+
         received_kwargs = {}
 
         def handler(sender, **kwargs):
@@ -518,6 +531,7 @@ class HonorariumSignalTests(HonorariumBaseTestCase):
         (they are mutually exclusive via elif in the service logic).
         """
         from apps.volunteers.signals import cra_alert_threshold_reached, t4a_threshold_reached
+
         # Pre-populate so that $100 tips exactly to T4A threshold ($500).
         _make_honorarium(self.volunteer_profile, "400.00")
         t4a_received = []
@@ -535,8 +549,9 @@ class HonorariumSignalTests(HonorariumBaseTestCase):
             with self.captureOnCommitCallbacks(execute=True):
                 self._create_via_service("100.00")  # $400 + $100 = $500 → T4A
             self.assertEqual(len(t4a_received), 1, "T4A signal must fire")
-            self.assertEqual(len(alert_received), 0,
-                             "CRA alert must NOT fire when T4A fires (elif)")
+            self.assertEqual(
+                len(alert_received), 0, "CRA alert must NOT fire when T4A fires (elif)"
+            )
         finally:
             t4a_threshold_reached.disconnect(_t4a_handler)
             cra_alert_threshold_reached.disconnect(_alert_handler)
@@ -545,6 +560,7 @@ class HonorariumSignalTests(HonorariumBaseTestCase):
 # ===========================================================================
 # Honorarium field persistence tests
 # ===========================================================================
+
 
 @override_settings(
     VOLUNTEER_CRA_ALERT_THRESHOLD=450,
@@ -609,6 +625,7 @@ class HonorariumFieldPersistenceTests(HonorariumBaseTestCase):
 # Concurrency tests — TransactionTestCase (real DB transactions)
 # ===========================================================================
 
+
 @override_settings(
     VOLUNTEER_CRA_ALERT_THRESHOLD=450,
     VOLUNTEER_CRA_T4A_THRESHOLD=500,
@@ -616,7 +633,7 @@ class HonorariumFieldPersistenceTests(HonorariumBaseTestCase):
 )
 @unittest.skipIf(
     connection.vendor == "sqlite",
-    "select_for_update() requires PostgreSQL row-level locking; SQLite cannot serialise concurrent threads",
+    "select_for_update() requires PostgreSQL row-level locking; SQLite cannot serialise concurrent threads",  # noqa: E501
 )
 class ConcurrentHonorariumTests(TransactionTestCase):
     """
@@ -644,8 +661,7 @@ class ConcurrentHonorariumTests(TransactionTestCase):
         # hard block check (>= $1,000), while a second $100 addition on top of a
         # committed $950 total ($1,050) fails it.  Using $900 would cause both
         # concurrent additions to fail immediately ($900 + $100 = $1,000 >= $1,000).
-        _make_honorarium(self.volunteer_profile, "850.00",
-                         created_by=self.coordinator)
+        _make_honorarium(self.volunteer_profile, "850.00", created_by=self.coordinator)
 
     def test_concurrent_creation_enforces_hard_block(self):
         """
@@ -697,6 +713,7 @@ class ConcurrentHonorariumTests(TransactionTestCase):
 # Honorarium receiver integration tests
 # ===========================================================================
 
+
 class HonorariumReceiverTests(HonorariumBaseTestCase):
     """
     Tests for honorarium email notification receivers.
@@ -722,8 +739,9 @@ class HonorariumReceiverTests(HonorariumBaseTestCase):
 
     @patch("apps.notifications.services.send_email_notification")
     def test_t4a_alert_receiver_sends_email(self, mock_send):
-        """notify_coordinator_on_t4a_threshold calls send_email_notification with correct context."""
+        """notify_coordinator_on_t4a_threshold calls send_email_notification with correct context."""  # noqa: E501
         from apps.volunteers.receivers import notify_coordinator_on_t4a_threshold
+
         hon = self._make_hon("500.00")
         notify_coordinator_on_t4a_threshold(
             sender=type(hon),
@@ -736,7 +754,7 @@ class HonorariumReceiverTests(HonorariumBaseTestCase):
         ctx = call_kwargs.get("context", {})
         self.assertIn("volunteer_pk", ctx)
         # M1 / PIPEDA: amount and payment_date must NOT appear in coordinator email context —
-        # together with volunteer_pk they constitute financial profiling of an identified individual.
+        # together with volunteer_pk they constitute financial profiling of an identified individual.  # noqa: E501
         self.assertNotIn("amount", ctx)
         self.assertNotIn("payment_date", ctx)
         self.assertIn("ytd_total", ctx)
@@ -747,6 +765,7 @@ class HonorariumReceiverTests(HonorariumBaseTestCase):
     def test_cra_alert_receiver_includes_ytd_total(self, mock_send):
         """notify_coordinator_on_cra_alert includes ytd_total in context."""
         from apps.volunteers.receivers import notify_coordinator_on_cra_alert
+
         hon = self._make_hon("450.00")
         notify_coordinator_on_cra_alert(
             sender=type(hon),

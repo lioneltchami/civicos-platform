@@ -1,11 +1,12 @@
 """Tests for the portal service layer."""
+
 import uuid
 from unittest.mock import patch
 
-from django.test import TestCase
 from django.contrib.auth import get_user_model
+from django.test import TestCase
 
-from apps.portal.models import ServiceRequest, ServiceRequestStatus, StatusUpdate
+from apps.portal.models import ServiceRequestStatus
 from apps.portal.services import (
     cancel_service_request,
     create_service_request,
@@ -26,8 +27,10 @@ def make_service_request(citizen=None, **kwargs):
     """Create a ServiceRequest via the service layer with side-effects suppressed."""
     if citizen is None:
         citizen = make_user()
-    with patch("apps.portal.services._fire_notification"), \
-         patch("apps.portal.services._write_audit"):
+    with (
+        patch("apps.portal.services._fire_notification"),
+        patch("apps.portal.services._write_audit"),
+    ):
         return create_service_request(
             citizen,
             kwargs.get("service_name", "Pothole Repair"),
@@ -295,8 +298,10 @@ class PortalWorkflowsIntegrationTest(TestCase):
         this lookup is always precise.
         """
         from django.contrib.contenttypes.models import ContentType
+
+        from apps.portal.models import ServiceRequest as SR  # noqa: N817
         from apps.workflows.models import WorkItem
-        from apps.portal.models import ServiceRequest as SR
+
         ct = ContentType.objects.get_for_model(SR)
         return WorkItem.objects.get(content_type=ct, object_id=str(service_request.pk))
 
@@ -304,6 +309,7 @@ class PortalWorkflowsIntegrationTest(TestCase):
     @patch("apps.portal.services._write_audit")
     def test_work_item_created_on_service_request_submission(self, mock_audit, mock_notify):
         from apps.workflows.models import WorkItem
+
         before = WorkItem.objects.count()
         with self.captureOnCommitCallbacks(execute=True):
             create_service_request(self.citizen, "Pothole Repair", {"description": "Big hole"})
@@ -330,6 +336,7 @@ class PortalWorkflowsIntegrationTest(TestCase):
     @patch("apps.portal.services._write_audit")
     def test_work_item_status_is_pending(self, mock_audit, mock_notify):
         from apps.workflows.models import WorkItemStatus
+
         with self.captureOnCommitCallbacks(execute=True):
             sr = create_service_request(self.citizen, "Test Service", {})
         item = self._get_work_item_for(sr)

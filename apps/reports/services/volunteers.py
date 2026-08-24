@@ -10,6 +10,7 @@ plumbing compatible with the Reports BB (ReportSnapshot.data JSONField).
 All imports from apps.volunteers.* are deferred to function bodies to
 prevent circular import chains at Django startup.
 """
+
 from __future__ import annotations
 
 import logging
@@ -22,7 +23,8 @@ logger = logging.getLogger("apps.reports.services.volunteers")
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _str_decimals(obj):
+
+def _str_decimals(obj):  # noqa: ANN001, ANN202
     """Recursively convert Decimal values to strings for JSON/JSONB storage."""
     if isinstance(obj, Decimal):
         return str(obj)
@@ -36,6 +38,7 @@ def _str_decimals(obj):
 # ---------------------------------------------------------------------------
 # Public service functions
 # ---------------------------------------------------------------------------
+
 
 def get_monthly_volunteer_summary(year: int, month: int) -> dict:
     """
@@ -63,11 +66,7 @@ def get_monthly_volunteer_summary(year: int, month: int) -> dict:
     # and float inputs (Decimal(str(v)) prevents precision loss).  The generator
     # skips None rows so a zero start value is returned instead of crashing.
     total_approved_hours = sum(
-        (
-            Decimal(str(r["approved_hours"]))
-            for r in rows
-            if r["approved_hours"] is not None
-        ),
+        (Decimal(str(r["approved_hours"])) for r in rows if r["approved_hours"] is not None),
         Decimal("0.00"),
     )
     # H3: None guard matches the approved_hours pattern above — DB COUNT is an int but
@@ -79,7 +78,11 @@ def get_monthly_volunteer_summary(year: int, month: int) -> dict:
     logger.debug(
         "reports.services.volunteers.get_monthly_volunteer_summary "
         "year=%s month=%s opportunity_count=%s volunteer_count=%s total_approved_hours=%s",
-        year, month, opportunity_count, volunteer_count, total_approved_hours,
+        year,
+        month,
+        opportunity_count,
+        volunteer_count,
+        total_approved_hours,
     )
 
     return {
@@ -125,7 +128,9 @@ def compute_volunteer_snapshot(year: int, month: int) -> dict:
         logger.error(
             "reports.services.volunteers.compute_volunteer_snapshot: "
             "get_monthly_volunteer_summary failed for year=%s month=%s — using zero values",
-            year, month, exc_info=True,
+            year,
+            month,
+            exc_info=True,
         )
         summary = {
             "total_approved_hours": Decimal("0.00"),
@@ -141,7 +146,8 @@ def compute_volunteer_snapshot(year: int, month: int) -> dict:
         logger.error(
             "reports.services.volunteers.compute_volunteer_snapshot: "
             "impact_value failed for year=%s — using zero values",
-            year, exc_info=True,
+            year,
+            exc_info=True,
         )
         impact = {
             "total_approved_hours": Decimal("0.00"),
@@ -154,20 +160,24 @@ def compute_volunteer_snapshot(year: int, month: int) -> dict:
     snapshot = {
         "year": year,
         "month": month,
-        "hours": _str_decimals({
-            "total_approved_hours": summary["total_approved_hours"],
-            "volunteer_count": summary["volunteer_count"],
-            "opportunity_count": summary["opportunity_count"],
-            "program_count": summary["program_count"],
-            "by_program": summary["by_program"],
-        }),
-        "impact": _str_decimals({
-            "total_approved_hours": impact["total_approved_hours"],
-            "estimated_value_cad": impact["estimated_value_cad"],
-            "volunteer_count": impact["volunteer_count"],
-            "hourly_rate": impact["hourly_rate"],
-            "province": impact["province"],
-        }),
+        "hours": _str_decimals(
+            {
+                "total_approved_hours": summary["total_approved_hours"],
+                "volunteer_count": summary["volunteer_count"],
+                "opportunity_count": summary["opportunity_count"],
+                "program_count": summary["program_count"],
+                "by_program": summary["by_program"],
+            }
+        ),
+        "impact": _str_decimals(
+            {
+                "total_approved_hours": impact["total_approved_hours"],
+                "estimated_value_cad": impact["estimated_value_cad"],
+                "volunteer_count": impact["volunteer_count"],
+                "hourly_rate": impact["hourly_rate"],
+                "province": impact["province"],
+            }
+        ),
         # M-1: row_count documents number of source records aggregated, not hours.
         # Use volunteer_count (distinct volunteers with approved hours) — a true
         # record count consistent with the ReportSnapshot.row_count field semantics.
@@ -177,7 +187,10 @@ def compute_volunteer_snapshot(year: int, month: int) -> dict:
     logger.info(
         "reports.services.volunteers.compute_volunteer_snapshot "
         "year=%s month=%s volunteer_count=%s total_approved_hours=%s",
-        year, month, summary["volunteer_count"], summary["total_approved_hours"],
+        year,
+        month,
+        summary["volunteer_count"],
+        summary["total_approved_hours"],
     )
 
     return snapshot

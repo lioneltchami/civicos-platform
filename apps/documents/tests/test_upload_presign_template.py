@@ -32,9 +32,7 @@ def _render(**context) -> str:
         "confirm_url": "/documents/upload/confirm/abc/",
     }
     base.update(context)
-    return render_to_string(
-        "documents/citizen/upload_presign.html", base, request=request
-    )
+    return render_to_string("documents/citizen/upload_presign.html", base, request=request)
 
 
 def _hidden_input_names(html: str) -> list[str]:

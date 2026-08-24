@@ -41,17 +41,17 @@ Security invariants verified throughout:
   2. ``original_filename`` is NOT used in Content-Disposition (only document-{pk}.bin)
   3. Citizens get 404 (not 403) for non-owned or unavailable PKs
   4. Only ACTIVE docs are downloadable
-"""
+"""  # noqa: E501
+
 from __future__ import annotations
 
 import uuid
 from io import BytesIO
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.messages import get_messages
 from django.core.exceptions import ValidationError
-from django.http import Http404
 from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -88,16 +88,16 @@ def _slug() -> str:
 
 
 def make_category(**kwargs) -> DocumentCategory:
-    defaults = dict(
-        name_en="Wave 7 Category",
-        name_fr="Catégorie vague 7",
-        slug=_slug(),
-        allowed_mime_types=["application/pdf"],
-        max_size_bytes=0,
-        min_retention_days=730,
-        max_retention_days=2555,
-        staff_only=False,
-    )
+    defaults = {
+        "name_en": "Wave 7 Category",
+        "name_fr": "Catégorie vague 7",
+        "slug": _slug(),
+        "allowed_mime_types": ["application/pdf"],
+        "max_size_bytes": 0,
+        "min_retention_days": 730,
+        "max_retention_days": 2555,
+        "staff_only": False,
+    }
     defaults.update(kwargs)
     return DocumentCategory.objects.create(**defaults)
 
@@ -109,16 +109,16 @@ def make_user(**kwargs):
 
 
 def make_document(user, category: DocumentCategory, **kwargs) -> Document:
-    defaults = dict(
-        category=category,
-        uploaded_by=user,
-        original_filename="test-document.pdf",
-        _storage_key=f"quarantine/documents/w7/{uuid.uuid4().hex}.bin",
-        mime_type="application/pdf",
-        size_bytes=1024,
-        scan_status=Document.ScanStatus.ACTIVE,
-        is_latest_version=True,
-    )
+    defaults = {
+        "category": category,
+        "uploaded_by": user,
+        "original_filename": "test-document.pdf",
+        "_storage_key": f"quarantine/documents/w7/{uuid.uuid4().hex}.bin",
+        "mime_type": "application/pdf",
+        "size_bytes": 1024,
+        "scan_status": Document.ScanStatus.ACTIVE,
+        "is_latest_version": True,
+    }
     defaults.update(kwargs)
     return Document.objects.create(**defaults)
 
@@ -193,7 +193,8 @@ class DocumentListViewEdgeCaseTests(TestCase):
     def test_quarantined_doc_excluded_from_list(self) -> None:
         """QUARANTINED docs are excluded because .active() filters scan_status=ACTIVE."""
         quarantined = make_document(
-            self.user, self.category,
+            self.user,
+            self.category,
             scan_status=Document.ScanStatus.QUARANTINED,
         )
         response = self.client.get(self.url)
@@ -204,7 +205,8 @@ class DocumentListViewEdgeCaseTests(TestCase):
     def test_pending_upload_doc_excluded_from_list(self) -> None:
         """PENDING_UPLOAD docs are excluded by .active() filter."""
         pending = make_document(
-            self.user, self.category,
+            self.user,
+            self.category,
             scan_status=Document.ScanStatus.PENDING_UPLOAD,
         )
         response = self.client.get(self.url)
@@ -267,7 +269,8 @@ class DocumentDetailViewEdgeCaseTests(TestCase):
         been uploaded yet, let alone scanned.
         """
         doc = make_document(
-            self.user, self.category,
+            self.user,
+            self.category,
             scan_status=Document.ScanStatus.PENDING_UPLOAD,
         )
         response = self.client.get(self._url(doc.pk))
@@ -281,7 +284,8 @@ class DocumentDetailViewEdgeCaseTests(TestCase):
         so PURGED docs return 404.
         """
         doc = make_document(
-            self.user, self.category,
+            self.user,
+            self.category,
             scan_status=Document.ScanStatus.PURGED,
             deleted_at=timezone.now(),
         )
@@ -294,7 +298,8 @@ class DocumentDetailViewEdgeCaseTests(TestCase):
         ACTIVE document.  can_download depends solely on scan_status.
         """
         doc = make_document(
-            self.user, self.category,
+            self.user,
+            self.category,
             scan_status=Document.ScanStatus.ACTIVE,
             legal_hold=True,
         )
@@ -397,7 +402,8 @@ class DocumentUploadInitViewEdgeCaseTests(TestCase):
         """
         # Create a doc for this user so there IS a storage key in the DB
         make_document(
-            self.user, self.category,
+            self.user,
+            self.category,
             _storage_key="quarantine/documents/w7/get-form-leak-test.bin",
         )
         response = self.client.get(self.url)
@@ -477,7 +483,8 @@ class DocumentUploadConfirmViewEdgeCaseTests(TestCase):
         self.user = make_user(email=_email("citizen"))
         self.category = make_category()
         self.doc = make_document(
-            self.user, self.category,
+            self.user,
+            self.category,
             scan_status=Document.ScanStatus.PENDING_UPLOAD,
         )
         self.client.force_login(self.user)
@@ -547,7 +554,8 @@ class DocumentUploadConfirmViewEdgeCaseTests(TestCase):
         The view does not inspect the returned document's scan_status.
         """
         scanning_doc = make_document(
-            self.user, self.category,
+            self.user,
+            self.category,
             scan_status=Document.ScanStatus.SCANNING,
         )
         with patch(
@@ -612,7 +620,8 @@ class DocumentDownloadViewEdgeCaseTests(TestCase):
         in storage, let alone been scanned.
         """
         doc = make_document(
-            self.user, self.category,
+            self.user,
+            self.category,
             scan_status=Document.ScanStatus.PENDING_UPLOAD,
         )
         response = self.client.get(self._url(doc.pk))
@@ -624,7 +633,8 @@ class DocumentDownloadViewEdgeCaseTests(TestCase):
         be able to obtain a download token for an infected file.
         """
         doc = make_document(
-            self.user, self.category,
+            self.user,
+            self.category,
             scan_status=Document.ScanStatus.QUARANTINED,
         )
         response = self.client.get(self._url(doc.pk))
@@ -638,7 +648,8 @@ class DocumentDownloadViewEdgeCaseTests(TestCase):
         The download view filter requires both ACTIVE status AND deleted_at__isnull=True.
         """
         doc = make_document(
-            self.user, self.category,
+            self.user,
+            self.category,
             scan_status=Document.ScanStatus.ACTIVE,
             deleted_at=timezone.now(),
         )
@@ -674,7 +685,8 @@ class DocumentTokenRedeemViewEdgeCaseTests(TestCase):
         self.category = make_category()
         # Use a distinctive original_filename to verify it does NOT appear in headers
         self.doc = make_document(
-            self.user, self.category,
+            self.user,
+            self.category,
             original_filename="my-private-file-with-pii-name.pdf",
             mime_type="application/pdf",
             size_bytes=512,
@@ -730,7 +742,11 @@ class DocumentTokenRedeemViewEdgeCaseTests(TestCase):
         with consume_mock, open_mock:
             response = self.client.get(self._url("b" * 64))
         self.assertEqual(response.status_code, 200)
-        body = b"".join(response.streaming_content) if hasattr(response, "streaming_content") else response.content
+        body = (
+            b"".join(response.streaming_content)
+            if hasattr(response, "streaming_content")
+            else response.content
+        )
         self.assertNotIn(storage_key.encode(), body)
         self.assertNotIn(b"quarantine/", body)
 
@@ -758,11 +774,13 @@ class DocumentTokenRedeemViewEdgeCaseTests(TestCase):
         Location header — only the opaque presigned URL does.
         """
         from django.conf import settings as django_settings
+
         proxy_threshold = django_settings.CIVICOS.get("DOCUMENT_PROXY_MAX_BYTES", 1 * 1024 * 1024)
 
         raw_key = f"quarantine/documents/w7/large-file-{uuid.uuid4().hex}.bin"
         large_doc = make_document(
-            self.user, self.category,
+            self.user,
+            self.category,
             size_bytes=proxy_threshold + 1,
             _storage_key=raw_key,
         )
@@ -776,9 +794,7 @@ class DocumentTokenRedeemViewEdgeCaseTests(TestCase):
                 "apps.documents.views.citizen.consume_access_token",
                 return_value=large_doc,
             ),
-            patch(
-                "apps.documents.views.citizen.default_storage"
-            ) as mock_storage,
+            patch("apps.documents.views.citizen.default_storage") as mock_storage,
         ):
             mock_storage.url.return_value = presigned_url
             response = self.client.get(self._url("d" * 64))
@@ -799,10 +815,12 @@ class DocumentTokenRedeemViewEdgeCaseTests(TestCase):
         (presigned URL), not a raw key exposure.
         """
         from django.conf import settings as django_settings
+
         proxy_threshold = django_settings.CIVICOS.get("DOCUMENT_PROXY_MAX_BYTES", 1 * 1024 * 1024)
 
         large_doc = make_document(
-            self.user, self.category,
+            self.user,
+            self.category,
             size_bytes=proxy_threshold + 1,
         )
         presigned = "https://s3.example.com/presigned?sig=xyz"
@@ -811,9 +829,7 @@ class DocumentTokenRedeemViewEdgeCaseTests(TestCase):
                 "apps.documents.views.citizen.consume_access_token",
                 return_value=large_doc,
             ),
-            patch(
-                "apps.documents.views.citizen.default_storage"
-            ) as mock_storage,
+            patch("apps.documents.views.citizen.default_storage") as mock_storage,
         ):
             mock_storage.url.return_value = presigned
             response = self.client.get(self._url("e" * 64))
@@ -861,9 +877,7 @@ class DocumentTokenRedeemViewEdgeCaseTests(TestCase):
         mis-classified — this tests the token-redeem URL, not the download URL.)
         """
         anon_client = Client()
-        response = anon_client.get(
-            reverse("documents:token-redeem", args=["a" * 64])
-        )
+        response = anon_client.get(reverse("documents:token-redeem", args=["a" * 64]))
         self.assertEqual(response.status_code, 302)
         self.assertIn("/login", response["Location"])
 
@@ -891,7 +905,7 @@ class DocumentTokenRedeemPostRedemptionGateTests(TestCase):
     These tests use REAL DocumentAccessToken rows and the real
     consume_access_token() service so that the guard is exercised end to end
     rather than against a mocked document.
-    """
+    """  # noqa: RUF002
 
     def setUp(self) -> None:
         from apps.documents.models import DocumentAccessToken
@@ -921,9 +935,7 @@ class DocumentTokenRedeemPostRedemptionGateTests(TestCase):
             scan_status=Document.ScanStatus.QUARANTINED,
         )
 
-        with patch(
-            "apps.documents.views.citizen.default_storage"
-        ) as mock_storage:
+        with patch("apps.documents.views.citizen.default_storage") as mock_storage:
             mock_storage.open.return_value = BytesIO(b"malware bytes")
             response = self.client.get(self._url())
 
@@ -938,9 +950,7 @@ class DocumentTokenRedeemPostRedemptionGateTests(TestCase):
             scan_status=Document.ScanStatus.DELETED,
         )
 
-        with patch(
-            "apps.documents.views.citizen.default_storage"
-        ) as mock_storage:
+        with patch("apps.documents.views.citizen.default_storage") as mock_storage:
             mock_storage.open.return_value = BytesIO(b"deleted bytes")
             response = self.client.get(self._url())
 
@@ -954,9 +964,7 @@ class DocumentTokenRedeemPostRedemptionGateTests(TestCase):
         """
         Document.objects.filter(pk=self.doc.pk).update(deleted_at=timezone.now())
 
-        with patch(
-            "apps.documents.views.citizen.default_storage"
-        ) as mock_storage:
+        with patch("apps.documents.views.citizen.default_storage") as mock_storage:
             mock_storage.open.return_value = BytesIO(b"deleted bytes")
             response = self.client.get(self._url())
 
@@ -965,9 +973,7 @@ class DocumentTokenRedeemPostRedemptionGateTests(TestCase):
 
     def test_still_active_document_is_served(self) -> None:
         """Control: an untouched ACTIVE document still downloads normally."""
-        with patch(
-            "apps.documents.views.citizen.default_storage"
-        ) as mock_storage:
+        with patch("apps.documents.views.citizen.default_storage") as mock_storage:
             mock_storage.open.return_value = BytesIO(b"%PDF-1.4 clean")
             response = self.client.get(self._url())
 
@@ -977,15 +983,12 @@ class DocumentTokenRedeemPostRedemptionGateTests(TestCase):
     # -- L-2: presigned redirect TTL parity with the DRF path -----------------
 
     def _large_doc_and_token(self):
-        from apps.documents.models import DocumentAccessToken
         from django.conf import settings as django_settings
 
-        proxy_threshold = django_settings.CIVICOS.get(
-            "DOCUMENT_PROXY_MAX_BYTES", 1 * 1024 * 1024
-        )
-        large_doc = make_document(
-            self.user, self.category, size_bytes=proxy_threshold + 1
-        )
+        from apps.documents.models import DocumentAccessToken
+
+        proxy_threshold = django_settings.CIVICOS.get("DOCUMENT_PROXY_MAX_BYTES", 1 * 1024 * 1024)
+        large_doc = make_document(self.user, self.category, size_bytes=proxy_threshold + 1)
         token = DocumentAccessToken.objects.create(
             document=large_doc,
             issued_to=self.user,
@@ -1021,10 +1024,13 @@ class DocumentTokenRedeemPostRedemptionGateTests(TestCase):
         # the test environment, so any fall-through to default_storage.url()
         # would raise InvalidStorageError and fail this test — which is exactly
         # the assertion we want ("the S3 path never touches default_storage").
-        with self._s3_settings(), patch(
-            "apps.documents.views.citizen.generate_presigned_download_url",
-            return_value=signed,
-        ) as mock_presign:
+        with (
+            self._s3_settings(),
+            patch(
+                "apps.documents.views.citizen.generate_presigned_download_url",
+                return_value=signed,
+            ) as mock_presign,
+        ):
             response = self.client.get(self._url(token.token))
 
         self.assertEqual(response.status_code, 302)
@@ -1041,10 +1047,14 @@ class DocumentTokenRedeemPostRedemptionGateTests(TestCase):
         _large_doc, token = self._large_doc_and_token()
         civicos = {**django_settings.CIVICOS, "DOCUMENT_PRESIGNED_URL_TTL_SECONDS": 120}
 
-        with self._s3_settings(), self.settings(CIVICOS=civicos), patch(
-            "apps.documents.views.citizen.generate_presigned_download_url",
-            return_value="https://s3.example.com/signed",
-        ) as mock_presign:
+        with (
+            self._s3_settings(),
+            self.settings(CIVICOS=civicos),
+            patch(
+                "apps.documents.views.citizen.generate_presigned_download_url",
+                return_value="https://s3.example.com/signed",
+            ) as mock_presign,
+        ):
             response = self.client.get(self._url(token.token))
 
         self.assertEqual(response.status_code, 302)
@@ -1058,11 +1068,10 @@ class DocumentTokenRedeemPostRedemptionGateTests(TestCase):
         """
         large_doc, token = self._large_doc_and_token()
 
-        with patch(
-            "apps.documents.views.citizen.default_storage"
-        ) as mock_storage, patch(
-            "apps.documents.views.citizen.generate_presigned_download_url"
-        ) as mock_presign:
+        with (
+            patch("apps.documents.views.citizen.default_storage") as mock_storage,
+            patch("apps.documents.views.citizen.generate_presigned_download_url") as mock_presign,
+        ):
             mock_storage.url.return_value = "/media/some/path.bin"
             response = self.client.get(self._url(token.token))
 

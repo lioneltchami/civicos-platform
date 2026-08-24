@@ -4,17 +4,18 @@ Views added in Wave 1 Round 2 (gateway + webhook endpoints).
 Fee payment flow added in Wave 3, Round 3a.
 Refund workflow added in Wave 3, Round 3b.
 """
+
 from django.urls import path
 
-from apps.payments.views.webhook import stripe_webhook
 from apps.payments.views.fee_payment import (
-    FeePaymentSelectView,
-    FeePaymentConfirmView,
-    FeePaymentSuccessView,
     FeePaymentCancelView,
+    FeePaymentConfirmView,
+    FeePaymentSelectView,
+    FeePaymentSuccessView,
     create_payment_intent_api,
 )
-from apps.payments.views.refund import RefundCreateView, RefundConfirmView, RefundDetailView
+from apps.payments.views.refund import RefundConfirmView, RefundCreateView, RefundDetailView
+from apps.payments.views.webhook import stripe_webhook
 
 app_name = "payments"
 
@@ -25,7 +26,6 @@ urlpatterns = [
         stripe_webhook,
         name="stripe_webhook",
     ),
-
     # ── Fee payment flow (authenticated citizens) ────────────────────────
     # Step 1: select fee code, province, quantity
     path(
@@ -57,7 +57,6 @@ urlpatterns = [
         FeePaymentCancelView.as_view(),
         name="fee_payment_cancel",
     ),
-
     # ── Refund workflow (staff only) ─────────────────────────────────────
     path(
         "refunds/<uuid:payment_pk>/create/",

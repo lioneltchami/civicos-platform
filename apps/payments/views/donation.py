@@ -39,11 +39,12 @@ CRA compliance notes:
 - Donation row (with donor_name_snapshot) created by webhook handler.
 - OfficialDonationReceipt issued by post-payment signal receiver.
 """
+
 import hashlib
 import logging
-import uuid as _uuid
 import uuid
-from decimal import Decimal, ROUND_HALF_UP
+import uuid as _uuid
+from decimal import ROUND_HALF_UP, Decimal
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.cache import cache
@@ -58,11 +59,11 @@ from apps.payments.forms import DonationForm
 from apps.payments.gateway import get_gateway
 from apps.payments.gateways.exceptions import GatewayError
 from apps.payments.models import (
+    PLAN_STATUS_CANCELLED,
+    PaymentAuditEntry,
     PaymentIntent,
     RecurringGiftPlan,
     TenantPaymentConfig,
-    PLAN_STATUS_CANCELLED,
-    PaymentAuditEntry,
 )
 from apps.payments.views.refund import _mask_ip
 
@@ -83,7 +84,8 @@ DONATION_SESSION_KEY = "payments_donation_intent"
 # IP extraction helper
 # ---------------------------------------------------------------------------
 
-def _get_client_ip(request) -> str:
+
+def _get_client_ip(request) -> str:  # noqa: ANN001
     """Return the real client IP, trusting the configured proxy chain.
 
     Uses django-ipware which honours IPWARE_META_PRECEDENCE_ORDER and
@@ -101,7 +103,7 @@ def _get_client_ip(request) -> str:
             ip, _is_routable = _ipware_get_client_ip(request)
             if ip:
                 return ip
-        except Exception:
+        except Exception:  # noqa: S110
             pass
     return request.META.get("REMOTE_ADDR", "")
 
@@ -110,7 +112,8 @@ def _get_client_ip(request) -> str:
 # Rate limiting helper
 # ---------------------------------------------------------------------------
 
-def _check_donation_rate_limit(request) -> bool:
+
+def _check_donation_rate_limit(request) -> bool:  # noqa: ANN001
     """Returns True if rate limit exceeded (5 POST/min). Thread-safe via atomic cache.incr()."""
     if request.user.is_authenticated:
         key = f"donation_ratelimit_user_{request.user.pk}"
@@ -118,14 +121,15 @@ def _check_donation_rate_limit(request) -> bool:
         ip = _get_client_ip(request)
         ip_hash = hashlib.sha256(ip.encode()).hexdigest()[:16]
         key = f"donation_ratelimit_ip_{ip_hash}"
-    cache.add(key, 0, timeout=60)   # initialises to 0 only if key absent (atomic)
-    count = cache.incr(key)          # atomically increment and return new value
+    cache.add(key, 0, timeout=60)  # initialises to 0 only if key absent (atomic)
+    count = cache.incr(key)  # atomically increment and return new value
     return count > 5
 
 
 # ---------------------------------------------------------------------------
 # Step 1: Select campaign / amount
 # ---------------------------------------------------------------------------
+
 
 class DonationSelectView(FormView):
     """
@@ -137,7 +141,7 @@ class DonationSelectView(FormView):
     template_name = "payments/donation_select.html"
     form_class = DonationForm
 
-    def form_valid(self, form):
+    def form_valid(self, form):  # noqa: ANN001, ANN201
         cd = form.cleaned_data
         amount = cd["amount"].quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
         advantage_amount = (cd.get("advantage_amount") or Decimal("0.00")).quantize(
@@ -158,22 +162,24 @@ class DonationSelectView(FormView):
             "advantage_amount": str(advantage_amount),
             "is_recurring": "1" if cd.get("is_recurring") else "0",
             "frequency": cd.get("frequency") or "",
-            "donor_name": cd["donor_name"],        # stored but NEVER logged
-            "donor_email": cd["donor_email"],      # stored but NEVER logged
+            "donor_name": cd["donor_name"],  # stored but NEVER logged
+            "donor_email": cd["donor_email"],  # stored but NEVER logged
             "is_anonymous": "1" if cd.get("is_anonymous") else "0",
         }
         self.request.session.modified = True
         return redirect("donate:donation_confirm")
 
-    def get_success_url(self):
+    def get_success_url(self):  # noqa: ANN201
         # form_valid() handles the redirect directly; this satisfies FormView's contract.
         from django.urls import reverse
+
         return reverse("donate:donation_confirm")
 
 
 # ---------------------------------------------------------------------------
 # Step 2: Confirm donation + Stripe card entry
 # ---------------------------------------------------------------------------
+
 
 class DonationConfirmView(TemplateView):
     """
@@ -183,29 +189,31 @@ class DonationConfirmView(TemplateView):
 
     template_name = "payments/donation_confirm.html"
 
-    def _get_session_data(self):
+    def _get_session_data(self):  # noqa: ANN202
         return self.request.session.get(DONATION_SESSION_KEY)
 
-    def get(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         if not self._get_session_data():
             return redirect("donate:donation_select")
         return super().get(request, *args, **kwargs)
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
         sd = self._get_session_data() or {}
         config = TenantPaymentConfig.get_solo()
-        ctx.update({
-            "amount": Decimal(sd.get("amount", "0.00")),
-            "eligible_amount": Decimal(sd.get("eligible_amount", "0.00")),
-            "advantage_amount": Decimal(sd.get("advantage_amount", "0.00")),
-            "campaign_name": sd.get("campaign_name", ""),
-            "is_recurring": sd.get("is_recurring") == "1",
-            "frequency": sd.get("frequency", ""),
-            # Publishable key is safe for front-end.
-            # stripe_secret_key and webhook_secret are NEVER passed here.
-            "stripe_publishable_key": config.stripe_publishable_key or "",
-        })
+        ctx.update(
+            {
+                "amount": Decimal(sd.get("amount", "0.00")),
+                "eligible_amount": Decimal(sd.get("eligible_amount", "0.00")),
+                "advantage_amount": Decimal(sd.get("advantage_amount", "0.00")),
+                "campaign_name": sd.get("campaign_name", ""),
+                "is_recurring": sd.get("is_recurring") == "1",
+                "frequency": sd.get("frequency", ""),
+                # Publishable key is safe for front-end.
+                # stripe_secret_key and webhook_secret are NEVER passed here.
+                "stripe_publishable_key": config.stripe_publishable_key or "",
+            }
+        )
         return ctx
 
 
@@ -213,7 +221,8 @@ class DonationConfirmView(TemplateView):
 # Step 3: JSON API — create Stripe PaymentIntent
 # ---------------------------------------------------------------------------
 
-def create_donation_intent_api(request):
+
+def create_donation_intent_api(request):  # noqa: ANN001, ANN201
     """
     POST /donate/api/create-intent/
 
@@ -302,8 +311,12 @@ def create_donation_intent_api(request):
         "is_recurring": session_data.get("is_recurring", "0"),
         "advantage_amount": str(session_data.get("advantage_amount", "0.00")),
         "eligible_amount": str(session_data.get("eligible_amount", "0.00")),
-        "is_anonymous": session_data.get("is_anonymous", "0"),  # already "1"/"0" string from session
-        "donor_legal_name": session_data.get("donor_name", ""),  # legal name for CRA receipt — DB only
+        "is_anonymous": session_data.get(
+            "is_anonymous", "0"
+        ),  # already "1"/"0" string from session
+        "donor_legal_name": session_data.get(
+            "donor_name", ""
+        ),  # legal name for CRA receipt — DB only
     }
 
     # H7 fix (PIPEDA): only non-PII internal identifiers are sent to Stripe metadata.
@@ -322,9 +335,7 @@ def create_donation_intent_api(request):
     try:
         gateway = get_gateway()
         config = TenantPaymentConfig.get_solo()
-        connect_account_id = (
-            config.stripe_connect_account_id if config.use_connect else None
-        )
+        connect_account_id = config.stripe_connect_account_id if config.use_connect else None
         gateway_result = gateway.create_payment_intent(
             amount=amount,
             currency="cad",
@@ -390,15 +401,18 @@ def create_donation_intent_api(request):
         metadata.get("campaign_pk", ""),
     )
 
-    return JsonResponse({
-        "client_secret": gateway_result["client_secret"],
-        "payment_intent_pk": str(intent.pk),
-    })
+    return JsonResponse(
+        {
+            "client_secret": gateway_result["client_secret"],
+            "payment_intent_pk": str(intent.pk),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
 # Step 4: Success
 # ---------------------------------------------------------------------------
+
 
 class DonationSuccessView(TemplateView):
     """
@@ -408,7 +422,7 @@ class DonationSuccessView(TemplateView):
 
     template_name = "payments/donation_success.html"
 
-    def get(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         intent_pk_raw = request.GET.get("payment_intent_pk") or (
             request.session.get(DONATION_SESSION_KEY) or {}
         ).get("donation_payment_intent_pk")
@@ -442,7 +456,7 @@ class DonationSuccessView(TemplateView):
         request.session.pop(DONATION_SESSION_KEY, None)
         return super().get(request, *args, **kwargs)
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
         intent = getattr(self, "intent", None)
         ctx["payment_reference"] = intent.reference if intent else ""
@@ -453,7 +467,8 @@ class DonationSuccessView(TemplateView):
 # Step 5: Cancel
 # ---------------------------------------------------------------------------
 
-def _cancel_stripe_pi_safe(gateway, pi_id: str) -> None:
+
+def _cancel_stripe_pi_safe(gateway, pi_id: str) -> None:  # noqa: ANN001
     """Cancel a Stripe PaymentIntent — fire-and-forget.
 
     Called via transaction.on_commit() from DonationCancelView and
@@ -485,7 +500,7 @@ class DonationCancelView(LoginRequiredMixin, TemplateView):
 
     template_name = "payments/donation_cancel.html"
 
-    def get(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         session_data = request.session.pop(DONATION_SESSION_KEY, {})
 
         # M-M fix: cancel the live Stripe PI if one was created for this session.
@@ -494,6 +509,7 @@ class DonationCancelView(LoginRequiredMixin, TemplateView):
         if intent_pk:
             try:
                 import uuid as _uuid_mod
+
                 _uuid_mod.UUID(str(intent_pk))  # validate before DB lookup
                 intent = PaymentIntent.objects.get(
                     pk=intent_pk,
@@ -508,8 +524,7 @@ class DonationCancelView(LoginRequiredMixin, TemplateView):
                     # transaction — wrap in atomic() so on_commit fires reliably.
                     with transaction.atomic():
                         transaction.on_commit(
-                            lambda gw=_gw, pi_id=_pi_id:
-                                _cancel_stripe_pi_safe(gw, pi_id)
+                            lambda gw=_gw, pi_id=_pi_id: _cancel_stripe_pi_safe(gw, pi_id)
                         )
             except (PaymentIntent.DoesNotExist, ValueError):
                 pass
@@ -520,6 +535,7 @@ class DonationCancelView(LoginRequiredMixin, TemplateView):
 # ---------------------------------------------------------------------------
 # Recurring gift cancellation (authenticated donors only)
 # ---------------------------------------------------------------------------
+
 
 class RecurringGiftCancelView(LoginRequiredMixin, TemplateView):
     """
@@ -532,7 +548,7 @@ class RecurringGiftCancelView(LoginRequiredMixin, TemplateView):
 
     template_name = "payments/recurring_cancel.html"
 
-    def setup(self, request, *args, **kwargs):
+    def setup(self, request, *args, **kwargs) -> None:  # noqa: ANN001, ANN002, ANN003
         super().setup(request, *args, **kwargs)
         # Guard: only perform the scoped DB lookup for authenticated users.
         # setup() runs before LoginRequiredMixin.dispatch() checks authentication,
@@ -550,12 +566,12 @@ class RecurringGiftCancelView(LoginRequiredMixin, TemplateView):
         else:
             self.plan = None
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
         ctx["plan"] = self.plan
         return ctx
 
-    def post(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         """Execute recurring gift cancellation.
 
         M-E fix: gateway.cancel_subscription() is deferred to transaction.on_commit()
@@ -615,9 +631,9 @@ class RecurringGiftCancelView(LoginRequiredMixin, TemplateView):
                 _plan_pk_str = str(plan.pk)
 
                 def _do_stripe_cancel(
-                    gateway_sub_id=_sub_id,
-                    plan_pk_str=_plan_pk_str,
-                ):
+                    gateway_sub_id=_sub_id,  # noqa: ANN001
+                    plan_pk_str=_plan_pk_str,  # noqa: ANN001
+                ) -> None:
                     try:
                         gateway = get_gateway()
                         gateway.cancel_subscription(gateway_sub_id)

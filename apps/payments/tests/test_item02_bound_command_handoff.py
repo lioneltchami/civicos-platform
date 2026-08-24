@@ -36,7 +36,9 @@ class BoundCommandHandoffTests(TransactionTestCase):
         command.refresh_from_db()
         self.assertIsNotNone(command.attempt_id)
         self.assertTrue(PaymentAttempt.objects.filter(pk=command.attempt_id).exists())
-        self.assertTrue(PaymentExecutionIntent.objects.filter(attempt_id=command.attempt_id).exists())
+        self.assertTrue(
+            PaymentExecutionIntent.objects.filter(attempt_id=command.attempt_id).exists()
+        )
         outbox = PaymentCommandOutbox.objects.get(command=command)
         self.assertEqual(outbox.payload["attempt_id"], str(command.attempt_id))
         self.assertIsNone(outbox.published_at)
@@ -73,7 +75,9 @@ class BoundCommandHandoffTests(TransactionTestCase):
                 raise RuntimeError("rollback")
         self.assertFalse(PaymentCommand.objects.filter(request_identity="REQ000000004").exists())
         self.assertFalse(PaymentAttempt.objects.filter(request_id="REQ000000004").exists())
-        self.assertFalse(PaymentExecutionIntent.objects.filter(request_identity="REQ000000004").exists())
+        self.assertFalse(
+            PaymentExecutionIntent.objects.filter(request_identity="REQ000000004").exists()
+        )
 
     def test_request_boundary_never_resolves_provider(self):
         with patch("apps.payments.provider_runtime.ProviderRuntime.resolve") as resolve:

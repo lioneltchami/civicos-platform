@@ -2,12 +2,11 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("appointments", "0007_rename_note_internal_staffexception_internal_note"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterUniqueTogether(
             name="staffexception",
             unique_together=set(),

@@ -70,7 +70,9 @@ class Notification(BaseModel):
         max_length=255,
         blank=True,
         verbose_name=_("External ID"),
-        help_text=_("ID from the sending provider (GC Notify, SendGrid, etc.) for status tracking."),
+        help_text=_(
+            "ID from the sending provider (GC Notify, SendGrid, etc.) for status tracking."
+        ),
     )
     # Whether the citizen has read this notification in the portal inbox
     read_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Read at"))
@@ -78,8 +80,8 @@ class Notification(BaseModel):
     class Meta:
         verbose_name = _("Notification")
         verbose_name_plural = _("Notifications")
-        ordering = ["-created_at"]
-        indexes = [
+        ordering = ["-created_at"]  # noqa: RUF012
+        indexes = [  # noqa: RUF012
             models.Index(fields=["recipient", "read_at"]),
             # Optimised index for the in-app inbox query pattern:
             # filter(recipient=X, channel=IN_APP).filter(read_at__isnull=True)

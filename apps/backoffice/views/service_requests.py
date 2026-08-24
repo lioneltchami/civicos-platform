@@ -62,7 +62,7 @@ class ServiceRequestListView(StaffRequiredMixin, ListView):
     context_object_name = "service_requests"
     paginate_by = 25
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         qs = ServiceRequest.objects.select_related("citizen").order_by("-created_at")
 
         # Filter by status — only accept valid enum values to prevent injection
@@ -78,9 +78,7 @@ class ServiceRequestListView(StaffRequiredMixin, ListView):
         # Free-text search across reference number and citizen email
         q_param = self.request.GET.get("q", "").strip()
         if q_param:
-            qs = qs.filter(
-                reference_number__icontains=q_param
-            ) | qs.filter(
+            qs = qs.filter(reference_number__icontains=q_param) | qs.filter(
                 citizen__email__icontains=q_param
             )
             # Re-apply ordering after OR to ensure consistent sort
@@ -88,7 +86,7 @@ class ServiceRequestListView(StaffRequiredMixin, ListView):
 
         return qs
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
         ctx["status_choices"] = ServiceRequestStatus.choices
         ctx["filter_status"] = self.request.GET.get("status", "")
@@ -116,13 +114,13 @@ class ServiceRequestDetailView(StaffRequiredMixin, DetailView):
     context_object_name = "service_request"
     model = ServiceRequest
 
-    def get_object(self, queryset=None):
+    def get_object(self, queryset=None):  # noqa: ANN001, ANN201
         return get_object_or_404(
             ServiceRequest.objects.select_related("citizen"),
             reference_number=self.kwargs["reference_number"],
         )
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
         obj = self.object
 
@@ -137,27 +135,19 @@ class ServiceRequestDetailView(StaffRequiredMixin, DetailView):
         from django.contrib.contenttypes.models import ContentType
 
         ct = ContentType.objects.get_for_model(ServiceRequest)
-        ctx["work_item"] = WorkItem.objects.filter(
-            content_type=ct, object_id=str(obj.pk)
-        ).first()
+        ctx["work_item"] = WorkItem.objects.filter(content_type=ct, object_id=str(obj.pk)).first()
 
         # Status choices excluding the current status (no-op transitions disallowed)
         ctx["status_choices"] = [
-            (value, label)
-            for value, label in ServiceRequestStatus.choices
-            if value != obj.status
+            (value, label) for value, label in ServiceRequestStatus.choices if value != obj.status
         ]
 
         # Pre-built forms (empty for status, pre-filled for notes)
         ctx["status_form"] = ServiceRequestStatusForm()
-        ctx["notes_form"] = ServiceRequestNotesForm(
-            initial={"internal_notes": obj.internal_notes}
-        )
+        ctx["notes_form"] = ServiceRequestNotesForm(initial={"internal_notes": obj.internal_notes})
 
         # How many total requests does this citizen have?
-        ctx["citizen_requests_count"] = ServiceRequest.objects.filter(
-            citizen=obj.citizen
-        ).count()
+        ctx["citizen_requests_count"] = ServiceRequest.objects.filter(citizen=obj.citizen).count()
 
         return ctx
 
@@ -176,9 +166,9 @@ class ServiceRequestStatusView(StaffRequiredMixin, View):
     Wrapped in transaction.atomic() so any failure rolls back the whole unit.
     """
 
-    http_method_names = ["post"]
+    http_method_names = ["post"]  # noqa: RUF012
 
-    def post(self, request, reference_number):
+    def post(self, request, reference_number):  # noqa: ANN001, ANN201
         sr = get_object_or_404(ServiceRequest, reference_number=reference_number)
         form = ServiceRequestStatusForm(request.POST)
 
@@ -201,9 +191,7 @@ class ServiceRequestStatusView(StaffRequiredMixin, View):
                     request.user.pk,
                 )
             # Resolve the display label for the success message
-            status_label = dict(ServiceRequestStatus.choices).get(
-                new_status, new_status
-            )
+            status_label = dict(ServiceRequestStatus.choices).get(new_status, new_status)
             messages.success(
                 request,
                 _("Status updated to %(status)s.") % {"status": status_label},
@@ -213,7 +201,7 @@ class ServiceRequestStatusView(StaffRequiredMixin, View):
 
         return redirect("backoffice:sr-detail", reference_number=reference_number)
 
-    def http_method_not_allowed(self, request, *args, **kwargs):
+    def http_method_not_allowed(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         return HttpResponseNotAllowed(["POST"])
 
 
@@ -231,9 +219,9 @@ class ServiceRequestNotesView(StaffRequiredMixin, View):
     via QuerySet.update().  This is explicitly documented and intentional.
     """
 
-    http_method_names = ["post"]
+    http_method_names = ["post"]  # noqa: RUF012
 
-    def post(self, request, reference_number):
+    def post(self, request, reference_number):  # noqa: ANN001, ANN201
         sr = get_object_or_404(ServiceRequest, reference_number=reference_number)
         form = ServiceRequestNotesForm(request.POST)
 
@@ -257,5 +245,5 @@ class ServiceRequestNotesView(StaffRequiredMixin, View):
         messages.success(request, _("Internal notes saved."))
         return redirect("backoffice:sr-detail", reference_number=reference_number)
 
-    def http_method_not_allowed(self, request, *args, **kwargs):
+    def http_method_not_allowed(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         return HttpResponseNotAllowed(["POST"])

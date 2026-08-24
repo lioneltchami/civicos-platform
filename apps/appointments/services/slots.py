@@ -15,10 +15,11 @@ Security invariants:
   - No PII in log messages.
   - Idempotent: generate_slots_for_range skips existing slots.
 """
+
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import date
 
 from django.db import transaction
 
@@ -28,6 +29,7 @@ logger = logging.getLogger("civicos.appointments.services.slots")
 # ---------------------------------------------------------------------------
 # Custom exceptions
 # ---------------------------------------------------------------------------
+
 
 class SlotFullError(Exception):
     """Raised when a slot has no available spaces for a new booking."""
@@ -44,10 +46,11 @@ class SlotHasBookingsError(Exception):
 # generate_slots_for_range
 # ---------------------------------------------------------------------------
 
+
 def generate_slots_for_range(
     *,
-    appointment_type,
-    staff,
+    appointment_type,  # noqa: ANN001
+    staff,  # noqa: ANN001
     date_from: date,
     date_to: date,
     created_by_task: bool = False,
@@ -93,7 +96,10 @@ def generate_slots_for_range(
         logger.debug(
             "generate_slots_for_range: no slots computed for staff_id=%s, "
             "appointment_type_id=%s, %s->%s",
-            staff.pk, appointment_type.pk, date_from, date_to,
+            staff.pk,
+            appointment_type.pk,
+            date_from,
+            date_to,
         )
         return 0
 
@@ -155,7 +161,8 @@ def generate_slots_for_range(
 # block_slot
 # ---------------------------------------------------------------------------
 
-def block_slot(*, slot, reason: str = "", actor=None) -> object:
+
+def block_slot(*, slot, reason: str = "", actor=None) -> object:  # noqa: ANN001
     """
     Block a slot (admin action). Transitions status -> 'blocked'.
 
@@ -173,7 +180,7 @@ def block_slot(*, slot, reason: str = "", actor=None) -> object:
     Returns:
         Updated Slot instance.
     """
-    from apps.appointments.models import Slot  # noqa: PLC0415 — deferred to avoid circular imports
+    from apps.appointments.models import Slot
 
     with transaction.atomic():
         slot = Slot.objects.select_for_update().get(pk=slot.pk)  # H-4: re-fetch with row lock
@@ -193,9 +200,8 @@ def block_slot(*, slot, reason: str = "", actor=None) -> object:
         # Booking model is Wave 3; guard against ImportError
         try:
             from apps.appointments.models import Booking  # noqa: F401
-            active_booking_count = slot.bookings.filter(
-                status__in=("pending", "confirmed")
-            ).count()
+
+            active_booking_count = slot.bookings.filter(status__in=("pending", "confirmed")).count()
             if active_booking_count > 0:
                 raise SlotHasBookingsError(
                     f"Slot {slot.pk} has {active_booking_count} active booking(s). "
@@ -232,7 +238,8 @@ def block_slot(*, slot, reason: str = "", actor=None) -> object:
 # cancel_slot
 # ---------------------------------------------------------------------------
 
-def cancel_slot(*, slot, reason: str = "", actor=None) -> object:
+
+def cancel_slot(*, slot, reason: str = "", actor=None) -> object:  # noqa: ANN001
     """
     Cancel a slot (admin action). Transitions status -> 'cancelled'.
 
@@ -251,7 +258,7 @@ def cancel_slot(*, slot, reason: str = "", actor=None) -> object:
     Returns:
         Updated Slot instance.
     """
-    from apps.appointments.models import Slot  # noqa: PLC0415 — deferred to avoid circular imports
+    from apps.appointments.models import Slot
 
     with transaction.atomic():
         slot = Slot.objects.select_for_update().get(pk=slot.pk)  # H-4: re-fetch with row lock
@@ -270,9 +277,8 @@ def cancel_slot(*, slot, reason: str = "", actor=None) -> object:
         # Guard: refuse if active bookings exist
         try:
             from apps.appointments.models import Booking  # noqa: F401
-            active_count = slot.bookings.filter(
-                status__in=("pending", "confirmed")
-            ).count()
+
+            active_count = slot.bookings.filter(status__in=("pending", "confirmed")).count()
             if active_count > 0:
                 raise SlotHasBookingsError(
                     f"Slot {slot.pk} has {active_count} active booking(s). "

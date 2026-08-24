@@ -36,6 +36,7 @@ Security
   operator accidentally invalidating a live production credential by
   forgetting the flag.
 """
+
 from __future__ import annotations
 
 from django.core.management.base import BaseCommand, CommandError
@@ -49,7 +50,7 @@ class Command(BaseCommand):
         "secret exactly once — it is never stored or logged."
     )
 
-    def add_arguments(self, parser) -> None:
+    def add_arguments(self, parser) -> None:  # noqa: ANN001
         parser.add_argument(
             "--bb-id",
             required=True,
@@ -69,11 +70,13 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options) -> None:  # noqa: ANN002, ANN003
         # Lazy imports — avoid model loading before the app registry is ready.
-        import getpass  # noqa: PLC0415
+        import getpass
 
-        from apps.appointments.models import BookingAuditLog, GovStackBBCredential  # noqa: PLC0415
-        from apps.appointments.services.govstack_log import record_admin_audit_event  # noqa: PLC0415
-        from apps.payments.govstack_models import GovStackRegisteredBB  # noqa: PLC0415
+        from apps.appointments.models import BookingAuditLog, GovStackBBCredential
+        from apps.appointments.services.govstack_log import (
+            record_admin_audit_event,
+        )
+        from apps.payments.govstack_models import GovStackRegisteredBB
 
         bb_id: str = options["bb_id"]
         rotate: bool = options["rotate"]
@@ -121,14 +124,15 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(f"{action} credential for bb_id={bb_id!r}."))
         self.stdout.write("")
-        self.stdout.write(self.style.WARNING(
-            "COPY THIS SECRET NOW — it will not be shown again and is not "
-            "recoverable from the database:"
-        ))
+        self.stdout.write(
+            self.style.WARNING(
+                "COPY THIS SECRET NOW — it will not be shown again and is not "
+                "recoverable from the database:"
+            )
+        )
         self.stdout.write("")
         self.stdout.write(f"    request_token = {plaintext}")
         self.stdout.write("")
         self.stdout.write(
-            f"Use with requestor_id={bb_id!r} as the two GovStack Scheduler "
-            "BB query parameters."
+            f"Use with requestor_id={bb_id!r} as the two GovStack Scheduler " "BB query parameters."
         )

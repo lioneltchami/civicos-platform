@@ -3,8 +3,10 @@ End-to-end tests for the form submission flow.
 Tests FormPage.process_form_submission(), consent tracking,
 retention date setting, and signal emission.
 """
+
 import uuid
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import MagicMock, patch
+
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from wagtail.models import Page
@@ -14,6 +16,7 @@ VALID_PASSWORD = "SecureTestPass123!"
 
 def make_form_page(consent_text="", retention_days=365):
     from apps.forms.models import FormPage
+
     root_page = Page.objects.filter(depth=1).first()
     if root_page is None:
         root_page = Page.add_root(title="Root", slug="root")
@@ -32,9 +35,13 @@ def make_form_page(consent_text="", retention_days=365):
 
 def make_form_field(page, label, is_pii=False):
     from apps.forms.models import FormField
+
     return FormField.objects.create(
-        page=page, label=label, field_type="singleline",
-        required=True, is_pii=is_pii,
+        page=page,
+        label=label,
+        field_type="singleline",
+        required=True,
+        is_pii=is_pii,
         sort_order=FormField.objects.filter(page=page).count(),
     )
 
@@ -42,6 +49,7 @@ def make_form_field(page, label, is_pii=False):
 def _make_real_submission(page, form_data=None):
     """Create a persisted FormSubmission for patching the parent's return value."""
     from apps.forms.models import FormSubmission
+
     return FormSubmission.objects.create(
         page=page,
         form_data=form_data or {"name": "Test Citizen"},
@@ -94,9 +102,7 @@ class ProcessFormSubmissionTest(TestCase):
                     result = page.process_form_submission(_make_mock_form())
                 result.refresh_from_db()
                 expected_delta = (result.expires_at - before).total_seconds()
-                self.assertAlmostEqual(
-                    expected_delta, days * 86400, delta=10
-                )
+                self.assertAlmostEqual(expected_delta, days * 86400, delta=10)
 
     def test_submitter_ip_captured_from_remote_addr(self):
         page = make_form_page()
@@ -212,6 +218,7 @@ class ProcessFormSubmissionTest(TestCase):
             with patch(self._PARENT, return_value=real_sub):
                 page.process_form_submission(_make_mock_form())
             from apps.forms.models import FormPage
+
             self.assertEqual(senders[0], FormPage)
         finally:
             form_submission_received.disconnect(handler)
@@ -275,8 +282,9 @@ class FormPageServingTest(TestCase):
     """
 
     def setUp(self):
-        from wagtail.models import Site
         from django.core.cache import cache
+        from wagtail.models import Site
+
         root_page = Page.objects.filter(depth=1).first()
         if root_page is None:
             root_page = Page.add_root(title="Root", slug="root")
@@ -295,6 +303,7 @@ class FormPageServingTest(TestCase):
     def _make_live_form_page(self, consent_text="", retention_days=365):
         """Create a published FormPage under root."""
         from apps.forms.models import FormPage
+
         page = FormPage(
             title="Live Form",
             slug=f"live-form-{uuid.uuid4().hex[:6]}",
@@ -322,6 +331,7 @@ class FormPageServingTest(TestCase):
 
     def test_valid_post_creates_submission(self):
         from apps.forms.models import FormSubmission
+
         page = self._make_live_form_page()
         make_form_field(page, label="Name")
         count_before = FormSubmission.objects.filter(page=page).count()
@@ -333,6 +343,7 @@ class FormPageServingTest(TestCase):
 
     def test_valid_post_sets_expires_at(self):
         from apps.forms.models import FormSubmission
+
         page = self._make_live_form_page(retention_days=90)
         make_form_field(page, label="Name")
         self.client.post(page.url, data={"name": "Test Citizen"})
@@ -341,6 +352,7 @@ class FormPageServingTest(TestCase):
 
     def test_valid_post_captures_submitter_ip(self):
         from apps.forms.models import FormSubmission
+
         page = self._make_live_form_page()
         make_form_field(page, label="Name")
         self.client.post(
@@ -353,6 +365,7 @@ class FormPageServingTest(TestCase):
 
     def test_post_with_consent_records_consent(self):
         from apps.forms.models import FormSubmission
+
         page = self._make_live_form_page(consent_text="I agree.")
         make_form_field(page, label="Name")
         self.client.post(page.url, data={"name": "Test", "_consent": True})
@@ -363,6 +376,7 @@ class FormPageServingTest(TestCase):
     def test_post_without_consent_does_not_submit(self):
         """Missing required consent checkbox should cause form validation to fail."""
         from apps.forms.models import FormSubmission
+
         page = self._make_live_form_page(consent_text="I agree.")
         make_form_field(page, label="Name")
         count_before = FormSubmission.objects.filter(page=page).count()

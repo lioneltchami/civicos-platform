@@ -9,6 +9,7 @@ prevent circular import chains at Django startup.
 
 PIPEDA: no volunteer or donor PII returned — economic aggregates only.
 """
+
 from __future__ import annotations
 
 import logging
@@ -77,6 +78,7 @@ def combined_nonprofit_impact(year: int) -> dict:
     # ── Volunteer impact ──────────────────────────────────────────────────────
     try:
         from apps.volunteers.services.reporting import impact_value
+
         vol_raw = impact_value(year)
         volunteer = {
             "total_approved_hours": vol_raw["total_approved_hours"],
@@ -110,6 +112,7 @@ def combined_nonprofit_impact(year: int) -> dict:
     # ── Donation summary ──────────────────────────────────────────────────────
     try:
         from apps.reports.services.donations import get_annual_donation_summary
+
         don_raw = get_annual_donation_summary(year)
         donations = {
             "total_donations": don_raw["total_donations"],
@@ -139,9 +142,8 @@ def combined_nonprofit_impact(year: int) -> dict:
     # a None value from either key raises TypeError and crashes the view even
     # though both BBs succeeded. The zero-fallback paths are already protected
     # by dict(_VOLUNTEER_ZERO); this covers the happy path.
-    combined_value_cad = (
-        (volunteer["estimated_value_cad"] or Decimal("0.00"))
-        + (donations["total_eligible_amount"] or Decimal("0.00"))
+    combined_value_cad = (volunteer["estimated_value_cad"] or Decimal("0.00")) + (
+        donations["total_eligible_amount"] or Decimal("0.00")
     )
 
     logger.info(
@@ -158,7 +160,5 @@ def combined_nonprofit_impact(year: int) -> dict:
         "volunteer": volunteer,
         "donations": donations,
         "combined_value_cad": combined_value_cad,
-        "t3010_notes": (
-            "T3010 Schedule 2 (volunteers) + line 4500 (donations eligible amount)"
-        ),
+        "t3010_notes": ("T3010 Schedule 2 (volunteers) + line 4500 (donations eligible amount)"),
     }

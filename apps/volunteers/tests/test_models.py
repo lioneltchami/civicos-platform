@@ -19,6 +19,7 @@ Covers:
   - VolunteerNote: coordinator-only note, author PROTECT
   - RecognitionMilestone: unique_together, notification_sent default False
 """
+
 from __future__ import annotations
 
 import datetime
@@ -33,8 +34,8 @@ from django.utils import timezone
 
 from apps.volunteers.models import (
     Certification,
-    HoursLog,
     Honorarium,
+    HoursLog,
     Opportunity,
     Program,
     RecognitionMilestone,
@@ -53,6 +54,7 @@ User = get_user_model()
 # ---------------------------------------------------------------------------
 # Helpers / factories
 # ---------------------------------------------------------------------------
+
 
 def make_user(email="alice@example.com", is_staff=False):
     # Ensure unique email each call when default is reused across test cases
@@ -130,8 +132,8 @@ def make_honorarium(volunteer, amount, payment_date=None, created_by=None, skip_
 # SkillTag tests
 # ---------------------------------------------------------------------------
 
-class SkillTagTests(TestCase):
 
+class SkillTagTests(TestCase):
     def setUp(self):
         self.tag = SkillTag.objects.create(
             name_en="First Aid",
@@ -144,18 +146,20 @@ class SkillTagTests(TestCase):
         self.assertIn("First Aid", str(self.tag))
 
     def test_get_name_english(self):
-        from django.test.utils import override_settings
         from django.utils import translation
+
         with translation.override("en"):
             self.assertEqual(self.tag.get_name(), "First Aid")
 
     def test_get_name_french(self):
         from django.utils import translation
+
         with translation.override("fr"):
             self.assertEqual(self.tag.get_name(), "Premiers secours")
 
     def test_get_name_defaults_to_english_for_unknown_language(self):
         from django.utils import translation
+
         with translation.override("es"):
             # "es" doesn't start with "fr" → falls back to English
             self.assertEqual(self.tag.get_name(), "First Aid")
@@ -172,7 +176,9 @@ class SkillTagTests(TestCase):
         self.assertTrue(self.tag.is_active)
 
     def test_ordering_by_name_en(self):
-        SkillTag.objects.create(name_en="Aaardvark Skill", name_fr="Compétence aardvark", slug="aardvark")
+        SkillTag.objects.create(
+            name_en="Aaardvark Skill", name_fr="Compétence aardvark", slug="aardvark"
+        )
         first = SkillTag.objects.first()
         self.assertEqual(first.name_en, "Aaardvark Skill")
 
@@ -181,8 +187,8 @@ class SkillTagTests(TestCase):
 # Program tests
 # ---------------------------------------------------------------------------
 
-class ProgramTests(TestCase):
 
+class ProgramTests(TestCase):
     def test_cra_category_choices(self):
         valid_categories = [c[0] for c in Program.CRA_CATEGORY_CHOICES]
         self.assertIn("welfare", valid_categories)
@@ -216,6 +222,7 @@ class ProgramTests(TestCase):
 
     def test_get_name_english(self):
         from django.utils import translation
+
         p = make_program()
         with translation.override("en"):
             name = p.get_name()
@@ -224,6 +231,7 @@ class ProgramTests(TestCase):
 
     def test_get_name_french(self):
         from django.utils import translation
+
         p = make_program()
         with translation.override("fr"):
             name = p.get_name()
@@ -235,8 +243,8 @@ class ProgramTests(TestCase):
 # Opportunity tests
 # ---------------------------------------------------------------------------
 
-class OpportunityTests(TestCase):
 
+class OpportunityTests(TestCase):
     def setUp(self):
         self.program = make_program()
 
@@ -287,6 +295,7 @@ class OpportunityTests(TestCase):
 
     def test_get_title_english(self):
         from django.utils import translation
+
         opp = make_opportunity(self.program)
         with translation.override("en"):
             title = opp.get_title()
@@ -295,6 +304,7 @@ class OpportunityTests(TestCase):
 
     def test_get_title_french(self):
         from django.utils import translation
+
         opp = make_opportunity(self.program)
         with translation.override("fr"):
             title = opp.get_title()
@@ -306,8 +316,8 @@ class OpportunityTests(TestCase):
 # VolunteerProfile tests
 # ---------------------------------------------------------------------------
 
-class VolunteerProfileTests(TestCase):
 
+class VolunteerProfileTests(TestCase):
     def setUp(self):
         self.user = make_user()
         self.profile = make_profile(self.user)
@@ -349,8 +359,9 @@ class VolunteerProfileTests(TestCase):
         self.assertFalse(VolunteerProfile.objects.filter(user_id=uid).exists())
 
     def test_custom_permission_exists(self):
-        from django.contrib.contenttypes.models import ContentType
         from django.contrib.auth.models import Permission
+        from django.contrib.contenttypes.models import ContentType
+
         ct = ContentType.objects.get_for_model(VolunteerProfile)
         self.assertTrue(
             Permission.objects.filter(
@@ -370,6 +381,7 @@ class VolunteerProfileTests(TestCase):
         Tests the model-layer field can be set and persists (service layer sets this in Wave 2).
         """
         from decimal import Decimal
+
         from django.db.models import Sum
 
         # Create an approved HoursLog
@@ -383,9 +395,9 @@ class VolunteerProfileTests(TestCase):
             status="approved",
         )
         # Simulate service layer updating denormalized field
-        total = HoursLog.objects.filter(
-            volunteer=self.profile, status="approved"
-        ).aggregate(total=Sum("hours"))["total"] or Decimal("0")
+        total = HoursLog.objects.filter(volunteer=self.profile, status="approved").aggregate(
+            total=Sum("hours")
+        )["total"] or Decimal("0")
         VolunteerProfile.objects.filter(pk=self.profile.pk).update(total_hours_approved=total)
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.total_hours_approved, Decimal("3.50"))
@@ -407,10 +419,11 @@ class VolunteerProfileTests(TestCase):
         self.profile.sin_encrypted = None  # must not raise
 
     def test_sin_encrypted_accepts_valid_fernet_token(self):
-        """__setattr__ guard: a real Fernet token (>= 73 raw bytes, version 0x80) must be accepted."""
+        """__setattr__ guard: a real Fernet token (>= 73 raw bytes, version 0x80) must be accepted."""  # noqa: E501
         import base64
-        import struct
         import os
+        import struct
+
         # Build a minimal syntactically valid Fernet token (not necessarily decryptable)
         # Structure: version(1) + timestamp(8) + iv(16) + ciphertext(16) + hmac(32) = 73 bytes
         version = b"\x80"
@@ -428,6 +441,7 @@ class VolunteerProfileTests(TestCase):
     def test_photo_requires_photo_consent(self):
         """PIPEDA: setting photo without photo_consent_id must raise ValidationError."""
         from django.core.files.base import ContentFile
+
         self.profile.photo = ContentFile(b"fake-image", name="test.jpg")
         self.profile.photo_consent_id = None
         with self.assertRaises(ValidationError):
@@ -438,8 +452,8 @@ class VolunteerProfileTests(TestCase):
 # VolunteerApplication tests
 # ---------------------------------------------------------------------------
 
-class VolunteerApplicationTests(TestCase):
 
+class VolunteerApplicationTests(TestCase):
     def setUp(self):
         self.program = make_program()
         self.opp = make_opportunity(self.program)
@@ -490,8 +504,8 @@ class VolunteerApplicationTests(TestCase):
 # Shift tests
 # ---------------------------------------------------------------------------
 
-class ShiftTests(TestCase):
 
+class ShiftTests(TestCase):
     def setUp(self):
         self.program = make_program()
         self.opp = make_opportunity(self.program)
@@ -569,8 +583,8 @@ class ShiftTests(TestCase):
 # ShiftBooking tests
 # ---------------------------------------------------------------------------
 
-class ShiftBookingTests(TestCase):
 
+class ShiftBookingTests(TestCase):
     def setUp(self):
         self.program = make_program()
         self.opp = make_opportunity(self.program)
@@ -609,8 +623,8 @@ class ShiftBookingTests(TestCase):
 # HoursLog tests
 # ---------------------------------------------------------------------------
 
-class HoursLogTests(TestCase):
 
+class HoursLogTests(TestCase):
     def setUp(self):
         self.program = make_program()
         self.opp = make_opportunity(self.program)
@@ -686,7 +700,7 @@ class HoursLogTests(TestCase):
                 self.profile.delete()
 
     def test_ordering_by_date_descending(self):
-        log1 = HoursLog.objects.create(
+        HoursLog.objects.create(
             volunteer=self.profile,
             date=datetime.date(2024, 1, 1),
             hours=Decimal("2"),
@@ -770,8 +784,8 @@ class HoursLogTests(TestCase):
 # ScreeningRecord tests
 # ---------------------------------------------------------------------------
 
-class ScreeningRecordTests(TestCase):
 
+class ScreeningRecordTests(TestCase):
     def setUp(self):
         self.program = make_program()
         self.opp = make_opportunity(self.program)
@@ -875,6 +889,7 @@ class ScreeningRecordTests(TestCase):
         completed_date + 3 years (RCMP policy).
         """
         import datetime as dt
+
         from apps.volunteers.models import ScreeningRecord
 
         record = ScreeningRecord(
@@ -939,6 +954,7 @@ class ScreeningRecordTests(TestCase):
         overwrite it with the 3-year default.
         """
         import datetime as dt
+
         from apps.volunteers.models import ScreeningRecord
 
         custom_expiry = self.today + dt.timedelta(days=500)
@@ -1024,8 +1040,8 @@ class ScreeningRecordTests(TestCase):
 # Certification tests
 # ---------------------------------------------------------------------------
 
-class CertificationTests(TestCase):
 
+class CertificationTests(TestCase):
     def setUp(self):
         self.user = make_user()
         self.profile = make_profile(self.user)
@@ -1068,6 +1084,7 @@ class CertificationTests(TestCase):
     def test_protect_blocks_profile_delete_when_certification_exists(self):
         """PROTECT: deleting a profile with certifications must raise ProtectedError (H-5)."""
         from django.db.models.deletion import ProtectedError
+
         self._make_cert()
         with self.assertRaises(ProtectedError):
             self.profile.delete()
@@ -1101,19 +1118,23 @@ class CertificationTests(TestCase):
 # Honorarium tests
 # ---------------------------------------------------------------------------
 
-class HonorariumTests(TestCase):
 
+class HonorariumTests(TestCase):
     def setUp(self):
         self.user = make_user()
         self.profile = make_profile(self.user)
 
     def test_calendar_year_auto_derived_from_payment_date(self):
-        h = make_honorarium(self.profile, Decimal("100.00"), payment_date=datetime.date(2024, 3, 15))
+        h = make_honorarium(
+            self.profile, Decimal("100.00"), payment_date=datetime.date(2024, 3, 15)
+        )
         h.refresh_from_db()  # GeneratedField is set by DB on INSERT
         self.assertEqual(h.calendar_year, 2024)
 
     def test_calendar_year_correct_for_december(self):
-        h = make_honorarium(self.profile, Decimal("50.00"), payment_date=datetime.date(2023, 12, 31))
+        h = make_honorarium(
+            self.profile, Decimal("50.00"), payment_date=datetime.date(2023, 12, 31)
+        )
         h.refresh_from_db()  # GeneratedField is set by DB on INSERT
         self.assertEqual(h.calendar_year, 2023)
 
@@ -1175,6 +1196,7 @@ class HonorariumTests(TestCase):
     )
     def test_cra_thresholds_in_settings(self):
         from django.conf import settings
+
         self.assertEqual(settings.VOLUNTEER_CRA_T4A_THRESHOLD, 500.00)
         self.assertEqual(settings.VOLUNTEER_CRA_HARD_BLOCK, 1000.00)
 
@@ -1183,8 +1205,8 @@ class HonorariumTests(TestCase):
 # VolunteerNote tests
 # ---------------------------------------------------------------------------
 
-class VolunteerNoteTests(TestCase):
 
+class VolunteerNoteTests(TestCase):
     def setUp(self):
         self.coordinator = make_user(email="coord@example.com", is_staff=True)
         self.volunteer_user = make_user(email="vol@example.com")
@@ -1200,9 +1222,7 @@ class VolunteerNoteTests(TestCase):
         self.assertEqual(note.author_id, self.coordinator.pk)
 
     def test_ordering_by_created_at_descending(self):
-        n1 = VolunteerNote.objects.create(
-            volunteer=self.profile, author=self.coordinator, body="First"
-        )
+        VolunteerNote.objects.create(volunteer=self.profile, author=self.coordinator, body="First")
         n2 = VolunteerNote.objects.create(
             volunteer=self.profile, author=self.coordinator, body="Second"
         )
@@ -1233,8 +1253,8 @@ class VolunteerNoteTests(TestCase):
 # RecognitionMilestone tests
 # ---------------------------------------------------------------------------
 
-class RecognitionMilestoneTests(TestCase):
 
+class RecognitionMilestoneTests(TestCase):
     def setUp(self):
         self.user = make_user()
         self.profile = make_profile(self.user)
@@ -1297,6 +1317,7 @@ class RecognitionMilestoneTests(TestCase):
 # ---------------------------------------------------------------------------
 # Honorarium CRA PC-025 threshold tests
 # ---------------------------------------------------------------------------
+
 
 class HonorariumCRAThresholdTests(TestCase):
     """Tests for CRA PC-025 honorarium threshold enforcement in Honorarium.clean()."""

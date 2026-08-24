@@ -30,10 +30,11 @@ Security classification: No change. Both remain Protected B.
 Governing law: Privacy Act s.6(1) (minimum 2-year retention for administrative records),
 OWASP A01 Broken Access Control (staff_only enforcement).
 """
+
 from django.db import migrations
 
 
-def fix_category_retention_and_staff_only(apps, schema_editor):
+def fix_category_retention_and_staff_only(apps, schema_editor) -> None:  # noqa: ANN001
     """
     Correct volunteer-certification and cra-t4a-slip category settings.
 
@@ -46,9 +47,9 @@ def fix_category_retention_and_staff_only(apps, schema_editor):
 
     # volunteer-certification: Privacy Act s.6(1) violation + access control gap
     updated = DocumentCategory.objects.filter(slug="volunteer-certification").update(
-        min_retention_days=730,    # Privacy Act s.6(1): ≥ 2 years for admin records
-        max_retention_days=2555,   # 7 years — spec §11.1 retention schedule
-        staff_only=True,           # CRC/VSC certificates are staff-managed only
+        min_retention_days=730,  # Privacy Act s.6(1): ≥ 2 years for admin records
+        max_retention_days=2555,  # 7 years — spec §11.1 retention schedule
+        staff_only=True,  # CRC/VSC certificates are staff-managed only
     )
     if updated == 0:
         # Category missing — seed migration may not have run yet in this env.
@@ -62,7 +63,7 @@ def fix_category_retention_and_staff_only(apps, schema_editor):
     )
 
 
-def noop(apps, schema_editor):
+def noop(apps, schema_editor) -> None:  # noqa: ANN001
     # Intentionally irreversible: reducing min_retention_days or unsetting staff_only
     # after correction would re-introduce compliance violations. The "undo" of this
     # migration would need Privacy Officer approval before being applied.
@@ -77,11 +78,11 @@ class Migration(migrations.Migration):
     RunPython is non-elidable: data corrections must always be re-run on squash.
     """
 
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("documents", "0007_seed_document_categories"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.RunPython(
             fix_category_retention_and_staff_only,
             noop,

@@ -49,15 +49,16 @@ Module organisation:
   8.  AlertSchedule
   9.  Message
   10. Log
-"""
+"""  # noqa: RUF002
+
 from __future__ import annotations
 
 from rest_framework import serializers
 
-
 # ---------------------------------------------------------------------------
 # Shared response envelope serializers
 # ---------------------------------------------------------------------------
+
 
 class GovStackSuccessResponseSerializer(serializers.Serializer):
     """
@@ -119,7 +120,7 @@ class StringOrListField(serializers.Field):
     with zero special-casing for the single-value shape.
     """
 
-    def to_internal_value(self, data):
+    def to_internal_value(self, data):  # noqa: ANN001, ANN201
         if isinstance(data, str):
             return [data] if data else []
         if isinstance(data, list):
@@ -128,13 +129,14 @@ class StringOrListField(serializers.Field):
             return list(data)
         raise serializers.ValidationError("Must be a string or a list of strings.")
 
-    def to_representation(self, value):
+    def to_representation(self, value):  # noqa: ANN001, ANN201
         return value
 
 
 # ---------------------------------------------------------------------------
 # 1. Entity (→ CivicOS Organization)
 # ---------------------------------------------------------------------------
+
 
 class EntityDetailsSerializer(serializers.Serializer):
     """GovStack Entity core fields — maps to CivicOS Organization."""
@@ -215,6 +217,7 @@ class EntityListQrySerializer(serializers.Serializer):
 # ---------------------------------------------------------------------------
 # 2. Resource (→ CivicOS Resource / StaffProfile)
 # ---------------------------------------------------------------------------
+
 
 class ResourceDetailsSerializer(serializers.Serializer):
     """
@@ -325,18 +328,20 @@ class ResourceAvailabilityFilterSerializer(serializers.Serializer):
 
     resource_id = serializers.CharField(required=False, allow_blank=True)
     # GovStack spec capitalises: Entity_id
-    Entity_id   = serializers.CharField(required=False, allow_blank=True)
-    from_dt     = serializers.CharField(
-        required=False, allow_blank=True,
+    Entity_id = serializers.CharField(required=False, allow_blank=True)
+    from_dt = serializers.CharField(
+        required=False,
+        allow_blank=True,
         help_text="ISO 8601 datetime with tz offset (spec key: 'from')",
     )
-    to_dt       = serializers.CharField(
-        required=False, allow_blank=True,
+    to_dt = serializers.CharField(
+        required=False,
+        allow_blank=True,
         help_text="ISO 8601 datetime with tz offset (spec key: 'to')",
     )
-    category    = serializers.CharField(required=False, allow_blank=True)
+    category = serializers.CharField(required=False, allow_blank=True)
 
-    def to_internal_value(self, data):
+    def to_internal_value(self, data):  # noqa: ANN001, ANN201
         """Normalise incoming data — accept 'from'/'to' spec keys alongside 'from_dt'/'to_dt'."""
         data = dict(data)
         # "from" is a Python keyword; rename to the safe internal key before DRF processes fields.
@@ -354,6 +359,7 @@ class ResourceAvailabilityFilterSerializer(serializers.Serializer):
 # ---------------------------------------------------------------------------
 # 3. Subscriber (→ CivicOS User + GovStackSubscriberProfile)
 # ---------------------------------------------------------------------------
+
 
 class SubscriberDetailsSerializer(serializers.Serializer):
     """
@@ -451,6 +457,7 @@ class SubscriberListQrySerializer(serializers.Serializer):
 # 4. Affiliation (→ CivicOS GovStackAffiliation)
 # ---------------------------------------------------------------------------
 
+
 class AffiliationDetailsSerializer(serializers.Serializer):
     """
     GovStack Affiliation core fields.
@@ -521,7 +528,7 @@ class AffiliationFilterSerializer(serializers.Serializer):
     from_ = serializers.CharField(required=False, allow_blank=True)
     to = serializers.CharField(required=False, allow_blank=True)
 
-    def to_internal_value(self, data):
+    def to_internal_value(self, data):  # noqa: ANN001, ANN201
         data = dict(data)
         if "from" in data and "from_" not in data:
             data["from_"] = data.pop("from")
@@ -596,6 +603,7 @@ class AffiliationListQrySerializer(serializers.Serializer):
 # 5. Event (→ CivicOS AppointmentType + Slot + Location)
 # ---------------------------------------------------------------------------
 
+
 class VenueSerializer(serializers.Serializer):
     """
     GovStack Event venue — maps to CivicOS Location address fields.
@@ -645,7 +653,7 @@ class EventDetailsSerializer(serializers.Serializer):
         allow_empty=True,
         help_text=(
             'Array of slot objects. Each slot should contain "from" and "to" '
-            'datetime strings, e.g. [{"from": "2026-08-01T09:00:00Z", "to": "2026-08-01T10:00:00Z"}].'
+            'datetime strings, e.g. [{"from": "2026-08-01T09:00:00Z", "to": "2026-08-01T10:00:00Z"}].'  # noqa: E501
         ),
     )
     deadline = serializers.CharField(required=False, allow_blank=True)
@@ -684,7 +692,7 @@ class EventModifyDetailsSerializer(serializers.Serializer):
     status = serializers.CharField(required=False, allow_blank=True)
     venue = VenueSerializer(required=False)
 
-    def to_internal_value(self, data):
+    def to_internal_value(self, data):  # noqa: ANN001, ANN201
         data = dict(data)
         if "from" in data and "from_" not in data:
             data["from_"] = data.pop("from")
@@ -740,7 +748,7 @@ class EventFilterSerializer(serializers.Serializer):
     from_ = serializers.CharField(required=False, allow_blank=True)
     to = serializers.CharField(required=False, allow_blank=True)
 
-    def to_internal_value(self, data):
+    def to_internal_value(self, data):  # noqa: ANN001, ANN201
         data = dict(data)
         if "from" in data and "from_" not in data:
             data["from_"] = data.pop("from")
@@ -820,6 +828,7 @@ class EventListQrySerializer(serializers.Serializer):
 # ---------------------------------------------------------------------------
 # 6. Appointment (→ CivicOS Booking)
 # ---------------------------------------------------------------------------
+
 
 class AppointmentCreateDetailsSerializer(serializers.Serializer):
     """
@@ -911,7 +920,7 @@ class AppointmentFilterSerializer(serializers.Serializer):
     from_ = serializers.CharField(required=False, allow_blank=True)
     to = serializers.CharField(required=False, allow_blank=True)
 
-    def to_internal_value(self, data):
+    def to_internal_value(self, data):  # noqa: ANN001, ANN201
         data = dict(data)
         if "from" in data and "from_" not in data:
             data["from_"] = data.pop("from")
@@ -993,6 +1002,7 @@ class AppointmentListQrySerializer(serializers.Serializer):
 # 7. AlertSchedule (→ CivicOS GovStackAlertSchedule)
 # ---------------------------------------------------------------------------
 
+
 class AlertScheduleDetailsSerializer(serializers.Serializer):
     """
     GovStack AlertSchedule core fields.
@@ -1039,7 +1049,7 @@ class AlertScheduleFilterSerializer(serializers.Serializer):
     from_ = serializers.CharField(required=False, allow_blank=True)
     to = serializers.CharField(required=False, allow_blank=True)
 
-    def to_internal_value(self, data):
+    def to_internal_value(self, data):  # noqa: ANN001, ANN201
         data = dict(data)
         if "from" in data and "from_" not in data:
             data["from_"] = data.pop("from")
@@ -1105,6 +1115,7 @@ class AlertScheduleListQrySerializer(serializers.Serializer):
 # ---------------------------------------------------------------------------
 # 8. Message (→ CivicOS GovStackMessage)
 # ---------------------------------------------------------------------------
+
 
 class MessageDetailsSerializer(serializers.Serializer):
     """
@@ -1192,6 +1203,7 @@ class MessageListQrySerializer(serializers.Serializer):
 # 9. Log (→ CivicOS BookingAuditLog)
 # ---------------------------------------------------------------------------
 
+
 class LogDetailsSerializer(serializers.Serializer):
     """
     GovStack Log core fields — maps to CivicOS BookingAuditLog via
@@ -1265,7 +1277,7 @@ class LogFilterSerializer(serializers.Serializer):
     from_ = serializers.CharField(required=False, allow_blank=True)
     to = serializers.CharField(required=False, allow_blank=True)
 
-    def to_internal_value(self, data):
+    def to_internal_value(self, data):  # noqa: ANN001, ANN201
         data = dict(data)
         if "from" in data and "from_" not in data:
             data["from_"] = data.pop("from")

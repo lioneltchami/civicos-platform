@@ -22,6 +22,7 @@ WCAG 2.1 AA compliance notes:
   - Error messages are associated with inputs via Django's standard
     BoundField.errors / as_p rendering pattern.
 """
+
 from __future__ import annotations
 
 import copy
@@ -30,8 +31,8 @@ from django import forms
 from django.utils.translation import gettext_lazy as _
 
 from apps.volunteers.models import (
-    HoursLog,
     Honorarium,
+    HoursLog,
     Opportunity,
     ScreeningRecord,
     Shift,
@@ -39,7 +40,6 @@ from apps.volunteers.models import (
     VolunteerNote,
     VolunteerProfile,
 )
-
 
 # ---------------------------------------------------------------------------
 # Allowed extra fields that may appear via required_profile_fields.
@@ -111,20 +111,20 @@ class ApplicationForm(forms.ModelForm):
 
     class Meta:
         model = VolunteerApplication
-        fields = ["motivation"]
+        fields = ["motivation"]  # noqa: RUF012
         # SECURITY — never include: rejection_reason, screening_notes, status,
         # reviewed_by, reviewed_at, consent_record (set by service), work_item.
-        widgets = {
+        widgets = {  # noqa: RUF012
             "motivation": forms.Textarea(
                 attrs={
                     "rows": 6,
                 }
             ),
         }
-        labels = {
+        labels = {  # noqa: RUF012
             "motivation": _("Why would you like to volunteer for this opportunity?"),
         }
-        help_texts = {
+        help_texts = {  # noqa: RUF012
             "motivation": _(
                 "Describe your interest and relevant experience. "
                 "This is read by the coordinator reviewing your application."
@@ -133,11 +133,11 @@ class ApplicationForm(forms.ModelForm):
 
     def __init__(
         self,
-        *args,
-        opportunity=None,
-        volunteer_profile=None,
-        **kwargs,
-    ):
+        *args,  # noqa: ANN002
+        opportunity=None,  # noqa: ANN001
+        volunteer_profile=None,  # noqa: ANN001
+        **kwargs,  # noqa: ANN003
+    ) -> None:
         """
         Initialise the form with optional context.
 
@@ -164,7 +164,7 @@ class ApplicationForm(forms.ModelForm):
                     self.fields[field_name] = copy.deepcopy(_PROFILE_FIELD_REGISTRY[field_name])
 
         # --- Accessibility: mark required fields explicitly ---
-        for name, field in self.fields.items():
+        for _name, field in self.fields.items():
             if field.required:
                 field.widget.attrs.setdefault("aria-required", "true")
 
@@ -179,7 +179,7 @@ class ApplicationForm(forms.ModelForm):
                 f"{visible.auto_id}-hint {visible.auto_id}-errors"
             )
 
-    def clean(self):
+    def clean(self):  # noqa: ANN201
         """
         Cross-field validation.
 
@@ -253,7 +253,7 @@ class ApplicationReviewForm(forms.Form):
         ),
     )
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         super().__init__(*args, **kwargs)
         # WCAG 2.1 SC 1.3.1 fix: wire aria-describedby to BOTH the hint
         # paragraph (-hint) AND the error container (-errors) so screen readers
@@ -266,7 +266,7 @@ class ApplicationReviewForm(forms.Form):
                 f"{visible.auto_id}-hint {visible.auto_id}-errors"
             )
 
-    def clean(self):
+    def clean(self):  # noqa: ANN201
         """
         Hard validation: rejection decisions require an internal reason.
 
@@ -304,6 +304,7 @@ class ApplicationReviewForm(forms.Form):
 # ShiftForm
 # ---------------------------------------------------------------------------
 
+
 class ShiftForm(forms.ModelForm):
     """
     Create or edit a Shift under an Opportunity.
@@ -319,17 +320,20 @@ class ShiftForm(forms.ModelForm):
 
     class Meta:
         model = Shift
-        fields = [
-            "title_en", "title_fr",
-            "description_en", "description_fr",
-            "start_datetime", "end_datetime",
+        fields = [  # noqa: RUF012
+            "title_en",
+            "title_fr",
+            "description_en",
+            "description_fr",
+            "start_datetime",
+            "end_datetime",
             "location_override",
             "is_remote",
             "capacity",
             "waitlist_enabled",
             "waitlist_cap",
         ]
-        widgets = {
+        widgets = {  # noqa: RUF012
             "start_datetime": forms.DateTimeInput(
                 attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"
             ),
@@ -339,7 +343,7 @@ class ShiftForm(forms.ModelForm):
             "description_en": forms.Textarea(attrs={"rows": 4}),
             "description_fr": forms.Textarea(attrs={"rows": 4}),
         }
-        labels = {
+        labels = {  # noqa: RUF012
             "title_en": _("Shift title (English)"),
             "title_fr": _("Shift title (French)"),
             "description_en": _("Description (English)"),
@@ -353,7 +357,7 @@ class ShiftForm(forms.ModelForm):
             "waitlist_cap": _("Waitlist cap (leave blank for unlimited)"),
         }
 
-    def __init__(self, *args, opportunity=None, **kwargs):
+    def __init__(self, *args, opportunity=None, **kwargs) -> None:  # noqa: ANN001, ANN002, ANN003
         super().__init__(*args, **kwargs)
         self.opportunity = opportunity
         # WCAG: set aria-describedby on every visible field
@@ -362,7 +366,7 @@ class ShiftForm(forms.ModelForm):
                 f"{visible.auto_id}-hint {visible.auto_id}-errors"
             )
 
-    def clean(self):
+    def clean(self):  # noqa: ANN201
         cleaned_data = super().clean()
         start = cleaned_data.get("start_datetime")
         end = cleaned_data.get("end_datetime")
@@ -374,7 +378,9 @@ class ShiftForm(forms.ModelForm):
         waitlist_enabled = cleaned_data.get("waitlist_enabled")
         waitlist_cap = cleaned_data.get("waitlist_cap")
         if waitlist_cap and not waitlist_enabled:
-            self.add_error("waitlist_cap", _("Set a waitlist cap only when the waitlist is enabled."))
+            self.add_error(
+                "waitlist_cap", _("Set a waitlist cap only when the waitlist is enabled.")
+            )
 
         return cleaned_data
 
@@ -382,6 +388,7 @@ class ShiftForm(forms.ModelForm):
 # ---------------------------------------------------------------------------
 # HoursLogForm
 # ---------------------------------------------------------------------------
+
 
 class HoursLogForm(forms.ModelForm):
     """
@@ -396,35 +403,34 @@ class HoursLogForm(forms.ModelForm):
 
     class Meta:
         model = HoursLog
-        fields = ["date", "hours", "description", "shift"]
-        widgets = {
+        fields = ["date", "hours", "description", "shift"]  # noqa: RUF012
+        widgets = {  # noqa: RUF012
             "date": forms.DateInput(attrs={"type": "date"}),
             "description": forms.Textarea(attrs={"rows": 3}),
         }
-        labels = {
+        labels = {  # noqa: RUF012
             "date": _("Date of volunteering"),
             "hours": _("Hours volunteered"),
             "description": _("Brief description (optional)"),
             "shift": _("Associated shift (optional)"),
         }
 
-    def __init__(self, *args, volunteer_profile=None, opportunity=None, **kwargs):
+    def __init__(self, *args, volunteer_profile=None, opportunity=None, **kwargs) -> None:  # noqa: ANN001, ANN002, ANN003
         super().__init__(*args, **kwargs)
         self.volunteer_profile = volunteer_profile
         self.opportunity = opportunity
         # Filter shift choices to confirmed/completed bookings for this volunteer+opportunity
         if volunteer_profile is not None and opportunity is not None:
             from apps.volunteers.models import ShiftBooking
-            self.fields["shift"].queryset = (
-                Shift.objects.filter(
-                    opportunity=opportunity,
-                    bookings__volunteer=volunteer_profile,
-                    bookings__status__in=[
-                        ShiftBooking.STATUS_CONFIRMED,
-                        ShiftBooking.STATUS_COMPLETED,
-                    ],
-                ).distinct()
-            )
+
+            self.fields["shift"].queryset = Shift.objects.filter(
+                opportunity=opportunity,
+                bookings__volunteer=volunteer_profile,
+                bookings__status__in=[
+                    ShiftBooking.STATUS_CONFIRMED,
+                    ShiftBooking.STATUS_COMPLETED,
+                ],
+            ).distinct()
         else:
             self.fields["shift"].queryset = Shift.objects.none()
         self.fields["shift"].required = False
@@ -434,7 +440,7 @@ class HoursLogForm(forms.ModelForm):
                 f"{visible.auto_id}-hint {visible.auto_id}-errors"
             )
 
-    def clean_hours(self):
+    def clean_hours(self):  # noqa: ANN201
         hours = self.cleaned_data.get("hours")
         if hours is not None:
             if hours <= 0:
@@ -447,6 +453,7 @@ class HoursLogForm(forms.ModelForm):
 # ---------------------------------------------------------------------------
 # HoursRejectForm
 # ---------------------------------------------------------------------------
+
 
 class HoursRejectForm(forms.Form):
     """
@@ -464,7 +471,7 @@ class HoursRejectForm(forms.Form):
         help_text=_("This reason will not be shown to the volunteer. Keep it brief."),
     )
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         super().__init__(*args, **kwargs)
         # WCAG: aria-describedby wiring
         for visible in self.visible_fields():
@@ -472,7 +479,7 @@ class HoursRejectForm(forms.Form):
                 f"{visible.auto_id}-hint {visible.auto_id}-errors"
             )
 
-    def clean_reason(self):
+    def clean_reason(self):  # noqa: ANN201
         reason = self.cleaned_data.get("reason", "").strip()
         if not reason:
             raise forms.ValidationError(_("A rejection reason is required."))
@@ -482,6 +489,7 @@ class HoursRejectForm(forms.Form):
 # ---------------------------------------------------------------------------
 # ScreeningForm
 # ---------------------------------------------------------------------------
+
 
 class ScreeningForm(forms.ModelForm):
     """
@@ -501,27 +509,27 @@ class ScreeningForm(forms.ModelForm):
 
     class Meta:
         model = ScreeningRecord
-        fields = ["check_type", "opportunity", "completed_date", "expires_date", "notes"]
-        widgets = {
+        fields = ["check_type", "opportunity", "completed_date", "expires_date", "notes"]  # noqa: RUF012
+        widgets = {  # noqa: RUF012
             "completed_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
             "expires_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
             "notes": forms.Textarea(attrs={"rows": 3}),
         }
-        labels = {
+        labels = {  # noqa: RUF012
             "check_type": _("Type of check"),
             "opportunity": _("Associated opportunity (optional)"),
             "completed_date": _("Date check was completed"),
             "expires_date": _("Expiry date (if applicable)"),
             "notes": _("Logistical notes"),
         }
-        help_texts = {
+        help_texts = {  # noqa: RUF012
             "notes": _(
                 "Logistical notes only. For VSC records: maximum 150 characters, "
                 "no criminal record details (PIPEDA)."
             ),
         }
 
-    def __init__(self, *args, volunteer=None, **kwargs):
+    def __init__(self, *args, volunteer=None, **kwargs) -> None:  # noqa: ANN001, ANN002, ANN003
         """
         Args:
             volunteer: ``VolunteerProfile`` instance being screened.
@@ -537,9 +545,7 @@ class ScreeningForm(forms.ModelForm):
                 volunteer=volunteer,
                 status=VolunteerApplication.STATUS_APPROVED,
             ).values_list("opportunity_id", flat=True)
-            self.fields["opportunity"].queryset = Opportunity.objects.filter(
-                pk__in=approved_ids
-            )
+            self.fields["opportunity"].queryset = Opportunity.objects.filter(pk__in=approved_ids)
         else:
             self.fields["opportunity"].queryset = Opportunity.objects.all()
 
@@ -552,7 +558,7 @@ class ScreeningForm(forms.ModelForm):
                 f"{visible.auto_id}-hint {visible.auto_id}-errors"
             )
 
-    def clean(self):
+    def clean(self):  # noqa: ANN201
         cleaned_data = super().clean()
         completed_date = cleaned_data.get("completed_date")
         expires_date = cleaned_data.get("expires_date")
@@ -570,6 +576,7 @@ class ScreeningForm(forms.ModelForm):
 # CompleteScreeningForm
 # ---------------------------------------------------------------------------
 
+
 class CompleteScreeningForm(forms.Form):
     """
     Coordinator marks a screening as verified.
@@ -586,7 +593,7 @@ class CompleteScreeningForm(forms.Form):
     trained accordingly).
     """
 
-    VERIFIED_CLEAR_CHOICES = [
+    VERIFIED_CLEAR_CHOICES = [  # noqa: RUF012
         ("True", _("Clear — result confirmed clear")),
         ("False", _("Not clear — result not clear")),
     ]
@@ -608,7 +615,7 @@ class CompleteScreeningForm(forms.Form):
         ),
     )
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         super().__init__(*args, **kwargs)
         # WCAG 2.1 SC 1.3.1: wire aria-describedby to both -hint and -errors.
         for visible in self.visible_fields():
@@ -616,7 +623,7 @@ class CompleteScreeningForm(forms.Form):
                 f"{visible.auto_id}-hint {visible.auto_id}-errors"
             )
 
-    def clean_verified_clear(self):
+    def clean_verified_clear(self) -> bool:
         """Convert HTML radio string to Python bool."""
         val = self.cleaned_data.get("verified_clear", "")
         if val in ("True", "true", "1", "yes"):
@@ -629,6 +636,7 @@ class CompleteScreeningForm(forms.Form):
 # ---------------------------------------------------------------------------
 # HonorariumForm
 # ---------------------------------------------------------------------------
+
 
 class HonorariumForm(forms.ModelForm):
     """
@@ -644,19 +652,19 @@ class HonorariumForm(forms.ModelForm):
 
     class Meta:
         model = Honorarium
-        fields = ["payment_type", "amount", "description", "payment_date"]
-        widgets = {
+        fields = ["payment_type", "amount", "description", "payment_date"]  # noqa: RUF012
+        widgets = {  # noqa: RUF012
             "payment_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
             "description": forms.Textarea(attrs={"rows": 2}),
         }
-        labels = {
+        labels = {  # noqa: RUF012
             "payment_type": _("Payment type"),
             "amount": _("Amount (CAD)"),
             "description": _("Description / purpose"),
             "payment_date": _("Payment date"),
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         super().__init__(*args, **kwargs)
         # WCAG 2.1 SC 1.3.1: wire aria-describedby to both -hint and -errors.
         for visible in self.visible_fields():
@@ -664,17 +672,19 @@ class HonorariumForm(forms.ModelForm):
                 f"{visible.auto_id}-hint {visible.auto_id}-errors"
             )
 
-    def clean_amount(self):
+    def clean_amount(self):  # noqa: ANN201
         """Reject negative or zero amounts (belt-and-suspenders; model has CheckConstraint)."""
         from decimal import Decimal
+
         amount = self.cleaned_data.get("amount")
         if amount is not None and amount <= Decimal("0"):
             raise forms.ValidationError(_("Amount must be greater than zero."))
         return amount
 
-    def clean_payment_date(self):
+    def clean_payment_date(self):  # noqa: ANN201
         """Reject future payment dates."""
         from django.utils import timezone
+
         date = self.cleaned_data.get("payment_date")
         if date and date > timezone.localtime(timezone.now()).date():
             raise forms.ValidationError(_("Payment date cannot be in the future."))
@@ -684,6 +694,7 @@ class HonorariumForm(forms.ModelForm):
 # ---------------------------------------------------------------------------
 # VolunteerNoteForm
 # ---------------------------------------------------------------------------
+
 
 class VolunteerNoteForm(forms.ModelForm):
     """
@@ -702,22 +713,22 @@ class VolunteerNoteForm(forms.ModelForm):
 
     class Meta:
         model = VolunteerNote
-        fields = ["body"]
-        widgets = {
+        fields = ["body"]  # noqa: RUF012
+        widgets = {  # noqa: RUF012
             # Placeholder intentionally omitted — rely on label only (WCAG).
             "body": forms.Textarea(attrs={"rows": 4, "placeholder": ""}),
         }
-        labels = {
+        labels = {  # noqa: RUF012
             "body": _("Note"),
         }
-        help_texts = {
+        help_texts = {  # noqa: RUF012
             "body": _(
                 "This note is for internal coordinator use only. "
                 "It is never shown to the volunteer."
             ),
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         super().__init__(*args, **kwargs)
         # WCAG 2.1 SC 1.3.1: wire aria-describedby to both -hint and -errors.
         for visible in self.visible_fields():
@@ -729,6 +740,7 @@ class VolunteerNoteForm(forms.ModelForm):
 # ---------------------------------------------------------------------------
 # VolunteerStatusForm
 # ---------------------------------------------------------------------------
+
 
 class VolunteerStatusForm(forms.Form):
     """
@@ -755,12 +767,10 @@ class VolunteerStatusForm(forms.Form):
         max_length=300,
         widget=forms.Textarea(attrs={"rows": 2}),
         label=_("Reason for change"),
-        help_text=_(
-            "Optional — recorded in audit log. Not shown to the volunteer."
-        ),
+        help_text=_("Optional — recorded in audit log. Not shown to the volunteer."),
     )
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         super().__init__(*args, **kwargs)
         # WCAG 2.1 SC 1.3.1: wire aria-describedby to both -hint and -errors.
         for visible in self.visible_fields():

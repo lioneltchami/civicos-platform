@@ -26,26 +26,26 @@ CRA compliance:
 
 Spec: docs/volunteer-management-bb-spec.md
 """
+
 from __future__ import annotations
 
 from decimal import Decimal
 
 from django.conf import settings
+from django.contrib.contenttypes.fields import GenericRelation
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import connection, models
+from django.db import models
 from django.db.models import GeneratedField
 from django.db.models.functions import ExtractYear
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
-from django.contrib.contenttypes.fields import GenericRelation
-
 from apps.core.models import TimestampedModel
-
 
 # ---------------------------------------------------------------------------
 # SkillTag
 # ---------------------------------------------------------------------------
+
 
 class SkillTag(models.Model):
     """
@@ -54,12 +54,8 @@ class SkillTag(models.Model):
     VolunteerProfile.skills M2M relations.
     """
 
-    name_en = models.CharField(
-        max_length=100, unique=True, verbose_name=_("Name (EN)")
-    )
-    name_fr = models.CharField(
-        max_length=100, unique=True, verbose_name=_("Name (FR)")
-    )
+    name_en = models.CharField(max_length=100, unique=True, verbose_name=_("Name (EN)"))
+    name_fr = models.CharField(max_length=100, unique=True, verbose_name=_("Name (FR)"))
     slug = models.SlugField(unique=True)
     category = models.CharField(
         max_length=50,
@@ -70,7 +66,7 @@ class SkillTag(models.Model):
     is_active = models.BooleanField(default=True, verbose_name=_("Active"))
 
     class Meta:
-        ordering = ["name_en"]
+        ordering = ["name_en"]  # noqa: RUF012
         verbose_name = _("Skill tag")
         verbose_name_plural = _("Skill tags")
 
@@ -80,6 +76,7 @@ class SkillTag(models.Model):
     def get_name(self) -> str:
         """Return name in the currently active language."""
         from django.utils.translation import get_language
+
         lang = get_language()
         if lang and lang.startswith("fr"):
             return self.name_fr or self.name_en
@@ -90,6 +87,7 @@ class SkillTag(models.Model):
 # Program
 # ---------------------------------------------------------------------------
 
+
 class Program(TimestampedModel):
     """
     Organizational program that Opportunities belong to.
@@ -98,17 +96,17 @@ class Program(TimestampedModel):
     Hours aggregated by Program feed into T3010 volunteer time reporting.
     """
 
-    CRA_CATEGORY_WELFARE   = "welfare"
+    CRA_CATEGORY_WELFARE = "welfare"
     CRA_CATEGORY_EDUCATION = "education"
-    CRA_CATEGORY_HEALTH    = "health"
-    CRA_CATEGORY_RELIGION  = "religion"
-    CRA_CATEGORY_OTHER     = "other"
-    CRA_CATEGORY_CHOICES = [
-        (CRA_CATEGORY_WELFARE,   _("Welfare of the general public")),
+    CRA_CATEGORY_HEALTH = "health"
+    CRA_CATEGORY_RELIGION = "religion"
+    CRA_CATEGORY_OTHER = "other"
+    CRA_CATEGORY_CHOICES = [  # noqa: RUF012
+        (CRA_CATEGORY_WELFARE, _("Welfare of the general public")),
         (CRA_CATEGORY_EDUCATION, _("Education")),
-        (CRA_CATEGORY_HEALTH,    _("Health")),
-        (CRA_CATEGORY_RELIGION,  _("Religion")),
-        (CRA_CATEGORY_OTHER,     _("Other")),
+        (CRA_CATEGORY_HEALTH, _("Health")),
+        (CRA_CATEGORY_RELIGION, _("Religion")),
+        (CRA_CATEGORY_OTHER, _("Other")),
     ]
 
     name_en = models.CharField(max_length=200, verbose_name=_("Name (EN)"))
@@ -140,7 +138,7 @@ class Program(TimestampedModel):
     )
 
     class Meta:
-        ordering = ["name_en"]
+        ordering = ["name_en"]  # noqa: RUF012
         verbose_name = _("Program")
         verbose_name_plural = _("Programs")
 
@@ -149,6 +147,7 @@ class Program(TimestampedModel):
 
     def get_name(self) -> str:
         from django.utils.translation import get_language
+
         lang = get_language()
         if lang and lang.startswith("fr"):
             return self.name_fr or self.name_en
@@ -158,6 +157,7 @@ class Program(TimestampedModel):
 # ---------------------------------------------------------------------------
 # Opportunity
 # ---------------------------------------------------------------------------
+
 
 class Opportunity(TimestampedModel):
     """
@@ -172,15 +172,15 @@ class Opportunity(TimestampedModel):
     must not include "date_of_birth" in this list.
     """
 
-    STATUS_DRAFT     = "draft"
+    STATUS_DRAFT = "draft"
     STATUS_PUBLISHED = "published"
-    STATUS_CLOSED    = "closed"
-    STATUS_ARCHIVED  = "archived"
-    STATUS_CHOICES = [
-        (STATUS_DRAFT,     _("Draft")),
+    STATUS_CLOSED = "closed"
+    STATUS_ARCHIVED = "archived"
+    STATUS_CHOICES = [  # noqa: RUF012
+        (STATUS_DRAFT, _("Draft")),
         (STATUS_PUBLISHED, _("Published")),
-        (STATUS_CLOSED,    _("Closed — not accepting applications")),
-        (STATUS_ARCHIVED,  _("Archived")),
+        (STATUS_CLOSED, _("Closed — not accepting applications")),
+        (STATUS_ARCHIVED, _("Archived")),
     ]
 
     program = models.ForeignKey(
@@ -195,19 +195,11 @@ class Opportunity(TimestampedModel):
     slug = models.SlugField(unique=True)
     description_en = models.TextField(verbose_name=_("Description (EN)"))
     description_fr = models.TextField(verbose_name=_("Description (FR)"))
-    responsibilities_en = models.TextField(
-        blank=True, verbose_name=_("Responsibilities (EN)")
-    )
-    responsibilities_fr = models.TextField(
-        blank=True, verbose_name=_("Responsibilities (FR)")
-    )
+    responsibilities_en = models.TextField(blank=True, verbose_name=_("Responsibilities (EN)"))
+    responsibilities_fr = models.TextField(blank=True, verbose_name=_("Responsibilities (FR)"))
 
-    location_name = models.CharField(
-        max_length=200, blank=True, verbose_name=_("Location name")
-    )
-    location_address = models.TextField(
-        blank=True, verbose_name=_("Location address")
-    )
+    location_name = models.CharField(max_length=200, blank=True, verbose_name=_("Location name"))
+    location_address = models.TextField(blank=True, verbose_name=_("Location address"))
     is_remote = models.BooleanField(
         default=False,
         verbose_name=_("Remote / virtual"),
@@ -265,9 +257,7 @@ class Opportunity(TimestampedModel):
         null=True,
         blank=True,
         verbose_name=_("Volunteer capacity"),
-        help_text=_(
-            "Maximum concurrent active volunteers. Leave blank for unlimited."
-        ),
+        help_text=_("Maximum concurrent active volunteers. Leave blank for unlimited."),
     )
 
     # --- Publishing ---
@@ -278,9 +268,7 @@ class Opportunity(TimestampedModel):
         verbose_name=_("Status"),
         db_index=True,
     )
-    published_at = models.DateTimeField(
-        null=True, blank=True, verbose_name=_("Published at")
-    )
+    published_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Published at"))
     closes_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -316,10 +304,10 @@ class Opportunity(TimestampedModel):
     )
 
     class Meta:
-        ordering = ["-published_at", "title_en"]
+        ordering = ["-published_at", "title_en"]  # noqa: RUF012
         verbose_name = _("Opportunity")
         verbose_name_plural = _("Opportunities")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(
                 fields=["status", "program"],
                 name="vol_opp_status_prog_idx",
@@ -331,6 +319,7 @@ class Opportunity(TimestampedModel):
 
     def get_title(self) -> str:
         from django.utils.translation import get_language
+
         lang = get_language()
         if lang and lang.startswith("fr"):
             return self.title_fr or self.title_en
@@ -356,6 +345,7 @@ class Opportunity(TimestampedModel):
 # VolunteerProfile
 # ---------------------------------------------------------------------------
 
+
 class VolunteerProfile(TimestampedModel):
     """
     Extension of the User model for volunteer-specific data.
@@ -371,12 +361,12 @@ class VolunteerProfile(TimestampedModel):
     - Criminal record check results are NEVER stored here (see ScreeningRecord).
     """
 
-    STATUS_ACTIVE    = "active"
-    STATUS_INACTIVE  = "inactive"
+    STATUS_ACTIVE = "active"
+    STATUS_INACTIVE = "inactive"
     STATUS_SUSPENDED = "suspended"
-    STATUS_CHOICES = [
-        (STATUS_ACTIVE,    _("Active")),
-        (STATUS_INACTIVE,  _("Inactive")),
+    STATUS_CHOICES = [  # noqa: RUF012
+        (STATUS_ACTIVE, _("Active")),
+        (STATUS_INACTIVE, _("Inactive")),
         (STATUS_SUSPENDED, _("Suspended — contact administrator")),
     ]
 
@@ -400,9 +390,7 @@ class VolunteerProfile(TimestampedModel):
         default="en",
         verbose_name=_("Preferred language"),
     )
-    phone_number = models.CharField(
-        max_length=20, blank=True, verbose_name=_("Phone number")
-    )
+    phone_number = models.CharField(max_length=20, blank=True, verbose_name=_("Phone number"))
 
     # --- Availability ---
     availability_notes = models.TextField(
@@ -410,15 +398,9 @@ class VolunteerProfile(TimestampedModel):
         verbose_name=_("Availability notes"),
         help_text=_("Free-text description of general availability."),
     )
-    available_weekdays = models.BooleanField(
-        default=False, verbose_name=_("Available weekdays")
-    )
-    available_weekends = models.BooleanField(
-        default=False, verbose_name=_("Available weekends")
-    )
-    available_evenings = models.BooleanField(
-        default=False, verbose_name=_("Available evenings")
-    )
+    available_weekdays = models.BooleanField(default=False, verbose_name=_("Available weekdays"))
+    available_weekends = models.BooleanField(default=False, verbose_name=_("Available weekends"))
+    available_evenings = models.BooleanField(default=False, verbose_name=_("Available evenings"))
 
     # --- Skills (M2M to SkillTag) ---
     skills = models.ManyToManyField(
@@ -552,16 +534,16 @@ class VolunteerProfile(TimestampedModel):
     class Meta:
         verbose_name = _("Volunteer profile")
         verbose_name_plural = _("Volunteer profiles")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(fields=["status"], name="vol_profile_status_idx"),
         ]
-        permissions = [
+        permissions = [  # noqa: RUF012
             (
                 "view_accommodation_notes",
                 "Can view volunteer accommodation notes, emergency contacts, and SIN last4",
             ),
         ]
-        constraints = [
+        constraints = [  # noqa: RUF012
             models.CheckConstraint(
                 check=models.Q(total_hours_approved__gte=0),
                 name="vol_profile_total_hours_non_negative",
@@ -580,14 +562,19 @@ class VolunteerProfile(TimestampedModel):
         first = self.user.first_name
         return first if first else f"Volunteer #{self.pk}"
 
-    def clean(self):
+    def clean(self) -> None:
         from django.core.exceptions import ValidationError
+
         if self.photo and not self.photo_consent_id:
             raise ValidationError(
-                {"photo": _("A photo consent record is required before uploading a photo (PIPEDA).")}
+                {
+                    "photo": _(
+                        "A photo consent record is required before uploading a photo (PIPEDA)."
+                    )
+                }
             )
 
-    def __setattr__(self, name: str, value) -> None:
+    def __setattr__(self, name: str, value) -> None:  # noqa: ANN001
         """
         Guard against accidental plaintext SIN storage.
 
@@ -613,11 +600,12 @@ class VolunteerProfile(TimestampedModel):
                     "Use apps.volunteers.services.sin.encrypt_sin() to produce the token."
                 )
             import base64 as _base64
+
             _raw = None
             try:
                 _padded = value + b"=" * (-len(value) % 4)
                 _raw = _base64.urlsafe_b64decode(_padded)
-            except Exception:
+            except Exception:  # noqa: S110
                 pass
             if _raw is None or len(_raw) < 73 or _raw[0] != 0x80:
                 raise ValueError(
@@ -633,6 +621,7 @@ class VolunteerProfile(TimestampedModel):
 # VolunteerApplication
 # ---------------------------------------------------------------------------
 
+
 class VolunteerApplication(TimestampedModel):
     """
     A volunteer's application to an Opportunity.
@@ -645,18 +634,18 @@ class VolunteerApplication(TimestampedModel):
     The notification sent on rejection uses generic "not selected" language.
     """
 
-    STATUS_PENDING    = "pending"
-    STATUS_IN_REVIEW  = "in_review"
-    STATUS_APPROVED   = "approved"
-    STATUS_REJECTED   = "rejected"
-    STATUS_WITHDRAWN  = "withdrawn"
+    STATUS_PENDING = "pending"
+    STATUS_IN_REVIEW = "in_review"
+    STATUS_APPROVED = "approved"
+    STATUS_REJECTED = "rejected"
+    STATUS_WITHDRAWN = "withdrawn"
     STATUS_WAITLISTED = "waitlisted"
-    STATUS_CHOICES = [
-        (STATUS_PENDING,    _("Pending review")),
-        (STATUS_IN_REVIEW,  _("In review")),
-        (STATUS_APPROVED,   _("Approved")),
-        (STATUS_REJECTED,   _("Not selected")),
-        (STATUS_WITHDRAWN,  _("Withdrawn by applicant")),
+    STATUS_CHOICES = [  # noqa: RUF012
+        (STATUS_PENDING, _("Pending review")),
+        (STATUS_IN_REVIEW, _("In review")),
+        (STATUS_APPROVED, _("Approved")),
+        (STATUS_REJECTED, _("Not selected")),
+        (STATUS_WITHDRAWN, _("Withdrawn by applicant")),
         (STATUS_WAITLISTED, _("Waitlisted")),
     ]
 
@@ -720,9 +709,7 @@ class VolunteerApplication(TimestampedModel):
         related_name="reviewed_volunteer_applications",
         verbose_name=_("Reviewed by"),
     )
-    reviewed_at = models.DateTimeField(
-        null=True, blank=True, verbose_name=_("Reviewed at")
-    )
+    reviewed_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Reviewed at"))
     rejection_reason = models.TextField(
         blank=True,
         verbose_name=_("Rejection reason"),
@@ -756,8 +743,8 @@ class VolunteerApplication(TimestampedModel):
     class Meta:
         verbose_name = _("Volunteer application")
         verbose_name_plural = _("Volunteer applications")
-        unique_together = [("opportunity", "volunteer")]
-        indexes = [
+        unique_together = [("opportunity", "volunteer")]  # noqa: RUF012
+        indexes = [  # noqa: RUF012
             models.Index(
                 fields=["status", "opportunity"],
                 name="vol_app_status_opp_idx",
@@ -775,6 +762,7 @@ class VolunteerApplication(TimestampedModel):
 # ---------------------------------------------------------------------------
 # Shift
 # ---------------------------------------------------------------------------
+
 
 class Shift(TimestampedModel):
     """
@@ -803,12 +791,8 @@ class Shift(TimestampedModel):
         verbose_name=_("Shift coordinator"),
     )
 
-    title_en = models.CharField(
-        max_length=200, blank=True, verbose_name=_("Title (EN)")
-    )
-    title_fr = models.CharField(
-        max_length=200, blank=True, verbose_name=_("Title (FR)")
-    )
+    title_en = models.CharField(max_length=200, blank=True, verbose_name=_("Title (EN)"))
+    title_fr = models.CharField(max_length=200, blank=True, verbose_name=_("Title (FR)"))
     description_en = models.TextField(blank=True, verbose_name=_("Description (EN)"))
     description_fr = models.TextField(blank=True, verbose_name=_("Description (FR)"))
 
@@ -820,17 +804,13 @@ class Shift(TimestampedModel):
         max_length=300,
         blank=True,
         verbose_name=_("Location override"),
-        help_text=_(
-            "If set, overrides the Opportunity's location for this shift only."
-        ),
+        help_text=_("If set, overrides the Opportunity's location for this shift only."),
     )
     is_remote = models.BooleanField(
         null=True,
         blank=True,
         verbose_name=_("Remote override"),
-        help_text=_(
-            "If set, overrides the Opportunity's remote flag for this shift only."
-        ),
+        help_text=_("If set, overrides the Opportunity's remote flag for this shift only."),
     )
 
     capacity = models.PositiveSmallIntegerField(
@@ -838,13 +818,10 @@ class Shift(TimestampedModel):
         blank=True,
         verbose_name=_("Capacity"),
         help_text=_(
-            "Max volunteers for this shift. "
-            "Null = inherits Opportunity.volunteer_capacity."
+            "Max volunteers for this shift. " "Null = inherits Opportunity.volunteer_capacity."
         ),
     )
-    waitlist_enabled = models.BooleanField(
-        default=True, verbose_name=_("Waitlist enabled")
-    )
+    waitlist_enabled = models.BooleanField(default=True, verbose_name=_("Waitlist enabled"))
     waitlist_cap = models.PositiveSmallIntegerField(
         null=True,
         blank=True,
@@ -853,12 +830,8 @@ class Shift(TimestampedModel):
     )
 
     # --- Cancellation ---
-    is_cancelled = models.BooleanField(
-        default=False, db_index=True, verbose_name=_("Cancelled")
-    )
-    cancelled_at = models.DateTimeField(
-        null=True, blank=True, verbose_name=_("Cancelled at")
-    )
+    is_cancelled = models.BooleanField(default=False, db_index=True, verbose_name=_("Cancelled"))
+    cancelled_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Cancelled at"))
     cancelled_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,
@@ -867,15 +840,13 @@ class Shift(TimestampedModel):
         related_name="cancelled_shifts",
         verbose_name=_("Cancelled by"),
     )
-    cancellation_reason = models.TextField(
-        blank=True, verbose_name=_("Cancellation reason")
-    )
+    cancellation_reason = models.TextField(blank=True, verbose_name=_("Cancellation reason"))
 
     class Meta:
-        ordering = ["start_datetime"]
+        ordering = ["start_datetime"]  # noqa: RUF012
         verbose_name = _("Shift")
         verbose_name_plural = _("Shifts")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(
                 fields=["opportunity", "start_datetime"],
                 name="vol_shift_opp_start_idx",
@@ -885,7 +856,7 @@ class Shift(TimestampedModel):
                 name="vol_shift_start_cancelled_idx",
             ),
         ]
-        constraints = [
+        constraints = [  # noqa: RUF012
             models.CheckConstraint(
                 check=models.Q(end_datetime__gt=models.F("start_datetime")),
                 name="vol_shift_end_after_start",
@@ -894,6 +865,7 @@ class Shift(TimestampedModel):
 
     def __str__(self) -> str:
         from django.utils import timezone as tz
+
         local_start = tz.localtime(self.start_datetime)
         return f"Shift #{self.pk} @ {local_start:%Y-%m-%d %H:%M}"
 
@@ -915,6 +887,7 @@ class Shift(TimestampedModel):
 # ShiftBooking
 # ---------------------------------------------------------------------------
 
+
 class ShiftBooking(TimestampedModel):
     """
     A volunteer's confirmed (or waitlisted) booking to a specific Shift.
@@ -929,17 +902,17 @@ class ShiftBooking(TimestampedModel):
     on Celery retry.
     """
 
-    STATUS_CONFIRMED  = "confirmed"
+    STATUS_CONFIRMED = "confirmed"
     STATUS_WAITLISTED = "waitlisted"
-    STATUS_CANCELLED  = "cancelled"
-    STATUS_NO_SHOW    = "no_show"
-    STATUS_COMPLETED  = "completed"
-    STATUS_CHOICES = [
-        (STATUS_CONFIRMED,  _("Confirmed")),
+    STATUS_CANCELLED = "cancelled"
+    STATUS_NO_SHOW = "no_show"
+    STATUS_COMPLETED = "completed"
+    STATUS_CHOICES = [  # noqa: RUF012
+        (STATUS_CONFIRMED, _("Confirmed")),
         (STATUS_WAITLISTED, _("Waitlisted")),
-        (STATUS_CANCELLED,  _("Cancelled")),
-        (STATUS_NO_SHOW,    _("No show")),
-        (STATUS_COMPLETED,  _("Completed")),
+        (STATUS_CANCELLED, _("Cancelled")),
+        (STATUS_NO_SHOW, _("No show")),
+        (STATUS_COMPLETED, _("Completed")),
     ]
 
     shift = models.ForeignKey(
@@ -970,16 +943,10 @@ class ShiftBooking(TimestampedModel):
     )
 
     # Reminder deduplication flags
-    reminder_24h_sent = models.BooleanField(
-        default=False, verbose_name=_("24h reminder sent")
-    )
-    reminder_2h_sent = models.BooleanField(
-        default=False, verbose_name=_("2h reminder sent")
-    )
+    reminder_24h_sent = models.BooleanField(default=False, verbose_name=_("24h reminder sent"))
+    reminder_2h_sent = models.BooleanField(default=False, verbose_name=_("2h reminder sent"))
 
-    cancelled_at = models.DateTimeField(
-        null=True, blank=True, verbose_name=_("Cancelled at")
-    )
+    cancelled_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Cancelled at"))
     cancellation_reason = models.CharField(
         max_length=300, blank=True, verbose_name=_("Cancellation reason")
     )
@@ -987,8 +954,8 @@ class ShiftBooking(TimestampedModel):
     class Meta:
         verbose_name = _("Shift booking")
         verbose_name_plural = _("Shift bookings")
-        unique_together = [("shift", "volunteer")]
-        indexes = [
+        unique_together = [("shift", "volunteer")]  # noqa: RUF012
+        indexes = [  # noqa: RUF012
             models.Index(
                 fields=["shift", "status"],
                 name="vol_booking_shift_status_idx",
@@ -1011,6 +978,7 @@ class ShiftBooking(TimestampedModel):
 # HoursLog
 # ---------------------------------------------------------------------------
 
+
 class HoursLog(TimestampedModel):
     """
     Authoritative record of volunteer hours for one day / shift.
@@ -1026,11 +994,11 @@ class HoursLog(TimestampedModel):
     - date must not be in the future (enforced in services/hours.py).
     """
 
-    STATUS_PENDING  = "pending"
+    STATUS_PENDING = "pending"
     STATUS_APPROVED = "approved"
     STATUS_REJECTED = "rejected"
-    STATUS_CHOICES = [
-        (STATUS_PENDING,  _("Pending coordinator approval")),
+    STATUS_CHOICES = [  # noqa: RUF012
+        (STATUS_PENDING, _("Pending coordinator approval")),
         (STATUS_APPROVED, _("Approved")),
         (STATUS_REJECTED, _("Rejected")),
     ]
@@ -1064,7 +1032,7 @@ class HoursLog(TimestampedModel):
         decimal_places=2,
         validators=[MinValueValidator(Decimal("0.01")), MaxValueValidator(Decimal("24"))],
         verbose_name=_("Hours"),
-        help_text=_("Hours volunteered (0.01 – 24.00)."),
+        help_text=_("Hours volunteered (0.01 – 24.00)."),  # noqa: RUF001
     )
     description = models.CharField(
         max_length=500,
@@ -1087,9 +1055,7 @@ class HoursLog(TimestampedModel):
         related_name="approved_volunteer_hours",
         verbose_name=_("Approved by"),
     )
-    approved_at = models.DateTimeField(
-        null=True, blank=True, verbose_name=_("Approved at")
-    )
+    approved_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Approved at"))
     rejection_reason = models.CharField(
         max_length=300,
         blank=True,
@@ -1097,10 +1063,10 @@ class HoursLog(TimestampedModel):
     )
 
     class Meta:
-        ordering = ["-date"]
+        ordering = ["-date"]  # noqa: RUF012
         verbose_name = _("Hours log")
         verbose_name_plural = _("Hours logs")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(
                 fields=["volunteer", "status"],
                 name="vol_hours_vol_status_idx",
@@ -1114,7 +1080,7 @@ class HoursLog(TimestampedModel):
                 name="vol_hours_status_date_idx",
             ),
         ]
-        constraints = [
+        constraints = [  # noqa: RUF012
             models.CheckConstraint(
                 check=models.Q(hours__gt=0, hours__lte=24),
                 name="vol_hourslog_range",
@@ -1134,6 +1100,7 @@ class HoursLog(TimestampedModel):
 # ScreeningRecord
 # ---------------------------------------------------------------------------
 
+
 class ScreeningRecord(TimestampedModel):
     """
     Tracks background checks and references completed by a volunteer.
@@ -1151,15 +1118,15 @@ class ScreeningRecord(TimestampedModel):
     - Default expiry: 3 years from completed_date (configurable per policy).
     """
 
-    CHECK_TYPE_VSC       = "vulnerable_sector_check"
-    CHECK_TYPE_PRC       = "police_record_check"
+    CHECK_TYPE_VSC = "vulnerable_sector_check"
+    CHECK_TYPE_PRC = "police_record_check"
     CHECK_TYPE_REFERENCE = "reference_check"
-    CHECK_TYPE_DRIVERS   = "drivers_abstract"
-    CHECK_TYPE_CHOICES = [
-        (CHECK_TYPE_VSC,       _("Vulnerable Sector Check (VSC)")),
-        (CHECK_TYPE_PRC,       _("Police Record Check")),
+    CHECK_TYPE_DRIVERS = "drivers_abstract"
+    CHECK_TYPE_CHOICES = [  # noqa: RUF012
+        (CHECK_TYPE_VSC, _("Vulnerable Sector Check (VSC)")),
+        (CHECK_TYPE_PRC, _("Police Record Check")),
         (CHECK_TYPE_REFERENCE, _("Reference Check")),
-        (CHECK_TYPE_DRIVERS,   _("Driver's Abstract")),
+        (CHECK_TYPE_DRIVERS, _("Driver's Abstract")),
     ]
 
     volunteer = models.ForeignKey(
@@ -1176,8 +1143,7 @@ class ScreeningRecord(TimestampedModel):
         related_name="screening_records",
         verbose_name=_("Opportunity"),
         help_text=_(
-            "Opportunity this check was obtained for. "
-            "Null = general / organization-wide."
+            "Opportunity this check was obtained for. " "Null = general / organization-wide."
         ),
     )
 
@@ -1209,9 +1175,7 @@ class ScreeningRecord(TimestampedModel):
         related_name="verified_volunteer_screenings",
         verbose_name=_("Verified by"),
     )
-    verified_at = models.DateTimeField(
-        null=True, blank=True, verbose_name=_("Verified at")
-    )
+    verified_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Verified at"))
     verified_clear = models.BooleanField(
         null=True,
         blank=True,  # None = pending (not yet verified by coordinator)
@@ -1254,7 +1218,7 @@ class ScreeningRecord(TimestampedModel):
     class Meta:
         verbose_name = _("Screening record")
         verbose_name_plural = _("Screening records")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(
                 fields=["volunteer", "check_type"],
                 name="vol_screen_vol_type_idx",
@@ -1268,7 +1232,7 @@ class ScreeningRecord(TimestampedModel):
                 name="vol_screen_cleared_idx",
             ),
         ]
-        constraints = [
+        constraints = [  # noqa: RUF012
             models.UniqueConstraint(
                 fields=["volunteer", "check_type"],
                 condition=models.Q(opportunity__isnull=True),
@@ -1307,7 +1271,7 @@ class ScreeningRecord(TimestampedModel):
         "guilty",
     )
 
-    def clean(self):
+    def clean(self) -> None:
         from datetime import timedelta
 
         from django.core.exceptions import ValidationError
@@ -1333,10 +1297,7 @@ class ScreeningRecord(TimestampedModel):
         # data-minimisation: notes must be logistical only (PIPEDA / Criminal
         # Records Act Canada).  A 150-char cap forces brevity; prohibited
         # keywords detect outcome language that must never appear here.
-        if (
-            self.check_type == self.CHECK_TYPE_VSC
-            and self.verified_clear is not None
-        ):
+        if self.check_type == self.CHECK_TYPE_VSC and self.verified_clear is not None:
             if len(self.notes) > 150:
                 raise ValidationError(
                     {
@@ -1383,6 +1344,7 @@ class ScreeningRecord(TimestampedModel):
 # Certification
 # ---------------------------------------------------------------------------
 
+
 class Certification(TimestampedModel):
     """
     Formal qualifications and training records for a volunteer.
@@ -1392,19 +1354,19 @@ class Certification(TimestampedModel):
     never publicly accessible.
     """
 
-    CERT_TYPE_FIRST_AID    = "first_aid"
-    CERT_TYPE_CPR          = "cpr"
-    CERT_TYPE_WHMIS        = "whmis"
+    CERT_TYPE_FIRST_AID = "first_aid"
+    CERT_TYPE_CPR = "cpr"
+    CERT_TYPE_WHMIS = "whmis"
     CERT_TYPE_FOOD_HANDLER = "food_handler"
-    CERT_TYPE_DRIVERS      = "drivers_licence"
-    CERT_TYPE_OTHER        = "other"
-    CERT_TYPE_CHOICES = [
-        (CERT_TYPE_FIRST_AID,    _("First Aid")),
-        (CERT_TYPE_CPR,          _("CPR")),
-        (CERT_TYPE_WHMIS,        _("WHMIS")),
+    CERT_TYPE_DRIVERS = "drivers_licence"
+    CERT_TYPE_OTHER = "other"
+    CERT_TYPE_CHOICES = [  # noqa: RUF012
+        (CERT_TYPE_FIRST_AID, _("First Aid")),
+        (CERT_TYPE_CPR, _("CPR")),
+        (CERT_TYPE_WHMIS, _("WHMIS")),
         (CERT_TYPE_FOOD_HANDLER, _("Food Handler Certificate")),
-        (CERT_TYPE_DRIVERS,      _("Driver's Licence (class)")),
-        (CERT_TYPE_OTHER,        _("Other")),
+        (CERT_TYPE_DRIVERS, _("Driver's Licence (class)")),
+        (CERT_TYPE_OTHER, _("Other")),
     ]
 
     # PROTECT: Certifications are compliance records (First Aid, CPR, VSC) and must
@@ -1448,9 +1410,7 @@ class Certification(TimestampedModel):
         related_name="verified_volunteer_certifications",
         verbose_name=_("Verified by"),
     )
-    verified_at = models.DateTimeField(
-        null=True, blank=True, verbose_name=_("Verified at")
-    )
+    verified_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Verified at"))
 
     # Documents BB: replaces the raw FileField below.
     # Phase 1: FK added (null=True); Phase 2: backfilled via migrate_existing_files;
@@ -1469,10 +1429,10 @@ class Certification(TimestampedModel):
     )
 
     class Meta:
-        ordering = ["-issued_date"]
+        ordering = ["-issued_date"]  # noqa: RUF012
         verbose_name = _("Certification")
         verbose_name_plural = _("Certifications")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(
                 fields=["volunteer", "cert_type"],
                 name="vol_cert_vol_type_idx",
@@ -1506,6 +1466,7 @@ class Certification(TimestampedModel):
 # Honorarium
 # ---------------------------------------------------------------------------
 
+
 class Honorarium(TimestampedModel):
     """
     Records a payment to a volunteer — expense reimbursement or nominal honorarium.
@@ -1523,10 +1484,10 @@ class Honorarium(TimestampedModel):
     calendar_year is derived from payment_date on every save; do not set manually.
     """
 
-    PAYMENT_TYPE_EXPENSE    = "expense_reimbursement"
+    PAYMENT_TYPE_EXPENSE = "expense_reimbursement"
     PAYMENT_TYPE_HONORARIUM = "honorarium"
-    PAYMENT_TYPE_CHOICES = [
-        (PAYMENT_TYPE_EXPENSE,    _("Expense Reimbursement")),
+    PAYMENT_TYPE_CHOICES = [  # noqa: RUF012
+        (PAYMENT_TYPE_EXPENSE, _("Expense Reimbursement")),
         (PAYMENT_TYPE_HONORARIUM, _("Honorarium")),
     ]
 
@@ -1562,7 +1523,7 @@ class Honorarium(TimestampedModel):
     calendar_year = GeneratedField(
         expression=ExtractYear("payment_date"),
         output_field=models.PositiveSmallIntegerField(),
-        db_persist=True,   # STORED generated column — persisted to disk, indexable
+        db_persist=True,  # STORED generated column — persisted to disk, indexable
         verbose_name=_("Calendar year"),
         help_text=_("Automatically derived from payment_date. Used for CRA threshold tracking."),
     )
@@ -1575,12 +1536,8 @@ class Honorarium(TimestampedModel):
             "True when volunteer's cumulative honoraria exceed $500 in this calendar_year."
         ),
     )
-    t4a_issued = models.BooleanField(
-        default=False, verbose_name=_("T4A issued")
-    )
-    t4a_issued_at = models.DateTimeField(
-        null=True, blank=True, verbose_name=_("T4A issued at")
-    )
+    t4a_issued = models.BooleanField(default=False, verbose_name=_("T4A issued"))
+    t4a_issued_at = models.DateTimeField(null=True, blank=True, verbose_name=_("T4A issued at"))
 
     # Payments BB link (optional — set when processed via Payments BB)
     payment = models.OneToOneField(
@@ -1617,7 +1574,7 @@ class Honorarium(TimestampedModel):
     class Meta:
         verbose_name = _("Honorarium")
         verbose_name_plural = _("Honoraria")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(
                 fields=["volunteer", "calendar_year", "payment_type"],
                 name="vol_hon_vol_yr_type_idx",
@@ -1627,7 +1584,7 @@ class Honorarium(TimestampedModel):
                 name="vol_hon_t4a_idx",
             ),
         ]
-        constraints = [
+        constraints = [  # noqa: RUF012
             models.CheckConstraint(
                 check=models.Q(amount__gt=0),
                 name="vol_honorarium_amount_positive",
@@ -1662,7 +1619,7 @@ class Honorarium(TimestampedModel):
         from django.core.exceptions import ValidationError
         from django.db.models import Sum
 
-        alert_threshold = getattr(settings, "VOLUNTEER_CRA_ALERT_THRESHOLD", 450)
+        getattr(settings, "VOLUNTEER_CRA_ALERT_THRESHOLD", 450)
         t4a_threshold = getattr(settings, "VOLUNTEER_CRA_T4A_THRESHOLD", 500)
         hard_block = getattr(settings, "VOLUNTEER_CRA_HARD_BLOCK", 1_000)
 
@@ -1708,7 +1665,8 @@ class Honorarium(TimestampedModel):
                         "This honorarium would bring %(volunteer)s's %(year)s total to "
                         "$%(projected)s, exceeding the CRA hard block of $%(limit)s. "
                         "Contact your finance team. CRA PC-025."
-                    ) % {
+                    )
+                    % {
                         "volunteer": f"VolunteerProfile #{self.volunteer_id}",
                         "year": year,
                         "projected": f"{projected_total:.2f}",
@@ -1726,7 +1684,7 @@ class Honorarium(TimestampedModel):
         # and emit a coordinator notification when >= $450 but < $500.
         # No action is taken here beyond setting t4a_required above if applicable.
 
-    def save(self, *args, skip_clean: bool = False, **kwargs) -> None:
+    def save(self, *args, skip_clean: bool = False, **kwargs) -> None:  # noqa: ANN002, ANN003
         """
         Save the Honorarium, running full_clean() (including CRA threshold checks)
         unless skip_clean=True is explicitly passed.
@@ -1762,6 +1720,7 @@ class Honorarium(TimestampedModel):
 # VolunteerNote
 # ---------------------------------------------------------------------------
 
+
 class VolunteerNote(TimestampedModel):
     """
     Internal coordinator notes on a volunteer.
@@ -1783,7 +1742,7 @@ class VolunteerNote(TimestampedModel):
     body = models.TextField(max_length=2000, verbose_name=_("Note body"))
 
     class Meta:
-        ordering = ["-created_at"]
+        ordering = ["-created_at"]  # noqa: RUF012
         verbose_name = _("Volunteer note")
         verbose_name_plural = _("Volunteer notes")
 
@@ -1794,6 +1753,7 @@ class VolunteerNote(TimestampedModel):
 # ---------------------------------------------------------------------------
 # RecognitionMilestone
 # ---------------------------------------------------------------------------
+
 
 class RecognitionMilestone(models.Model):
     """
@@ -1830,9 +1790,9 @@ class RecognitionMilestone(models.Model):
     class Meta:
         verbose_name = _("Recognition milestone")
         verbose_name_plural = _("Recognition milestones")
-        unique_together = [("volunteer", "hours_threshold")]
-        ordering = ["hours_threshold"]
-        constraints = [
+        unique_together = [("volunteer", "hours_threshold")]  # noqa: RUF012
+        ordering = ["hours_threshold"]  # noqa: RUF012
+        constraints = [  # noqa: RUF012
             models.CheckConstraint(
                 check=models.Q(hours_threshold__gte=1),
                 name="vol_milestone_threshold_min",
@@ -1840,7 +1800,4 @@ class RecognitionMilestone(models.Model):
         ]
 
     def __str__(self) -> str:
-        return (
-            f"Milestone #{self.pk}: "
-            f"{self.hours_threshold}h — Vol #{self.volunteer_id}"
-        )
+        return f"Milestone #{self.pk}: " f"{self.hours_threshold}h — Vol #{self.volunteer_id}"

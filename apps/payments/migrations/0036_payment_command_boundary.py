@@ -5,15 +5,25 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("payments", "0035_paymentattempt_runtime_claim_fields")]
+    dependencies = [("payments", "0035_paymentattempt_runtime_claim_fields")]  # noqa: RUF012
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.CreateModel(
             name="PaymentCommand",
             fields=[
-                ("created_at", models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at")),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
+                ),
                 ("updated_at", models.DateTimeField(auto_now=True, verbose_name="Updated at")),
-                ("id", models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=uuid.uuid4, editable=False, primary_key=True, serialize=False
+                    ),
+                ),
                 ("tenant_id", models.CharField(db_index=True, max_length=100)),
                 ("caller_bb_id", models.CharField(max_length=20)),
                 ("operation", models.CharField(max_length=64)),
@@ -47,9 +57,19 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="PaymentCommandOutbox",
             fields=[
-                ("created_at", models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at")),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
+                ),
                 ("updated_at", models.DateTimeField(auto_now=True, verbose_name="Updated at")),
-                ("id", models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=uuid.uuid4, editable=False, primary_key=True, serialize=False
+                    ),
+                ),
                 ("topic", models.CharField(max_length=120)),
                 ("payload", models.JSONField(default=dict)),
                 ("published_at", models.DateTimeField(blank=True, null=True)),

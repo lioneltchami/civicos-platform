@@ -5,7 +5,7 @@ Tests for all 5 fee payment views:
   FeePaymentSelectView, FeePaymentConfirmView, create_payment_intent_api,
   FeePaymentSuccessView, FeePaymentCancelView.
 """
-import json
+
 import uuid
 from datetime import date
 from decimal import Decimal
@@ -31,6 +31,7 @@ User = get_user_model()
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
+
 
 def make_fee_schedule(**kwargs):
     defaults = {
@@ -108,6 +109,7 @@ GATEWAY_RESULT = {
 # Base test class
 # ---------------------------------------------------------------------------
 
+
 class FeePaymentViewTestBase(TestCase):
     SELECT_URL = None
     CONFIRM_URL = None
@@ -156,8 +158,8 @@ class FeePaymentViewTestBase(TestCase):
 # FeePaymentSelectView
 # ---------------------------------------------------------------------------
 
-class FeePaymentSelectViewTests(FeePaymentViewTestBase):
 
+class FeePaymentSelectViewTests(FeePaymentViewTestBase):
     def test_get_returns_200(self):
         resp = self.client.get(self.SELECT_URL)
         self.assertEqual(resp.status_code, 200)
@@ -173,68 +175,86 @@ class FeePaymentSelectViewTests(FeePaymentViewTestBase):
         self.assertIn("/login", resp["Location"])
 
     def test_valid_post_stores_session(self):
-        resp = self.client.post(self.SELECT_URL, data={
-            "province": "ON",
-            "fee_code": "PERMIT-VIEW",
-            "quantity": 1,
-            "payer_reference": "",
-        })
+        resp = self.client.post(
+            self.SELECT_URL,
+            data={
+                "province": "ON",
+                "fee_code": "PERMIT-VIEW",
+                "quantity": 1,
+                "payer_reference": "",
+            },
+        )
         # Should redirect to confirm
         self.assertEqual(resp.status_code, 302)
         session = self.client.session
         self.assertIn(SESSION_KEY, session)
 
     def test_valid_post_session_has_correct_keys(self):
-        self.client.post(self.SELECT_URL, data={
-            "province": "ON",
-            "fee_code": "PERMIT-VIEW",
-            "quantity": 1,
-            "payer_reference": "",
-        })
+        self.client.post(
+            self.SELECT_URL,
+            data={
+                "province": "ON",
+                "fee_code": "PERMIT-VIEW",
+                "quantity": 1,
+                "payer_reference": "",
+            },
+        )
         session = self.client.session[SESSION_KEY]
         for key in ("fee_pk", "fee_code", "province", "subtotal", "tax_amount", "total"):
             self.assertIn(key, session, f"Session missing key: {key}")
 
     def test_valid_post_redirects_to_confirm(self):
-        resp = self.client.post(self.SELECT_URL, data={
-            "province": "ON",
-            "fee_code": "PERMIT-VIEW",
-            "quantity": 1,
-            "payer_reference": "",
-        })
+        resp = self.client.post(
+            self.SELECT_URL,
+            data={
+                "province": "ON",
+                "fee_code": "PERMIT-VIEW",
+                "quantity": 1,
+                "payer_reference": "",
+            },
+        )
         self.assertRedirects(resp, self.CONFIRM_URL, fetch_redirect_response=False)
 
     def test_invalid_post_returns_200_with_errors(self):
-        resp = self.client.post(self.SELECT_URL, data={
-            "province": "ON",
-            "fee_code": "NO-SUCH-FEE",
-            "quantity": 1,
-            "payer_reference": "",
-        })
+        resp = self.client.post(
+            self.SELECT_URL,
+            data={
+                "province": "ON",
+                "fee_code": "NO-SUCH-FEE",
+                "quantity": 1,
+                "payer_reference": "",
+            },
+        )
         self.assertEqual(resp.status_code, 200)
         form = resp.context["form"]
         self.assertTrue(form.errors or form.non_field_errors())
 
     def test_session_amounts_are_strings(self):
         """Session values must be strings (JSON-serialisable), not Decimals."""
-        self.client.post(self.SELECT_URL, data={
-            "province": "ON",
-            "fee_code": "PERMIT-VIEW",
-            "quantity": 1,
-            "payer_reference": "",
-        })
+        self.client.post(
+            self.SELECT_URL,
+            data={
+                "province": "ON",
+                "fee_code": "PERMIT-VIEW",
+                "quantity": 1,
+                "payer_reference": "",
+            },
+        )
         session = self.client.session[SESSION_KEY]
         for key in ("subtotal", "tax_amount", "total"):
             self.assertIsInstance(session[key], str, f"{key} must be a string")
 
     def test_session_amounts_quantized_to_2dp(self):
         """Session monetary strings must have exactly 2 decimal places."""
-        self.client.post(self.SELECT_URL, data={
-            "province": "ON",
-            "fee_code": "PERMIT-VIEW",
-            "quantity": 1,
-            "payer_reference": "",
-        })
+        self.client.post(
+            self.SELECT_URL,
+            data={
+                "province": "ON",
+                "fee_code": "PERMIT-VIEW",
+                "quantity": 1,
+                "payer_reference": "",
+            },
+        )
         session = self.client.session[SESSION_KEY]
         for key in ("subtotal", "tax_amount", "total"):
             val = session[key]
@@ -246,8 +266,8 @@ class FeePaymentSelectViewTests(FeePaymentViewTestBase):
 # FeePaymentConfirmView
 # ---------------------------------------------------------------------------
 
-class FeePaymentConfirmViewTests(FeePaymentViewTestBase):
 
+class FeePaymentConfirmViewTests(FeePaymentViewTestBase):
     def test_get_with_valid_session_returns_200(self):
         self._set_session(_session_data())
         resp = self.client.get(self.CONFIRM_URL)
@@ -285,8 +305,8 @@ class FeePaymentConfirmViewTests(FeePaymentViewTestBase):
 # create_payment_intent_api
 # ---------------------------------------------------------------------------
 
-class CreatePaymentIntentApiTests(FeePaymentViewTestBase):
 
+class CreatePaymentIntentApiTests(FeePaymentViewTestBase):
     def _post_intent(self, **extra):
         return self.client.post(
             self.INTENT_URL,
@@ -425,8 +445,8 @@ class CreatePaymentIntentApiTests(FeePaymentViewTestBase):
 # FeePaymentSuccessView
 # ---------------------------------------------------------------------------
 
-class FeePaymentSuccessViewTests(FeePaymentViewTestBase):
 
+class FeePaymentSuccessViewTests(FeePaymentViewTestBase):
     def test_get_with_query_param_returns_200(self):
         intent = make_payment_intent(self.user, status=PaymentIntent.STATUS_COMPLETED)
         resp = self.client.get(self.SUCCESS_URL, {"payment_intent_pk": str(intent.pk)})
@@ -464,8 +484,8 @@ class FeePaymentSuccessViewTests(FeePaymentViewTestBase):
 # FeePaymentCancelView
 # ---------------------------------------------------------------------------
 
-class FeePaymentCancelViewTests(FeePaymentViewTestBase):
 
+class FeePaymentCancelViewTests(FeePaymentViewTestBase):
     def test_get_returns_200(self):
         resp = self.client.get(self.CANCEL_URL)
         self.assertEqual(resp.status_code, 200)
@@ -486,6 +506,7 @@ class FeePaymentCancelViewTests(FeePaymentViewTestBase):
 # M-F — IP masking via ipware in fee_payment views
 # ---------------------------------------------------------------------------
 
+
 class MFIPMaskingFeePaymentTests(FeePaymentViewTestBase):
     """M-F: session-expired log in fee_payment uses _mask_ip(_get_client_ip()), not REMOTE_ADDR."""
 
@@ -499,7 +520,9 @@ class MFIPMaskingFeePaymentTests(FeePaymentViewTestBase):
     def test_session_expired_log_uses_get_client_ip_not_remote_addr(self):
         """session_expired warning must call _get_client_ip, not request.META['REMOTE_ADDR']."""
         # No session set — will trigger session_expired branch (403 response)
-        with patch("apps.payments.views.fee_payment._get_client_ip", return_value="203.0.113.5") as mock_ip:
+        with patch(
+            "apps.payments.views.fee_payment._get_client_ip", return_value="203.0.113.5"
+        ) as mock_ip:
             resp = self._post_intent()
         self.assertEqual(resp.status_code, 403)
         mock_ip.assert_called()
@@ -508,7 +531,9 @@ class MFIPMaskingFeePaymentTests(FeePaymentViewTestBase):
         """REMOTE_ADDR must not appear directly in the masked IP log — ipware must be used."""
         # Patch request.META to have a proxy IP as REMOTE_ADDR
         # and ipware to return the real client IP
-        with patch("apps.payments.views.fee_payment._get_client_ip", return_value="1.2.3.4") as mock_ip:
+        with patch(
+            "apps.payments.views.fee_payment._get_client_ip", return_value="1.2.3.4"
+        ) as mock_ip:
             resp = self._post_intent()
         self.assertEqual(resp.status_code, 403)
         # _get_client_ip was called, not raw META access
@@ -518,6 +543,7 @@ class MFIPMaskingFeePaymentTests(FeePaymentViewTestBase):
 # ---------------------------------------------------------------------------
 # M-M — FeePaymentCancelView cancels Stripe PI
 # ---------------------------------------------------------------------------
+
 
 class MMFeePaymentCancelStripeTests(FeePaymentViewTestBase):
     """M-M: FeePaymentCancelView must cancel the live Stripe PI via on_commit."""

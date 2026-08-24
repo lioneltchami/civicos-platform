@@ -63,7 +63,6 @@ from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
-
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
 
@@ -86,11 +85,11 @@ _CIVICOS = {
     "CLAMAV_HOST": "",
     "CLAMAV_REQUIRED": False,
     "ALLOWED_UPLOAD_MIME_TYPES": ["application/pdf", "image/jpeg", "image/png"],
-    "DOCUMENT_MAX_CITIZEN_UPLOAD_BYTES": 10 * 1024 * 1024,   # 10 MiB
-    "DOCUMENT_MAX_STAFF_UPLOAD_BYTES": 50 * 1024 * 1024,     # 50 MiB
+    "DOCUMENT_MAX_CITIZEN_UPLOAD_BYTES": 10 * 1024 * 1024,  # 10 MiB
+    "DOCUMENT_MAX_STAFF_UPLOAD_BYTES": 50 * 1024 * 1024,  # 50 MiB
     "DOCUMENT_PRESIGNED_POST_TTL_SECONDS": 900,
     "DOCUMENT_ACCESS_TOKEN_TTL_SECONDS": 300,
-    "DOCUMENT_PROXY_MAX_BYTES": 1 * 1024 * 1024,             # 1 MiB
+    "DOCUMENT_PROXY_MAX_BYTES": 1 * 1024 * 1024,  # 1 MiB
     "DOCUMENT_ZIP_MAX_ENTRIES": 1000,
     "DOCUMENT_ZIP_MAX_RATIO": 100,
     "MAGIC_BYTES_REQUIRED": False,
@@ -205,7 +204,7 @@ def _make_access_token(
     return token
 
 
-def _grant_perm(user, codename) -> "User":
+def _grant_perm(user, codename) -> User:
     """Grant a Document model permission to *user* and return a refreshed instance."""
     ct = ContentType.objects.get_for_model(Document)
     perm, _ = Permission.objects.get_or_create(
@@ -455,14 +454,26 @@ class DocumentDetailAPITests(TestCase):
         self.assertEqual(response.status_code, 200)
 
         expected_fields = [
-            "doc_id", "category_slug", "category_name",
-            "original_filename", "mime_type", "size_bytes",
-            "scan_status", "scan_status_display",
-            "version_number", "is_latest_version",
-            "security_classification", "security_classification_display",
-            "uploaded_by_id", "is_on_legal_hold", "scan_engine_result",
-            "description", "expires_at", "retain_until",
-            "created_at", "updated_at",
+            "doc_id",
+            "category_slug",
+            "category_name",
+            "original_filename",
+            "mime_type",
+            "size_bytes",
+            "scan_status",
+            "scan_status_display",
+            "version_number",
+            "is_latest_version",
+            "security_classification",
+            "security_classification_display",
+            "uploaded_by_id",
+            "is_on_legal_hold",
+            "scan_engine_result",
+            "description",
+            "expires_at",
+            "retain_until",
+            "created_at",
+            "updated_at",
         ]
         for field in expected_fields:
             self.assertIn(field, response.data, msg=f"Missing field: {field}")
@@ -662,9 +673,7 @@ class DocumentDownloadInitAPITests(TestCase):
 
     def test_404_scanning_document(self):
         """Scan gate: SCANNING document → 404 (scan not complete, unavailable)."""
-        scanning_doc = _make_document(
-            self.user, self.cat, scan_status=Document.ScanStatus.SCANNING
-        )
+        scanning_doc = _make_document(self.user, self.cat, scan_status=Document.ScanStatus.SCANNING)
         url = reverse("api-v1:document-request-download", args=[scanning_doc.pk])
         self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
         response = self.client.post(url)
@@ -750,13 +759,15 @@ class DocumentTokenRedeemAPITests(TestCase):
 
         # Small document (≤ proxy threshold) — triggers FileResponse path
         self.small_doc = _make_document(
-            self.user, self.cat,
+            self.user,
+            self.cat,
             scan_status=Document.ScanStatus.ACTIVE,
             size_bytes=8_192,
         )
         # Large document (> proxy threshold) — triggers redirect path
         self.large_doc = _make_document(
-            self.user, self.cat,
+            self.user,
+            self.cat,
             scan_status=Document.ScanStatus.ACTIVE,
             size_bytes=2 * 1024 * 1024,
         )
@@ -935,9 +946,7 @@ class DocumentAttachedListAPITests(TestCase):
         self.attached_to_param = "documents.documentcategory"
         self.base_url = reverse("api-v1:document-attached-list")
         self.url = (
-            f"{self.base_url}"
-            f"?attached_to={self.attached_to_param}"
-            f"&object_id={self.cat.pk}"
+            f"{self.base_url}" f"?attached_to={self.attached_to_param}" f"&object_id={self.cat.pk}"
         )
         self.client = APIClient()
 
@@ -956,8 +965,15 @@ class DocumentAttachedListAPITests(TestCase):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 200)
         first = response.data["results"][0]
-        for field in ("attachment_id", "document", "attached_to_type", "attached_to_id",
-                      "attachment_role", "note", "created_at"):
+        for field in (
+            "attachment_id",
+            "document",
+            "attached_to_type",
+            "attached_to_id",
+            "attachment_role",
+            "note",
+            "created_at",
+        ):
             self.assertIn(field, first, msg=f"Missing attachment field: {field}")
 
     def test_403_citizen_cannot_access(self):
@@ -1100,9 +1116,7 @@ class DocumentDeleteAPITests(TestCase):
     def test_a4_204_soft_delete_success(self):
         """A4: DELETE with valid reason → 204; deleted_at is set in DB."""
         self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
-        response = self.client.delete(
-            self.url, {"reason": self.valid_reason}, format="json"
-        )
+        response = self.client.delete(self.url, {"reason": self.valid_reason}, format="json")
         self.assertEqual(response.status_code, 204)
 
         # A4 invariant: verify permanent audit trail (deleted_at set)
@@ -1116,9 +1130,7 @@ class DocumentDeleteAPITests(TestCase):
         self.doc.save(update_fields=["legal_hold", "updated_at"])
 
         self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
-        response = self.client.delete(
-            self.url, {"reason": self.valid_reason}, format="json"
-        )
+        response = self.client.delete(self.url, {"reason": self.valid_reason}, format="json")
         self.assertEqual(response.status_code, 403)
 
         # Verify the document was NOT deleted
@@ -1129,17 +1141,13 @@ class DocumentDeleteAPITests(TestCase):
         """User without delete_document permission → 403 (checked before IDOR)."""
         unprivileged = _make_user()
         self.client.credentials(HTTP_AUTHORIZATION=_token_auth(unprivileged))
-        response = self.client.delete(
-            self.url, {"reason": self.valid_reason}, format="json"
-        )
+        response = self.client.delete(self.url, {"reason": self.valid_reason}, format="json")
         self.assertEqual(response.status_code, 403)
 
     def test_400_short_reason(self):
         """Deletion reason shorter than 10 chars → 400."""
         self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
-        response = self.client.delete(
-            self.url, {"reason": "short"}, format="json"
-        )
+        response = self.client.delete(self.url, {"reason": "short"}, format="json")
         self.assertEqual(response.status_code, 400)
         # civicos_exception_handler wraps validation errors under error.details
         self.assertIn("reason", response.data["error"]["details"])
@@ -1159,17 +1167,13 @@ class DocumentDeleteAPITests(TestCase):
 
         # self.user has delete_document perm but does NOT own other_doc
         self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
-        response = self.client.delete(
-            url, {"reason": self.valid_reason}, format="json"
-        )
+        response = self.client.delete(url, {"reason": self.valid_reason}, format="json")
         # Must be 404 — not 403 (403 reveals document existence)
         self.assertEqual(response.status_code, 404)
 
     def test_a5_401_unauthenticated(self):
         """A5: No credentials → 401."""
-        response = self.client.delete(
-            self.url, {"reason": self.valid_reason}, format="json"
-        )
+        response = self.client.delete(self.url, {"reason": self.valid_reason}, format="json")
         self.assertEqual(response.status_code, 401)
 
 
@@ -1197,20 +1201,23 @@ class DocumentVersionsAPITests(TestCase):
 
         # Version 1 (the root)
         self.v1 = _make_document(
-            self.user, self.cat,
+            self.user,
+            self.cat,
             version_number=1,
             is_latest_version=False,
         )
         # Version 2
         self.v2 = _make_document(
-            self.user, self.cat,
+            self.user,
+            self.cat,
             version_number=2,
             root_document=self.v1,
             is_latest_version=False,
         )
         # Version 3 (latest)
         self.v3 = _make_document(
-            self.user, self.cat,
+            self.user,
+            self.cat,
             version_number=3,
             root_document=self.v1,
             is_latest_version=True,
@@ -1245,7 +1252,8 @@ class DocumentVersionsAPITests(TestCase):
     def test_200_single_version_document(self):
         """Solo document (no versions) → list with 1 item."""
         solo = _make_document(
-            self.user, self.cat,
+            self.user,
+            self.cat,
             version_number=1,
             is_latest_version=True,
         )
@@ -1347,9 +1355,7 @@ class DocumentListAPITests(TestCase):
 
     def test_200_scan_status_filter(self):
         """?scan_status= filters by scan status."""
-        scanning_doc = _make_document(
-            self.user, self.cat, scan_status=Document.ScanStatus.SCANNING
-        )
+        scanning_doc = _make_document(self.user, self.cat, scan_status=Document.ScanStatus.SCANNING)
         self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
         response = self.client.get(self.url, {"scan_status": "scanning"})
         self.assertEqual(response.status_code, 200)
@@ -1455,12 +1461,15 @@ class DocumentQuarantinedListAPITests(TestCase):
 
         # Quarantined document (should appear in list)
         self.q_doc = _make_document(
-            self.user, self.cat,
+            self.user,
+            self.cat,
             scan_status=Document.ScanStatus.QUARANTINED,
             scan_engine_result="Eicar-Test-Signature",
         )
         # Active document (should NOT appear in list)
-        self.active_doc = _make_document(self.user, self.cat, scan_status=Document.ScanStatus.ACTIVE)
+        self.active_doc = _make_document(
+            self.user, self.cat, scan_status=Document.ScanStatus.ACTIVE
+        )
 
         # Staff with correct permission
         self.inspector = _make_staff()
@@ -1552,7 +1561,8 @@ class DocumentQuarantinedListAPITests(TestCase):
         data = response.data.get("results", response.data)
         doc_ids = [str(d["doc_id"]) for d in data]
         self.assertNotIn(
-            str(self.q_doc.pk), doc_ids,
+            str(self.q_doc.pk),
+            doc_ids,
             "Deleted quarantined document must not appear in quarantined list",
         )
 
@@ -1674,12 +1684,14 @@ class EncryptedPdfRejectionTests(TestCase):
         doc = self._make_pending_doc()
         url = reverse("api-v1:document-confirm-upload", args=[doc.pk])
 
-        with patch(f"{_SERVICE}._verify_file_exists"), \
-             patch(f"{_SERVICE}._read_first_bytes", return_value=b"%PDF-1.4 dummy"), \
-             patch(f"{_SERVICE}._check_pdf_encryption",
-                   side_effect=DjangoValidationError(
-                       "Password-protected PDFs are not accepted."
-                   )):
+        with (
+            patch(f"{_SERVICE}._verify_file_exists"),
+            patch(f"{_SERVICE}._read_first_bytes", return_value=b"%PDF-1.4 dummy"),
+            patch(
+                f"{_SERVICE}._check_pdf_encryption",
+                side_effect=DjangoValidationError("Password-protected PDFs are not accepted."),
+            ),
+        ):
             response = self.client.post(url)
 
         self.assertEqual(response.status_code, 400)
@@ -1699,12 +1711,14 @@ class EncryptedPdfRejectionTests(TestCase):
         doc = self._make_pending_doc()
         url = reverse("api-v1:document-confirm-upload", args=[doc.pk])
 
-        with patch(f"{_SERVICE}._verify_file_exists"), \
-             patch(f"{_SERVICE}._read_first_bytes", return_value=b"%PDF-1.4 dummy"), \
-             patch(f"{_SERVICE}._read_full_file", return_value=b"%PDF-1.4 dummy"), \
-             patch(f"{_SERVICE}._check_pdf_encryption"), \
-             patch("apps.documents.tasks.scan_document.apply_async"), \
-             patch("apps.audit.services.record_event"):
+        with (
+            patch(f"{_SERVICE}._verify_file_exists"),
+            patch(f"{_SERVICE}._read_first_bytes", return_value=b"%PDF-1.4 dummy"),
+            patch(f"{_SERVICE}._read_full_file", return_value=b"%PDF-1.4 dummy"),
+            patch(f"{_SERVICE}._check_pdf_encryption"),
+            patch("apps.documents.tasks.scan_document.apply_async"),
+            patch("apps.audit.services.record_event"),
+        ):
             response = self.client.post(url)
 
         self.assertEqual(response.status_code, 200)
@@ -1723,10 +1737,12 @@ class EncryptedPdfRejectionTests(TestCase):
 
         encrypted_pdf_bytes = b"%PDF-1.6\n/Encrypt <</Filter /Standard>>"
 
-        with patch(f"{_SERVICE}._verify_file_exists"), \
-             patch(f"{_SERVICE}._read_first_bytes", return_value=encrypted_pdf_bytes), \
-             patch(f"{_SERVICE}._read_full_file", return_value=encrypted_pdf_bytes), \
-             patch(f"{_SERVICE}._pikepdf", None):
+        with (
+            patch(f"{_SERVICE}._verify_file_exists"),
+            patch(f"{_SERVICE}._read_first_bytes", return_value=encrypted_pdf_bytes),
+            patch(f"{_SERVICE}._read_full_file", return_value=encrypted_pdf_bytes),
+            patch(f"{_SERVICE}._pikepdf", None),
+        ):
             response = self.client.post(url)
 
         self.assertEqual(response.status_code, 400)
@@ -1773,13 +1789,15 @@ class EncryptedPdfRejectionTests(TestCase):
         # We use a side_effect sentinel so if it IS called, the test will fail.
         _sentinel = Exception("_check_pdf_encryption must NOT be called for non-PDF")
 
-        with patch(f"{_SERVICE}._verify_file_exists"), \
-             patch(f"{_SERVICE}._read_first_bytes", return_value=b"\xff\xd8\xff jpeg"), \
-             patch(f"{_SERVICE}._read_full_file", return_value=b"\xff\xd8\xff jpeg"), \
-             patch(f"{_SERVICE}._validate_magic_bytes", return_value="image/jpeg"), \
-             patch(f"{_SERVICE}._check_pdf_encryption", side_effect=_sentinel) as mock_enc, \
-             patch("apps.documents.tasks.scan_document.apply_async"), \
-             patch("apps.audit.services.record_event"):
+        with (
+            patch(f"{_SERVICE}._verify_file_exists"),
+            patch(f"{_SERVICE}._read_first_bytes", return_value=b"\xff\xd8\xff jpeg"),
+            patch(f"{_SERVICE}._read_full_file", return_value=b"\xff\xd8\xff jpeg"),
+            patch(f"{_SERVICE}._validate_magic_bytes", return_value="image/jpeg"),
+            patch(f"{_SERVICE}._check_pdf_encryption", side_effect=_sentinel) as mock_enc,
+            patch("apps.documents.tasks.scan_document.apply_async"),
+            patch("apps.audit.services.record_event"),
+        ):
             response = self.client.post(url)
 
         # Confirm_upload should succeed without calling the encryption check
@@ -1817,10 +1835,14 @@ class DocumentVersionsVisibilityAPITests(TestCase):
         self.cat = _make_category()
 
         self.v1 = _make_document(
-            self.user, self.cat, version_number=1, is_latest_version=False,
+            self.user,
+            self.cat,
+            version_number=1,
+            is_latest_version=False,
         )
         self.v2 = _make_document(
-            self.user, self.cat,
+            self.user,
+            self.cat,
             version_number=2,
             root_document=self.v1,
             is_latest_version=False,
@@ -1828,7 +1850,8 @@ class DocumentVersionsVisibilityAPITests(TestCase):
             scan_engine_result="FOUND: Eicar-Test-Signature",
         )
         self.v3 = _make_document(
-            self.user, self.cat,
+            self.user,
+            self.cat,
             version_number=3,
             root_document=self.v1,
             is_latest_version=False,
@@ -1836,7 +1859,8 @@ class DocumentVersionsVisibilityAPITests(TestCase):
             deleted_at=timezone.now(),
         )
         self.v4 = _make_document(
-            self.user, self.cat,
+            self.user,
+            self.cat,
             version_number=4,
             root_document=self.v1,
             is_latest_version=True,
@@ -1884,11 +1908,17 @@ class DocumentVersionsVisibilityAPITests(TestCase):
     def test_all_active_chain_is_unaffected(self):
         """Regression guard: a fully ACTIVE chain still returns every version."""
         root = _make_document(
-            self.user, self.cat, version_number=1, is_latest_version=False,
+            self.user,
+            self.cat,
+            version_number=1,
+            is_latest_version=False,
         )
         _make_document(
-            self.user, self.cat,
-            version_number=2, root_document=root, is_latest_version=True,
+            self.user,
+            self.cat,
+            version_number=2,
+            root_document=root,
+            is_latest_version=True,
         )
         response = self._get(root, self.user)
         self.assertEqual(response.status_code, 200)

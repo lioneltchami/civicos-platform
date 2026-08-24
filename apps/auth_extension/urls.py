@@ -1,4 +1,5 @@
 """URL patterns for the auth_extension building block."""
+
 from django.urls import path
 
 from .views import (

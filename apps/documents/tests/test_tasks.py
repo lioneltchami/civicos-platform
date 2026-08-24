@@ -131,6 +131,7 @@ class ScanDocumentDevBypassTests(TestCase):
         received = []
 
         from apps.documents.signals import document_scan_clean
+
         # weak=False: lambdas have no strong reference and are GC'd by default.
         handler = lambda sender, **kw: received.append(kw)  # noqa: E731
         document_scan_clean.connect(handler, weak=False)
@@ -148,6 +149,7 @@ class ScanDocumentDevBypassTests(TestCase):
         received = []
 
         from apps.documents.signals import document_scan_clean
+
         # weak=False prevents GC of the anonymous handler before the signal fires.
         handler = lambda sender, **kw: received.append(kw)  # noqa: E731
         document_scan_clean.connect(handler, weak=False)
@@ -191,6 +193,7 @@ class ScanDocumentDevBypassTests(TestCase):
         received = []
 
         from apps.documents.signals import document_scan_clean
+
         handler = lambda sender, **kw: received.append(kw)  # noqa: E731
         document_scan_clean.connect(handler, weak=False)
         try:
@@ -201,7 +204,8 @@ class ScanDocumentDevBypassTests(TestCase):
         doc.refresh_from_db()
         self.assertEqual(doc.scan_status, Document.ScanStatus.QUARANTINED)
         self.assertEqual(
-            len(received), 0,
+            len(received),
+            0,
             "document_scan_clean must NOT fire when document is already QUARANTINED",
         )
 
@@ -211,6 +215,7 @@ class ScanDocumentDevBypassTests(TestCase):
         received = []
 
         from apps.documents.signals import document_scan_clean
+
         handler = lambda sender, **kw: received.append(kw)  # noqa: E731
         document_scan_clean.connect(handler, weak=False)
         try:
@@ -221,7 +226,8 @@ class ScanDocumentDevBypassTests(TestCase):
         doc.refresh_from_db()
         self.assertEqual(doc.scan_status, Document.ScanStatus.DELETED)
         self.assertEqual(
-            len(received), 0,
+            len(received),
+            0,
             "document_scan_clean must NOT fire when document is already DELETED",
         )
 
@@ -231,6 +237,7 @@ class ScanDocumentDevBypassTests(TestCase):
         received = []
 
         from apps.documents.signals import document_scan_clean
+
         # weak=False: prevents GC of the anonymous handler before signal assertion.
         handler = lambda sender, **kw: received.append(kw)  # noqa: E731
         document_scan_clean.connect(handler, weak=False)
@@ -691,9 +698,7 @@ class CleanupStalePendingUploadsStorageTests(TestCase):
             sorted(o["Key"] for o in kwargs["Delete"]["Objects"]),
             expected_keys,
         )
-        self.assertFalse(
-            Document.objects.filter(pk__in=[d.pk for d in docs]).exists()
-        )
+        self.assertFalse(Document.objects.filter(pk__in=[d.pk for d in docs]).exists())
 
     def test_s3_client_error_does_not_block_db_cleanup(self):
         """A ClientError (e.g. AccessDenied) is logged and swallowed."""
@@ -824,8 +829,8 @@ class QuarantineOnScanFailureTests(TestCase):
 
     def test_quarantine_fires_document_quarantined_signal(self):
         """M-7: document_quarantined signal must fire on SCANNING → QUARANTINED."""
-        from apps.documents.tasks import _quarantine_on_scan_failure
         from apps.documents.signals import document_quarantined
+        from apps.documents.tasks import _quarantine_on_scan_failure
 
         doc = make_document(self.user, self.category, scan_status=Document.ScanStatus.SCANNING)
         received = []

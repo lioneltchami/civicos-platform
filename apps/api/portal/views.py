@@ -47,17 +47,17 @@ class ServiceRequestListCreateView(generics.ListCreateAPIView):
     (get_citizen_requests), so no additional filtering is required here.
     """
 
-    authentication_classes = [CivicOSTokenAuthentication, JWTAuthentication]
-    permission_classes = [IsAuthenticated]
+    authentication_classes = [CivicOSTokenAuthentication, JWTAuthentication]  # noqa: RUF012
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
     pagination_class = StandardPagination
-    throttle_classes = [CitizenRateThrottle]
+    throttle_classes = [CitizenRateThrottle]  # noqa: RUF012
 
-    def get_serializer_class(self):
+    def get_serializer_class(self):  # noqa: ANN201
         if self.request.method == "POST":
             return CreateServiceRequestSerializer
         return ServiceRequestSerializer
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         """
         Return requests scoped to the authenticated citizen.
         Supports optional ?status= query parameter (handled by service layer).
@@ -65,7 +65,7 @@ class ServiceRequestListCreateView(generics.ListCreateAPIView):
         status_filter = self.request.query_params.get("status")
         return get_citizen_requests(self.request.user, status_filter=status_filter)
 
-    def create(self, request, *args, **kwargs):
+    def create(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         """
         Validate the payload, delegate creation to the service layer, and
         return the full detail representation with HTTP 201.
@@ -110,13 +110,13 @@ class ServiceRequestDetailView(generics.RetrieveAPIView):
     The queryset is scoped to request.user to prevent IDOR.
     """
 
-    authentication_classes = [CivicOSTokenAuthentication, JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    throttle_classes = [CitizenRateThrottle]
+    authentication_classes = [CivicOSTokenAuthentication, JWTAuthentication]  # noqa: RUF012
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
+    throttle_classes = [CitizenRateThrottle]  # noqa: RUF012
     serializer_class = ServiceRequestDetailSerializer
     lookup_field = "reference_number"
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         """
         Restrict to the authenticated citizen's own requests.
         A lookup against a reference_number that belongs to another citizen
@@ -142,11 +142,11 @@ class CancelServiceRequestView(APIView):
         404 — reference number not found or belongs to another citizen
     """
 
-    authentication_classes = [CivicOSTokenAuthentication, JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    throttle_classes = [CitizenRateThrottle]
+    authentication_classes = [CivicOSTokenAuthentication, JWTAuthentication]  # noqa: RUF012
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
+    throttle_classes = [CitizenRateThrottle]  # noqa: RUF012
 
-    def post(self, request, reference_number: str):
+    def post(self, request, reference_number: str):  # noqa: ANN001, ANN201
         # Scope lookup to the authenticated citizen — prevents IDOR and
         # returns 404 (not 403) for requests belonging to other citizens,
         # avoiding disclosure of valid reference numbers.
@@ -157,7 +157,13 @@ class CancelServiceRequestView(APIView):
             )
         except ServiceRequest.DoesNotExist:
             return Response(
-                {"error": {"code": "not_found", "message": "Service request not found.", "details": {}}},
+                {
+                    "error": {
+                        "code": "not_found",
+                        "message": "Service request not found.",
+                        "details": {},
+                    }
+                },
                 status=status.HTTP_404_NOT_FOUND,
             )
 

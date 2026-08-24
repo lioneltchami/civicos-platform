@@ -4,25 +4,29 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('portal', '0002_alter_statusupdate_old_status'),
+    dependencies = [  # noqa: RUF012
+        ("portal", "0002_alter_statusupdate_old_status"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterField(
-            model_name='servicerequest',
-            name='created_at',
-            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='Created at'),
+            model_name="servicerequest",
+            name="created_at",
+            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at"),
         ),
         migrations.AlterField(
-            model_name='servicerequest',
-            name='service_name',
-            field=models.CharField(db_index=True, help_text='Snapshot of service name at time of submission.', max_length=255, verbose_name='Service name'),
+            model_name="servicerequest",
+            name="service_name",
+            field=models.CharField(
+                db_index=True,
+                help_text="Snapshot of service name at time of submission.",
+                max_length=255,
+                verbose_name="Service name",
+            ),
         ),
         migrations.AlterField(
-            model_name='statusupdate',
-            name='created_at',
-            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='Created at'),
+            model_name="statusupdate",
+            name="created_at",
+            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at"),
         ),
     ]

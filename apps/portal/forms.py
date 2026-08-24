@@ -1,10 +1,13 @@
 """
 Forms for the citizen portal.
 """
+
 from __future__ import annotations
+
 from django import forms
 from django.utils.translation import gettext_lazy as _
-from .models import ServiceRequest, ServiceRequestStatus
+
+from .models import ServiceRequestStatus
 
 
 class ServiceRequestSubmitForm(forms.Form):
@@ -12,6 +15,7 @@ class ServiceRequestSubmitForm(forms.Form):
     Generic service request submission form.
     Used when a citizen submits a request not linked to a specific CMS form.
     """
+
     service_name = forms.CharField(
         max_length=255,
         label=_("Service requested / Service demandé"),
@@ -20,13 +24,17 @@ class ServiceRequestSubmitForm(forms.Form):
     description = forms.CharField(
         label=_("Description / Description"),
         widget=forms.Textarea(attrs={"rows": 6}),
-        help_text=_("Describe your request in as much detail as possible. / "
-                    "Décrivez votre demande avec le plus de détails possible."),
+        help_text=_(
+            "Describe your request in as much detail as possible. / "
+            "Décrivez votre demande avec le plus de détails possible."
+        ),
     )
     contact_email = forms.EmailField(
         label=_("Contact email / Courriel de contact"),
-        help_text=_("We'll send status updates to this address. / "
-                    "Nous enverrons les mises à jour à cette adresse."),
+        help_text=_(
+            "We'll send status updates to this address. / "
+            "Nous enverrons les mises à jour à cette adresse."
+        ),
     )
     contact_phone = forms.CharField(
         max_length=30,
@@ -35,11 +43,15 @@ class ServiceRequestSubmitForm(forms.Form):
     )
     consent_given = forms.BooleanField(
         required=True,
-        label=_("I consent to the collection of this information for the purpose of processing my request. / "
-                "Je consens à la collecte de ces renseignements aux fins du traitement de ma demande."),
+        label=_(
+            "I consent to the collection of this information for the purpose of processing my request. / "  # noqa: E501
+            "Je consens à la collecte de ces renseignements aux fins du traitement de ma demande."
+        ),
         error_messages={
-            "required": _("You must provide consent to submit a request. / "
-                          "Vous devez donner votre consentement pour soumettre une demande."),
+            "required": _(
+                "You must provide consent to submit a request. / "
+                "Vous devez donner votre consentement pour soumettre une demande."
+            ),
         },
     )
 
@@ -55,6 +67,7 @@ class StatusUpdateForm(forms.Form):
     Staff-only form for updating a service request status.
     Used in the staff case management view.
     """
+
     new_status = forms.ChoiceField(
         choices=ServiceRequestStatus.choices,
         label=_("New status / Nouveau statut"),
@@ -63,8 +76,10 @@ class StatusUpdateForm(forms.Form):
         required=False,
         label=_("Note to citizen / Note au citoyen"),
         widget=forms.Textarea(attrs={"rows": 4}),
-        help_text=_("This will be shown to the citizen in their portal. Keep plain and non-technical. / "
-                    "Ceci sera affiché au citoyen dans son portail. Utilisez un langage simple."),
+        help_text=_(
+            "This will be shown to the citizen in their portal. Keep plain and non-technical. / "
+            "Ceci sera affiché au citoyen dans son portail. Utilisez un langage simple."
+        ),
         max_length=1000,
     )
 
@@ -77,6 +92,7 @@ class StatusUpdateForm(forms.Form):
 
 class RequestCancelForm(forms.Form):
     """Citizen-initiated cancellation with optional reason."""
+
     reason = forms.CharField(
         required=False,
         max_length=500,
@@ -85,5 +101,7 @@ class RequestCancelForm(forms.Form):
     )
     confirm = forms.BooleanField(
         required=True,
-        label=_("I confirm I want to cancel this request. / Je confirme vouloir annuler cette demande."),
+        label=_(
+            "I confirm I want to cancel this request. / Je confirme vouloir annuler cette demande."
+        ),
     )

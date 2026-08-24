@@ -4,6 +4,7 @@ Payment BB signals.
 All signals carry keyword arguments only — callers must use kwargs.
 Receivers are registered in apps.payments.receivers via PaymentsConfig.ready().
 """
+
 from django.dispatch import Signal
 
 # Fired when a PaymentIntent transitions to STATUS_COMPLETED and a Payment is created.

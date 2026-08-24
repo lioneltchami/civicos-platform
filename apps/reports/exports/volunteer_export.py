@@ -16,12 +16,11 @@ names), approved hours totals, date ranges, and anonymised row counts.
 Uses the shared streaming_csv_response() helper from csv_export.py so export
 rows never buffer in memory.
 """
+
 from __future__ import annotations
 
 import logging
 from datetime import date
-
-from django.utils.translation import gettext_lazy as _
 
 from apps.reports.exports.csv_export import streaming_csv_response
 
@@ -52,8 +51,8 @@ def export_volunteer_hours_csv(
     year: int,
     month: int | None = None,
     *,
-    rows=None,
-) -> "django.http.StreamingHttpResponse":
+    rows=None,  # noqa: ANN001
+) -> django.http.StreamingHttpResponse:  # noqa: F821
     """
     Stream approved volunteer hours as CSV, grouped by (program, opportunity).
 
@@ -71,34 +70,35 @@ def export_volunteer_hours_csv(
     Returns:
         StreamingHttpResponse — suitable for direct return from a Django view.
         Content-Disposition filename: volunteer_hours_<year>[-<month>].csv
-    """
+    """  # noqa: RUF002
     if rows is None:
         from apps.volunteers.services.reporting import hours_by_program
+
         rows = hours_by_program(year, month)
     rows_data = rows
     month_label = f"{month:02d}" if month else "all"
 
-    def _rows():
+    def _rows():  # noqa: ANN202
         for row in rows_data:
             yield {
-                "program":        row["program_title_en"],
-                "opportunity":    row["opportunity_title_en"],
-                "year":           str(year),
-                "month":          month_label,
+                "program": row["program_title_en"],
+                "opportunity": row["opportunity_title_en"],
+                "year": str(year),
+                "month": month_label,
                 "approved_hours": str(row["approved_hours"]),
                 "volunteer_count": str(row["volunteer_count"]),
-                "shift_count":    str(row["shift_count"]),
+                "shift_count": str(row["shift_count"]),
             }
 
     # Filename period — use full year when no month given.
     period_start = date(year, month or 1, 1)
     import calendar as _cal
+
     last_month = month or 12
     period_end = date(year, last_month, _cal.monthrange(year, last_month)[1])
 
     logger.info(
-        "volunteer_export.export_volunteer_hours_csv: streaming for year=%d month=%s "
-        "(%d rows).",
+        "volunteer_export.export_volunteer_hours_csv: streaming for year=%d month=%s " "(%d rows).",
         year,
         month_label,
         len(rows_data),
@@ -113,7 +113,7 @@ def export_volunteer_hours_csv(
     )
 
 
-def export_t3010_volunteer_csv(year: int) -> "django.http.StreamingHttpResponse":
+def export_t3010_volunteer_csv(year: int) -> django.http.StreamingHttpResponse:  # noqa: F821
     """
     Stream T3010 Schedule 2 volunteer section data as CSV.
 
@@ -136,21 +136,41 @@ def export_t3010_volunteer_csv(year: int) -> "django.http.StreamingHttpResponse"
 
     metrics = t3010_volunteer_metrics(year)
 
-    def _rows():
+    def _rows():  # noqa: ANN202
         # ── SUMMARY section ────────────────────────────────────────────────
-        yield {"section": "SUMMARY", "label": "Year",                 "value": str(metrics["year"])}
-        yield {"section": "SUMMARY", "label": "Total Volunteers",     "value": str(metrics["total_volunteers"])}
-        yield {"section": "SUMMARY", "label": "Total Approved Hours", "value": str(metrics["total_volunteer_hours"])}
-        yield {"section": "SUMMARY", "label": "Programs Active",      "value": str(metrics["num_programs"])}
-        yield {"section": "SUMMARY", "label": "Estimated Value (CAD)", "value": str(metrics["estimated_value_cad"])}
-        yield {"section": "SUMMARY", "label": "Rate Province",        "value": "ON (T3010 national estimate)"}
+        yield {"section": "SUMMARY", "label": "Year", "value": str(metrics["year"])}
+        yield {
+            "section": "SUMMARY",
+            "label": "Total Volunteers",
+            "value": str(metrics["total_volunteers"]),
+        }
+        yield {
+            "section": "SUMMARY",
+            "label": "Total Approved Hours",
+            "value": str(metrics["total_volunteer_hours"]),
+        }
+        yield {
+            "section": "SUMMARY",
+            "label": "Programs Active",
+            "value": str(metrics["num_programs"]),
+        }
+        yield {
+            "section": "SUMMARY",
+            "label": "Estimated Value (CAD)",
+            "value": str(metrics["estimated_value_cad"]),
+        }
+        yield {
+            "section": "SUMMARY",
+            "label": "Rate Province",
+            "value": "ON (T3010 national estimate)",
+        }
 
         # ── CATEGORY section ───────────────────────────────────────────────
         for cat in metrics["categories"]:
             yield {
                 "section": "CATEGORY",
-                "label":   cat["category"],
-                "value":   f"hours={cat['hours']} volunteers={cat['volunteers']}",
+                "label": cat["category"],
+                "value": f"hours={cat['hours']} volunteers={cat['volunteers']}",
             }
 
     period_start = date(year, 1, 1)

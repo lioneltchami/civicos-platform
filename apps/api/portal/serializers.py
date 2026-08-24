@@ -41,7 +41,7 @@ class ServiceRequestSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ServiceRequest
-        fields = [
+        fields = [  # noqa: RUF012
             "reference_number",
             "service_name",
             "status",
@@ -49,7 +49,7 @@ class ServiceRequestSerializer(serializers.ModelSerializer):
             "created_at",
             "expires_at",
         ]
-        read_only_fields = [
+        read_only_fields = [  # noqa: RUF012
             "reference_number",
             "status",
             "status_display",
@@ -73,10 +73,8 @@ class ServiceRequestDetailSerializer(ServiceRequestSerializer):
     )
 
     class Meta(ServiceRequestSerializer.Meta):
-        fields = ServiceRequestSerializer.Meta.fields + ["submission_data"]
-        read_only_fields = ServiceRequestSerializer.Meta.read_only_fields + [
-            "submission_data",
-        ]
+        fields = [*ServiceRequestSerializer.Meta.fields, "submission_data"]  # noqa: RUF012
+        read_only_fields = [*ServiceRequestSerializer.Meta.read_only_fields, "submission_data"]  # noqa: RUF012
 
 
 class CreateServiceRequestSerializer(serializers.Serializer):
@@ -105,7 +103,7 @@ class CreateServiceRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError("service_name must not be blank.")
         return value
 
-    def validate_submission_data(self, value) -> dict:
+    def validate_submission_data(self, value) -> dict:  # noqa: ANN001
         if not isinstance(value, dict):
             raise serializers.ValidationError(
                 "submission_data must be a JSON object (dict), not a list or scalar."

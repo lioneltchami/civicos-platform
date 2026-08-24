@@ -7,8 +7,8 @@ H-F — Django cache and Celery broker must use separate Redis databases.
 
 import inspect
 
-from django.test import SimpleTestCase, RequestFactory, override_settings
 from django.conf import settings as django_settings
+from django.test import RequestFactory, SimpleTestCase
 
 
 class WagtailMFAMiddlewareStructureTest(SimpleTestCase):
@@ -27,13 +27,11 @@ class WagtailMFAMiddlewareStructureTest(SimpleTestCase):
     def test_wagtail_mfa_middleware_follows_otp_middleware(self):
         """WagtailMFAMiddleware must be ordered after OTPMiddleware."""
         middleware = list(django_settings.MIDDLEWARE)
-        otp_index = next(
-            (i for i, m in enumerate(middleware) if "OTPMiddleware" in m), None
+        otp_index = next((i for i, m in enumerate(middleware) if "OTPMiddleware" in m), None)
+        mfa_index = next((i for i, m in enumerate(middleware) if "WagtailMFAMiddleware" in m), None)
+        self.assertIsNotNone(
+            otp_index, "django_otp.middleware.OTPMiddleware missing from MIDDLEWARE"
         )
-        mfa_index = next(
-            (i for i, m in enumerate(middleware) if "WagtailMFAMiddleware" in m), None
-        )
-        self.assertIsNotNone(otp_index, "django_otp.middleware.OTPMiddleware missing from MIDDLEWARE")
         self.assertIsNotNone(mfa_index, "WagtailMFAMiddleware missing from MIDDLEWARE")
         self.assertGreater(
             mfa_index,
@@ -57,6 +55,7 @@ class WagtailMFAMiddlewareStructureTest(SimpleTestCase):
     def test_wagtail_mfa_middleware_redirects_unverified_user(self):
         """WagtailMFAMiddleware must redirect authenticated but unverified users."""
         from unittest.mock import MagicMock, patch
+
         from apps.core.middleware import WagtailMFAMiddleware
 
         factory = RequestFactory()
@@ -84,12 +83,16 @@ class WagtailMFAMiddlewareStructureTest(SimpleTestCase):
             "WagtailMFAMiddleware must intercept /cms/ requests from unverified users.",
         )
         # Django redirect responses have a Location header.
-        self.assertIn(response.status_code, (301, 302),
-                      "Expected a redirect response for unverified CMS access.")
+        self.assertIn(
+            response.status_code,
+            (301, 302),
+            "Expected a redirect response for unverified CMS access.",
+        )
 
     def test_wagtail_mfa_middleware_passes_verified_user(self):
         """WagtailMFAMiddleware must let OTP-verified users through."""
         from unittest.mock import MagicMock, patch
+
         from apps.core.middleware import WagtailMFAMiddleware
 
         factory = RequestFactory()
@@ -118,6 +121,7 @@ class WagtailMFAMiddlewareStructureTest(SimpleTestCase):
     def test_wagtail_mfa_middleware_exempts_login_page(self):
         """WagtailMFAMiddleware must not redirect the /cms/login/ path (infinite loop guard)."""
         from unittest.mock import MagicMock, patch
+
         from apps.core.middleware import WagtailMFAMiddleware
 
         factory = RequestFactory()
@@ -148,15 +152,13 @@ class WagtailMFAMiddlewareStructureTest(SimpleTestCase):
         """H-E: Wagtail /cms/ must be protected by OTP middleware or hook (canonical check)."""
         middleware_list = " ".join(django_settings.MIDDLEWARE)
 
-        has_middleware = (
-            "WagtailMFA" in middleware_list
-            or "wagtail_mfa" in middleware_list.lower()
-        )
+        has_middleware = "WagtailMFA" in middleware_list or "wagtail_mfa" in middleware_list.lower()
 
         if not has_middleware:
             # Fallback: accept a wagtail_hooks approach.
             try:
                 from apps.core import wagtail_hooks
+
                 source = inspect.getsource(wagtail_hooks)
                 self.assertIn(
                     "user_is_verified",
@@ -164,9 +166,7 @@ class WagtailMFAMiddlewareStructureTest(SimpleTestCase):
                     "Wagtail admin must enforce OTP via hook or middleware",
                 )
             except ImportError:
-                self.fail(
-                    "No WagtailMFA middleware and no wagtail_hooks with OTP enforcement"
-                )
+                self.fail("No WagtailMFA middleware and no wagtail_hooks with OTP enforcement")
 
 
 class RedisDatabaseSeparationTest(SimpleTestCase):
@@ -203,8 +203,6 @@ class RedisDatabaseSeparationTest(SimpleTestCase):
 
     def test_celery_broker_default_uses_db1(self):
         """Default CELERY_BROKER_URL must target Redis DB 1 (not DB 0 which is the cache)."""
-        from django.test import override_settings
-        import django.conf
 
         # Only meaningful when the broker is a Redis URL.
         broker_url = django_settings.CELERY_BROKER_URL
@@ -213,6 +211,7 @@ class RedisDatabaseSeparationTest(SimpleTestCase):
 
         # The path component of the Redis URL encodes the database index.
         import urllib.parse
+
         parsed = urllib.parse.urlparse(broker_url)
         db_path = parsed.path  # e.g. "/1"
         self.assertNotEqual(

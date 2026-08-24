@@ -25,6 +25,7 @@ Security invariants:
 4. ``LoginRequiredMixin`` always precedes ``PermissionRequiredMixin`` in MRO.
 5. All staff views set ``raise_exception = True``.
 """
+
 from __future__ import annotations
 
 import logging
@@ -34,7 +35,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Q, QuerySet
-from django.http import Http404, HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
@@ -46,7 +47,6 @@ from apps.documents.models import Document, DocumentCategory
 from apps.documents.services.retention import (
     apply_legal_hold,
     release_legal_hold,
-    soft_delete,
 )
 
 logger = logging.getLogger(__name__)
@@ -104,9 +104,7 @@ class DocumentAdminListView(LoginRequiredMixin, PermissionRequiredMixin, ListVie
                 qs = qs.filter(category__slug=category_slug)
 
             if search := form.cleaned_data.get("search"):
-                qs = qs.filter(
-                    Q(pk__icontains=search) | Q(category__slug__icontains=search)
-                )
+                qs = qs.filter(Q(pk__icontains=search) | Q(category__slug__icontains=search))
 
             if date_from := form.cleaned_data.get("date_from"):
                 qs = qs.filter(created_at__date__gte=date_from)
@@ -165,9 +163,7 @@ class StaffDocumentDetailView(LoginRequiredMixin, PermissionRequiredMixin, View)
                 "document": doc,
                 # Passed explicitly so the template never needs to call has_perm
                 # inline, and so tests can inspect it directly on the context.
-                "can_view_quarantine_details": request.user.has_perm(
-                    "documents.view_quarantined"
-                ),
+                "can_view_quarantine_details": request.user.has_perm("documents.view_quarantined"),
             },
         )
 
@@ -200,9 +196,7 @@ class DocumentLegalHoldView(LoginRequiredMixin, PermissionRequiredMixin, View):
 
     def _get_document(self, pk: str) -> Document:
         return get_object_or_404(
-            Document.objects.select_related("legal_hold_set_by", "category").defer(
-                "_storage_key"
-            ),
+            Document.objects.select_related("legal_hold_set_by", "category").defer("_storage_key"),
             pk=pk,
         )
 
@@ -211,9 +205,7 @@ class DocumentLegalHoldView(LoginRequiredMixin, PermissionRequiredMixin, View):
         # Pre-populate the hidden `action` field so it renders with the correct
         # value and the form validates on POST without requiring JS to set it.
         initial_action = (
-            LegalHoldForm.ACTION_RELEASE
-            if doc.legal_hold
-            else LegalHoldForm.ACTION_APPLY
+            LegalHoldForm.ACTION_RELEASE if doc.legal_hold else LegalHoldForm.ACTION_APPLY
         )
         form = LegalHoldForm(initial={"action": initial_action})
         return render(
@@ -245,9 +237,7 @@ class DocumentLegalHoldView(LoginRequiredMixin, PermissionRequiredMixin, View):
                     _("Legal hold applied to document %(pk)s.") % {"pk": doc.pk},
                 )
             elif action == LegalHoldForm.ACTION_RELEASE:
-                release_legal_hold(
-                    document=doc, released_by=request.user, reason=reason
-                )
+                release_legal_hold(document=doc, released_by=request.user, reason=reason)
                 messages.success(
                     request,
                     _("Legal hold released from document %(pk)s.") % {"pk": doc.pk},
@@ -344,7 +334,7 @@ class DocumentAuditLogView(LoginRequiredMixin, PermissionRequiredMixin, View):
             pk=pk,
         )
 
-        from apps.audit.models import AuditLogEntry  # noqa: PLC0415 — deferred import
+        from apps.audit.models import AuditLogEntry
 
         entries_qs = AuditLogEntry.objects.filter(
             resource_type="documents.Document",
@@ -353,7 +343,7 @@ class DocumentAuditLogView(LoginRequiredMixin, PermissionRequiredMixin, View):
 
         # Manual pagination (we don't inherit from ListView here because the
         # primary object is a Document, not an AuditLogEntry).
-        from django.core.paginator import Paginator  # noqa: PLC0415
+        from django.core.paginator import Paginator
 
         paginator = Paginator(entries_qs, self.paginate_by)
         page_number = request.GET.get("page", 1)

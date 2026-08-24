@@ -12,10 +12,10 @@ Security invariants enforced at the form layer:
   service into accepting an exotic content type.
 - No ``storage_key`` field is present anywhere; that field is internal-only.
 """
+
 from __future__ import annotations
 
 import logging
-import mimetypes
 from typing import Any
 
 from django import forms
@@ -135,8 +135,7 @@ class DocumentUploadIntentForm(forms.Form):
         else:
             categories = DocumentCategory.objects.filter(staff_only=False).order_by("name_en")
         self.fields["category_slug"].widget = forms.Select(  # type: ignore[assignment]
-            choices=[("", _("— Select category —"))]
-            + [(c.slug, c.name_en) for c in categories]
+            choices=[("", _("— Select category —"))] + [(c.slug, c.name_en) for c in categories]
         )
 
         # Populate MIME type choices from the live allow-list.
@@ -148,9 +147,7 @@ class DocumentUploadIntentForm(forms.Form):
         filename: str = self.cleaned_data["original_filename"]
         # Reject path traversal attempts.
         if ".." in filename or "/" in filename or "\\" in filename:
-            raise forms.ValidationError(
-                _("File name must not contain path separators.")
-            )
+            raise forms.ValidationError(_("File name must not contain path separators."))
         return filename
 
     def clean_mime_type(self) -> str:
@@ -167,10 +164,7 @@ class DocumentUploadIntentForm(forms.Form):
         size: int = self.cleaned_data["size_bytes"]
         if size > self._max_upload_bytes:
             raise forms.ValidationError(
-                _(
-                    "File size exceeds the maximum allowed size of "
-                    "%(max)s bytes."
-                ),
+                _("File size exceeds the maximum allowed size of " "%(max)s bytes."),
                 params={"max": self._max_upload_bytes},
                 code="file_too_large",
             )
@@ -201,7 +195,7 @@ class LegalHoldForm(forms.Form):
 
     ACTION_APPLY = "apply"
     ACTION_RELEASE = "release"
-    ACTION_CHOICES = [
+    ACTION_CHOICES = [  # noqa: RUF012
         (ACTION_APPLY, _("Apply legal hold")),
         (ACTION_RELEASE, _("Release legal hold")),
     ]
@@ -271,8 +265,7 @@ class DocumentSoftDeleteForm(forms.Form):
         max_length=500,
         widget=forms.Textarea(attrs={"rows": 3}),
         help_text=_(
-            "State why this document is being deleted. "
-            "Do not include personal information."
+            "State why this document is being deleted. " "Do not include personal information."
         ),
     )
     confirm = forms.BooleanField(
@@ -306,7 +299,7 @@ class DocumentFilterForm(forms.Form):
         Inclusive filter on ``Document.created_at`` date.
     """
 
-    LEGAL_HOLD_CHOICES = [
+    LEGAL_HOLD_CHOICES = [  # noqa: RUF012
         ("", _("Any")),
         ("yes", _("On legal hold")),
         ("no", _("No legal hold")),
@@ -314,8 +307,7 @@ class DocumentFilterForm(forms.Form):
 
     scan_status = forms.ChoiceField(
         label=_("Status"),
-        choices=[("", _("Any status"))]
-        + [(s.value, s.label) for s in Document.ScanStatus],  # type: ignore[attr-defined]
+        choices=[("", _("Any status"))] + [(s.value, s.label) for s in Document.ScanStatus],  # type: ignore[attr-defined]
         required=False,
     )
     category = forms.CharField(
@@ -351,7 +343,5 @@ class DocumentFilterForm(forms.Form):
         date_from = cleaned.get("date_from")
         date_to = cleaned.get("date_to")
         if date_from and date_to and date_from > date_to:
-            raise forms.ValidationError(
-                _("'Created from' must be on or before 'Created to'.")
-            )
+            raise forms.ValidationError(_("'Created from' must be on or before 'Created to'."))
         return cleaned

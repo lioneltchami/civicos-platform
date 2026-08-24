@@ -13,8 +13,8 @@ Security notes:
 import logging
 
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
-from django.core.exceptions import PermissionDenied
 from django.contrib.auth.views import redirect_to_login
+from django.core.exceptions import PermissionDenied
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ class StaffRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
         """Return True only for authenticated staff members."""
         return self.request.user.is_authenticated and self.request.user.is_staff
 
-    def handle_no_permission(self):
+    def handle_no_permission(self):  # noqa: ANN201
         """
         Differentiate between unauthenticated and unauthorised requests.
 
@@ -53,7 +53,7 @@ class StaffRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
         raise PermissionDenied
 
 
-def log_staff_action(request, message: str) -> None:
+def log_staff_action(request, message: str) -> None:  # noqa: ANN001
     """
     Log a staff action at INFO level.
 

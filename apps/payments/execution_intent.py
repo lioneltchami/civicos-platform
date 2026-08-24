@@ -1,4 +1,5 @@
 """Durable immutable execution identity reserved before provider I/O."""
+
 from __future__ import annotations
 
 import hashlib
@@ -9,16 +10,23 @@ from django.db import IntegrityError, transaction
 from .govstack_models import PaymentAttempt, PaymentExecutionIntent
 
 
-class ExecutionIntentConflict(ValueError):
+class ExecutionIntentConflict(ValueError):  # noqa: N818
     """Raised when a canonical execution identity is reused inconsistently."""
 
 
-def payload_fingerprint(payload) -> str:
+def payload_fingerprint(payload) -> str:  # noqa: ANN001
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def reserve_execution_intent(*, attempt: PaymentAttempt, scope: str, operation: str, request_identity: str, payload) -> PaymentExecutionIntent:
+def reserve_execution_intent(
+    *,
+    attempt: PaymentAttempt,
+    scope: str,
+    operation: str,
+    request_identity: str,
+    payload,  # noqa: ANN001
+) -> PaymentExecutionIntent:
     """Reserve one immutable identity before any worker/provider action."""
     fingerprint = payload_fingerprint(payload)
     with transaction.atomic():
@@ -42,7 +50,9 @@ def reserve_execution_intent(*, attempt: PaymentAttempt, scope: str, operation: 
         return intent
 
 
-def record_provider_correlation(intent: PaymentExecutionIntent, correlation: str) -> PaymentExecutionIntent:
+def record_provider_correlation(
+    intent: PaymentExecutionIntent, correlation: str
+) -> PaymentExecutionIntent:
     """Record exactly one provider correlation; later conflicting values fail closed."""
     correlation = (correlation or "").strip()
     if not correlation:

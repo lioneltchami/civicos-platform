@@ -66,7 +66,6 @@ from django.db import models as dj_models
 from django.http import FileResponse, Http404, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
-
 from rest_framework import generics, status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -75,15 +74,15 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from apps.api.authentication import CivicOSTokenAuthentication
-from apps.api.pagination import StandardPagination
-from apps.api.permissions import IsStaff
-from apps.api.throttling import CitizenRateThrottle, StaffRateThrottle
 from apps.api.documents.serializers import (
     DocumentAttachmentSerializer,
     DocumentNewVersionRequestSerializer,
     DocumentSerializer,
     DocumentUploadRequestSerializer,
 )
+from apps.api.pagination import StandardPagination
+from apps.api.permissions import IsStaff
+from apps.api.throttling import CitizenRateThrottle, StaffRateThrottle
 from apps.documents.models import Document, DocumentAttachment
 from apps.documents.services.download import (
     TokenExpiredError,
@@ -109,7 +108,7 @@ _AUTH = [CivicOSTokenAuthentication, JWTAuthentication]
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _get_client_ip(request) -> str | None:
+def _get_client_ip(request) -> str | None:  # noqa: ANN001
     """
     Extract the originating client IP from REMOTE_ADDR only.
 
@@ -172,7 +171,7 @@ def _convert_django_exceptions(exc: Exception) -> None:
         raise ValidationError({"non_field_errors": [str(exc)]})
 
 
-def _record_access_denied(*, requested_pk, requesting_user) -> None:
+def _record_access_denied(*, requested_pk, requesting_user) -> None:  # noqa: ANN001
     """
     Write an AuditEventType.ACCESS_DENIED entry for a denied (IDOR) access
     attempt — spec §13.1 "Access denied (non-owned PK)".
@@ -210,8 +209,8 @@ def _record_access_denied(*, requested_pk, requesting_user) -> None:
 
 
 def _get_document_for_user(
-    request,
-    doc_id,
+    request,  # noqa: ANN001
+    doc_id,  # noqa: ANN001
     *,
     require_not_deleted: bool = True,
     allow_coordinator: bool = False,
@@ -264,7 +263,7 @@ def _get_document_for_user(
         # this function's docstring.
         if Document.objects.filter(**filters).exists():
             _record_access_denied(requested_pk=doc_id, requesting_user=request.user)
-        raise Http404
+        raise Http404  # noqa: B904
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -296,10 +295,10 @@ class DocumentRequestUploadView(APIView):
     """
 
     authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated]
-    throttle_classes = [CitizenRateThrottle]
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
+    throttle_classes = [CitizenRateThrottle]  # noqa: RUF012
 
-    def post(self, request):
+    def post(self, request):  # noqa: ANN001, ANN201
         serializer = DocumentUploadRequestSerializer(
             data=request.data,
             context={"request": request},
@@ -362,9 +361,9 @@ class DocumentConfirmUploadView(APIView):
     """
 
     authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
 
-    def post(self, request, doc_id):
+    def post(self, request, doc_id):  # noqa: ANN001, ANN201
         # confirm_upload raises:
         #   Http404           — IDOR (doc not found or wrong owner)
         #   Django ValidationError — quarantine miss, magic byte, ZIP bomb
@@ -419,28 +418,24 @@ class DocumentDetailDeleteView(APIView):
     """
 
     authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
 
-    def get(self, request, doc_id):
-        doc = (
-            _get_document_for_user(
-                request,
-                doc_id,
-                require_not_deleted=True,
-                allow_coordinator=True,
-            )
+    def get(self, request, doc_id):  # noqa: ANN001, ANN201
+        doc = _get_document_for_user(
+            request,
+            doc_id,
+            require_not_deleted=True,
+            allow_coordinator=True,
         )
         # select_related for DocumentSerializer: category (slug/name), uploaded_by (pk)
         doc = Document.objects.select_related("category", "uploaded_by").get(pk=doc.pk)
         serializer = DocumentSerializer(doc, context={"request": request})
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    def delete(self, request, doc_id):
+    def delete(self, request, doc_id):  # noqa: ANN001, ANN201
         # Permission check — standard Django auto-created delete permission.
         if not request.user.has_perm("documents.delete_document"):
-            raise PermissionDenied(
-                "You do not have permission to delete documents."
-            )
+            raise PermissionDenied("You do not have permission to delete documents.")
 
         doc = _get_document_for_user(
             request,
@@ -452,16 +447,12 @@ class DocumentDetailDeleteView(APIView):
         # Legal hold blocks all deletion attempts (pre-check; service also
         # enforces this under lock to prevent TOCTOU races).
         if doc.legal_hold:
-            raise PermissionDenied(
-                "Document is subject to a legal hold and cannot be deleted."
-            )
+            raise PermissionDenied("Document is subject to a legal hold and cannot be deleted.")
 
         # Require a meaningful deletion reason.
         reason = (request.data or {}).get("reason", "")
         if not isinstance(reason, str) or len(reason.strip()) < 10:
-            raise ValidationError(
-                {"reason": "Deletion reason must be at least 10 characters."}
-            )
+            raise ValidationError({"reason": "Deletion reason must be at least 10 characters."})
 
         # soft_delete() re-checks legal_hold and deleted_at under SELECT FOR
         # UPDATE. A concurrent legal-hold operation between our pre-check and
@@ -473,7 +464,7 @@ class DocumentDetailDeleteView(APIView):
                 reason=reason.strip(),
             )
         except ValueError as exc:
-            raise ValidationError({"non_field_errors": [str(exc)]})
+            raise ValidationError({"non_field_errors": [str(exc)]})  # noqa: B904
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -509,9 +500,9 @@ class DocumentDownloadInitView(APIView):
     """
 
     authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
 
-    def post(self, request, doc_id):
+    def post(self, request, doc_id):  # noqa: ANN001, ANN201
         doc = _get_document_for_user(
             request,
             doc_id,
@@ -576,9 +567,9 @@ class DocumentTokenRedeemView(APIView):
     """
 
     authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
 
-    def get(self, request, token):
+    def get(self, request, token):  # noqa: ANN001, ANN201
         ip = _get_client_ip(request)
 
         # consume_access_token uses SELECT FOR UPDATE + transaction.atomic() to
@@ -628,10 +619,8 @@ class DocumentTokenRedeemView(APIView):
                 )
             except FileNotFoundError:
                 # Storage backend cannot find the object — return 404.
-                logger.error(
-                    "File not found in storage for document pk=%s", doc.pk
-                )
-                raise Http404("Document file not found in storage.")
+                logger.error("File not found in storage for document pk=%s", doc.pk)
+                raise Http404("Document file not found in storage.")  # noqa: B904
 
         else:
             # Large file: generate a short-lived presigned S3 GET URL and
@@ -669,18 +658,16 @@ class DocumentAttachedListView(generics.ListAPIView):
     """
 
     authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated, IsStaff]
-    throttle_classes = [StaffRateThrottle]
+    permission_classes = [IsAuthenticated, IsStaff]  # noqa: RUF012
+    throttle_classes = [StaffRateThrottle]  # noqa: RUF012
     serializer_class = DocumentAttachmentSerializer
     pagination_class = StandardPagination
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         user = self.request.user
 
         if not user.has_perm("documents.view_all_documents"):
-            raise PermissionDenied(
-                "You do not have permission to view attached documents."
-            )
+            raise PermissionDenied("You do not have permission to view attached documents.")
 
         attached_to = self.request.query_params.get("attached_to", "").strip()
         object_id = self.request.query_params.get("object_id", "").strip()
@@ -698,7 +685,7 @@ class DocumentAttachedListView(generics.ListAPIView):
         try:
             app_label, model_name = attached_to.split(".", 1)
         except ValueError:
-            raise ValidationError(
+            raise ValidationError(  # noqa: B904
                 {
                     "attached_to": (
                         f"Invalid format: '{attached_to}'. "
@@ -710,9 +697,7 @@ class DocumentAttachedListView(generics.ListAPIView):
         try:
             ct = ContentType.objects.get_by_natural_key(app_label, model_name)
         except ContentType.DoesNotExist:
-            raise ValidationError(
-                {"attached_to": f"Unknown content type: '{attached_to}'."}
-            )
+            raise ValidationError({"attached_to": f"Unknown content type: '{attached_to}'."})  # noqa: B904
 
         # select_related includes document__uploaded_by to avoid N+1 queries.
         # DocumentSerializer accesses uploaded_by.pk — without prefetch that
@@ -759,14 +744,12 @@ class DocumentAttachView(APIView):
     """
 
     authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated, IsStaff]
-    throttle_classes = [StaffRateThrottle]
+    permission_classes = [IsAuthenticated, IsStaff]  # noqa: RUF012
+    throttle_classes = [StaffRateThrottle]  # noqa: RUF012
 
-    def post(self, request, doc_id):
+    def post(self, request, doc_id):  # noqa: ANN001, ANN201
         if not request.user.has_perm("documents.upload_staff_document"):
-            raise PermissionDenied(
-                "You do not have permission to attach documents to records."
-            )
+            raise PermissionDenied("You do not have permission to attach documents to records.")
 
         # M-3: Only ACTIVE non-deleted documents may be attached to records.
         # Attaching a QUARANTINED, SCANNING, or soft-deleted document to an
@@ -814,8 +797,7 @@ class DocumentAttachView(APIView):
             errors["attachment_role"] = ["This field is required."]
         elif len(attachment_role) > 50:
             errors["attachment_role"] = [
-                f"Ensure this value has at most 50 characters "
-                f"(it has {len(attachment_role)})."
+                f"Ensure this value has at most 50 characters " f"(it has {len(attachment_role)})."
             ]
 
         if errors:
@@ -883,12 +865,12 @@ class DocumentVersionsView(APIView):
 
     Error responses:
         404 — document not found or not owned.
-    """
+    """  # noqa: RUF002
 
     authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
 
-    def get(self, request, doc_id):
+    def get(self, request, doc_id):  # noqa: ANN001, ANN201
         # IDOR: citizens can only traverse version chains for their own documents.
         # Coordinators (view_all_documents) may traverse any chain.
         doc = _get_document_for_user(
@@ -905,9 +887,7 @@ class DocumentVersionsView(APIView):
         # DocumentSerializer accesses category.slug/.name_en/.name_fr and
         # uploaded_by.pk — without prefetch those fire one query per version.
         versions = (
-            Document.objects.filter(
-                dj_models.Q(pk=root.pk) | dj_models.Q(root_document=root)
-            )
+            Document.objects.filter(dj_models.Q(pk=root.pk) | dj_models.Q(root_document=root))
             # L-3: same visibility rule as DocumentListView (H-1) — never list
             # soft-deleted or quarantined siblings, regardless of the caller's
             # permissions. See the class docstring for the rationale.
@@ -952,18 +932,18 @@ class DocumentListView(generics.ListAPIView):
     """
 
     authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated]
-    throttle_classes = [CitizenRateThrottle]
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
+    throttle_classes = [CitizenRateThrottle]  # noqa: RUF012
     serializer_class = DocumentSerializer
     pagination_class = StandardPagination
 
-    def get_throttles(self):
+    def get_throttles(self):  # noqa: ANN201
         """Staff coordinators use StaffRateThrottle; all others use CitizenRateThrottle."""
         if self.request.user.is_authenticated and self.request.user.is_staff:
             return [StaffRateThrottle()]
         return [CitizenRateThrottle()]
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         user = self.request.user
         # H-1: The general list NEVER exposes QUARANTINED documents regardless of
         # which permissions the caller holds. Quarantined documents are only accessible
@@ -999,11 +979,7 @@ class DocumentListView(generics.ListAPIView):
 
         # select_related prevents N+1 on category and uploaded_by fields in
         # DocumentSerializer (category.slug/name_*; uploaded_by.pk).
-        return (
-            base_qs
-            .select_related("category", "uploaded_by")
-            .order_by("-created_at")
-        )
+        return base_qs.select_related("category", "uploaded_by").order_by("-created_at")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1034,20 +1010,17 @@ class DocumentQuarantinedListView(generics.ListAPIView):
     """
 
     authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated, IsStaff]
-    throttle_classes = [StaffRateThrottle]
+    permission_classes = [IsAuthenticated, IsStaff]  # noqa: RUF012
+    throttle_classes = [StaffRateThrottle]  # noqa: RUF012
     serializer_class = DocumentSerializer
     pagination_class = StandardPagination
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         if not self.request.user.has_perm("documents.view_quarantined"):
-            raise PermissionDenied(
-                "You do not have permission to view quarantined documents."
-            )
+            raise PermissionDenied("You do not have permission to view quarantined documents.")
 
         return (
-            Document.objects
-            .filter(
+            Document.objects.filter(
                 scan_status=Document.ScanStatus.QUARANTINED,
                 # L-1: Defensive filter — the state machine makes QUARANTINED and
                 # deleted_at IS NOT NULL mutually exclusive (soft-delete sets
@@ -1111,9 +1084,9 @@ class DocumentNewVersionView(APIView):
     """
 
     authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
 
-    def post(self, request, doc_id):
+    def post(self, request, doc_id):  # noqa: ANN001, ANN201
         # ── Validate request body ─────────────────────────────────────────────
         # context={"request": request} is required so validate_size_bytes()
         # can apply the caller's correct (staff vs citizen) size cap — see
@@ -1152,17 +1125,18 @@ class DocumentNewVersionView(APIView):
                 description=serializer.validated_data.get("description", ""),
             )
         except DjangoPermissionDenied:
-            raise PermissionDenied(
+            raise PermissionDenied(  # noqa: B904
                 "You do not have permission to create a new version of this document."
             )
         except DjangoValidationError as exc:
-            raise ValidationError(detail=exc.messages)
+            raise ValidationError(detail=exc.messages)  # noqa: B904
         except ImproperlyConfigured as exc:
             # SQLite guard fires in test/dev environments without PostgreSQL.
             # In production this should never happen; treat as 503.
             logger.error(
                 "DocumentNewVersionView: ImproperlyConfigured for doc pk=%s: %s",
-                str(doc_id), exc,
+                str(doc_id),
+                exc,
             )
             return Response(
                 {"detail": "Document versioning is temporarily unavailable."},

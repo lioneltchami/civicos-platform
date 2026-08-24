@@ -5,20 +5,52 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('appointments', '0017_alter_govstacksubscriberprofile_alert_preference_and_more'),
+    dependencies = [  # noqa: RUF012
+        ("appointments", "0017_alter_govstacksubscriberprofile_alert_preference_and_more"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterField(
-            model_name='bookingauditlog',
-            name='action',
-            field=models.CharField(choices=[('created', 'Booking Created'), ('confirmed', 'Confirmed'), ('rejected', 'Rejected'), ('cancelled_citizen', 'Cancelled by Citizen'), ('cancelled_staff', 'Cancelled by Staff'), ('cancelled_system', 'Cancelled by System'), ('rescheduled', 'Rescheduled'), ('completed', 'Completed'), ('no_show_marked', 'No Show Marked'), ('reminder_sent', 'Reminder Sent'), ('waitlist_joined', 'Joined Waitlist'), ('waitlist_promoted', 'Promoted from Waitlist'), ('document_attached', 'Document Attached'), ('payment_received', 'Payment Received'), ('consent_recorded', 'Consent Recorded'), ('data_purged', 'Data Purged'), ('admin_entity_mutated', 'Entity Created/Updated/Deleted (admin)'), ('admin_resource_mutated', 'Resource Created/Updated/Deleted (admin)'), ('admin_affiliation_mutated', 'Affiliation Created/Updated/Deleted (admin)'), ('admin_credential_mutated', 'BB Credential Created/Rotated (admin)')], max_length=30, verbose_name='Action'),
+            model_name="bookingauditlog",
+            name="action",
+            field=models.CharField(
+                choices=[
+                    ("created", "Booking Created"),
+                    ("confirmed", "Confirmed"),
+                    ("rejected", "Rejected"),
+                    ("cancelled_citizen", "Cancelled by Citizen"),
+                    ("cancelled_staff", "Cancelled by Staff"),
+                    ("cancelled_system", "Cancelled by System"),
+                    ("rescheduled", "Rescheduled"),
+                    ("completed", "Completed"),
+                    ("no_show_marked", "No Show Marked"),
+                    ("reminder_sent", "Reminder Sent"),
+                    ("waitlist_joined", "Joined Waitlist"),
+                    ("waitlist_promoted", "Promoted from Waitlist"),
+                    ("document_attached", "Document Attached"),
+                    ("payment_received", "Payment Received"),
+                    ("consent_recorded", "Consent Recorded"),
+                    ("data_purged", "Data Purged"),
+                    ("admin_entity_mutated", "Entity Created/Updated/Deleted (admin)"),
+                    ("admin_resource_mutated", "Resource Created/Updated/Deleted (admin)"),
+                    ("admin_affiliation_mutated", "Affiliation Created/Updated/Deleted (admin)"),
+                    ("admin_credential_mutated", "BB Credential Created/Rotated (admin)"),
+                ],
+                max_length=30,
+                verbose_name="Action",
+            ),
         ),
         migrations.AlterField(
-            model_name='bookingauditlog',
-            name='booking',
-            field=models.ForeignKey(blank=True, help_text="Null for non-booking administrative events (Entity/Resource/Affiliation mutations, BB-credential create/rotate — see ACTION_ADMIN_* actions above). DESIGN CHOICE (Round 2 certifiability re-audit): rather than add a second, parallel audit model for these BB-to-BB admin actions, this FK was made nullable so the SAME immutable, tamper-evident, append-only table — already relied on by GET /log (services.govstack_log.log_list) — can also carry them. The alternative (a brand-new generic audit model) was rejected as unnecessary duplication: this model's actor_id/actor_ip/actor_role/detail/timestamp columns already capture everything a non-booking admin event needs, and reusing it means GET /log surfaces these events for free rather than requiring a second read path.", null=True, on_delete=django.db.models.deletion.CASCADE, related_name='audit_log', to='appointments.booking', verbose_name='Booking'),
+            model_name="bookingauditlog",
+            name="booking",
+            field=models.ForeignKey(
+                blank=True,
+                help_text="Null for non-booking administrative events (Entity/Resource/Affiliation mutations, BB-credential create/rotate — see ACTION_ADMIN_* actions above). DESIGN CHOICE (Round 2 certifiability re-audit): rather than add a second, parallel audit model for these BB-to-BB admin actions, this FK was made nullable so the SAME immutable, tamper-evident, append-only table — already relied on by GET /log (services.govstack_log.log_list) — can also carry them. The alternative (a brand-new generic audit model) was rejected as unnecessary duplication: this model's actor_id/actor_ip/actor_role/detail/timestamp columns already capture everything a non-booking admin event needs, and reusing it means GET /log surfaces these events for free rather than requiring a second read path.",
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="audit_log",
+                to="appointments.booking",
+                verbose_name="Booking",
+            ),
         ),
     ]

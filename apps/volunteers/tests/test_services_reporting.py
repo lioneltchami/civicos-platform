@@ -7,6 +7,7 @@ IMPORTANT TEST INVARIANTS:
 - PIPEDA: assert no volunteer name/email appears in any return value
 - All date filtering tested with explicit date fixtures
 """
+
 from __future__ import annotations
 
 import datetime
@@ -33,9 +34,19 @@ User = get_user_model()
 # ---------------------------------------------------------------------------
 # PII fields to verify are NEVER present in reporting return values
 # ---------------------------------------------------------------------------
-_PII_KEYS = {"email", "name", "sin", "phone", "first_name", "last_name",
-             "preferred_name", "emergency_contact_name", "emergency_contact_phone",
-             "date_of_birth", "accommodation_notes"}
+_PII_KEYS = {
+    "email",
+    "name",
+    "sin",
+    "phone",
+    "first_name",
+    "last_name",
+    "preferred_name",
+    "emergency_contact_name",
+    "emergency_contact_phone",
+    "date_of_birth",
+    "accommodation_notes",
+}
 
 # ---------------------------------------------------------------------------
 # Counter for unique slugs / emails
@@ -51,6 +62,7 @@ def _uid() -> int:
 # ---------------------------------------------------------------------------
 # Factory helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_user(email: str | None = None) -> User:
     n = _uid()
@@ -135,6 +147,7 @@ def _make_hours(
 # HoursByProgramTests
 # ===========================================================================
 
+
 class HoursByProgramTests(TestCase):
     """Tests for hours_by_program(year, month)."""
 
@@ -187,7 +200,7 @@ class HoursByProgramTests(TestCase):
         self.assertEqual(result_feb[0]["approved_hours"], Decimal("7.00"))
 
     def test_aggregates_per_opportunity(self):
-        """Multiple volunteers logging to the same opportunity produce a single row with the correct sum."""
+        """Multiple volunteers logging to the same opportunity produce a single row with the correct sum."""  # noqa: E501
         date_val = datetime.date(2025, 4, 1)
         for _ in range(3):
             vol = _make_profile(_make_user())
@@ -252,11 +265,14 @@ class HoursByProgramTests(TestCase):
 # ImpactValueTests
 # ===========================================================================
 
-@override_settings(VOLUNTEER_MINIMUM_WAGES={
-    "ON": 17.20,
-    "BC": 17.40,
-    "AB": 15.00,
-})
+
+@override_settings(
+    VOLUNTEER_MINIMUM_WAGES={
+        "ON": 17.20,
+        "BC": 17.40,
+        "AB": 15.00,
+    }
+)
 class ImpactValueTests(TestCase):
     """Tests for impact_value(year, province)."""
 
@@ -340,6 +356,7 @@ class ImpactValueTests(TestCase):
 # ===========================================================================
 # T3010VolunteerMetricsTests
 # ===========================================================================
+
 
 @override_settings(VOLUNTEER_MINIMUM_WAGES={"ON": 17.20, "BC": 17.40})
 class T3010VolunteerMetricsTests(TestCase):

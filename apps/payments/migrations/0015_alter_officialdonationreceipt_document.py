@@ -5,16 +5,23 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('documents', '0007_seed_document_categories'),
-        ('payments', '0014_drop_donation_receipt_pdf_path'),
+    dependencies = [  # noqa: RUF012
+        ("documents", "0007_seed_document_categories"),
+        ("payments", "0014_drop_donation_receipt_pdf_path"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterField(
-            model_name='officialdonationreceipt',
-            name='document',
-            field=models.OneToOneField(blank=True, help_text='FK to the Documents BB record for this receipt PDF. Replaces the deprecated pdf_path CharField after migration.', null=True, on_delete=django.db.models.deletion.PROTECT, related_name='donation_receipt', to='documents.document', verbose_name='Receipt document (Documents BB)'),
+            model_name="officialdonationreceipt",
+            name="document",
+            field=models.OneToOneField(
+                blank=True,
+                help_text="FK to the Documents BB record for this receipt PDF. Replaces the deprecated pdf_path CharField after migration.",
+                null=True,
+                on_delete=django.db.models.deletion.PROTECT,
+                related_name="donation_receipt",
+                to="documents.document",
+                verbose_name="Receipt document (Documents BB)",
+            ),
         ),
     ]

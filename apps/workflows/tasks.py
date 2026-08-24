@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 @shared_task(name="workflows.check_sla_breaches", bind=True, max_retries=3)
-def check_sla_breaches_task(self):
+def check_sla_breaches_task(self):  # noqa: ANN001, ANN201
     """
     Periodic task: mark overdue WorkItems as SLA-breached.
 
@@ -26,16 +26,16 @@ def check_sla_breaches_task(self):
     """
     try:
         from apps.workflows.services import check_sla_breaches
+
         count = check_sla_breaches()
         if count:
             logger.info("SLA breach check: %d item(s) newly marked as breached.", count)
         return count
     except SoftTimeLimitExceeded:
         logger.warning(
-            "check_sla_breaches_task: soft time limit exceeded — "
-            "will retry at next schedule"
+            "check_sla_breaches_task: soft time limit exceeded — " "will retry at next schedule"
         )
         return  # Don't retry — next cron firing will pick up where this left off
     except Exception as exc:
         logger.exception("check_sla_breaches_task failed: %s", exc)
-        raise self.retry(exc=exc, countdown=60)
+        raise self.retry(exc=exc, countdown=60)  # noqa: B904

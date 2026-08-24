@@ -9,15 +9,27 @@ Extends Wagtail's built-in form builder (wagtail.contrib.forms) with:
 """
 
 import logging
+from typing import ClassVar
 
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from modelcluster.fields import ParentalKey
 
 logger = logging.getLogger(__name__)
-from wagtail.admin.panels import FieldPanel, FieldRowPanel, InlinePanel, MultiFieldPanel, ObjectList, TabbedInterface
-from wagtail.contrib.forms.models import AbstractEmailForm, AbstractFormField, AbstractFormSubmission
-from wagtail.fields import RichTextField
+from wagtail.admin.panels import (  # noqa: E402
+    FieldPanel,
+    FieldRowPanel,
+    InlinePanel,
+    MultiFieldPanel,
+    ObjectList,
+    TabbedInterface,
+)
+from wagtail.contrib.forms.models import (  # noqa: E402
+    AbstractEmailForm,
+    AbstractFormField,
+    AbstractFormSubmission,
+)
+from wagtail.fields import RichTextField  # noqa: E402
 
 
 class FormField(AbstractFormField):
@@ -47,7 +59,7 @@ class FormField(AbstractFormField):
     panels = AbstractFormField.panels
 
     class Meta:
-        ordering = ["sort_order"]
+        ordering = ["sort_order"]  # noqa: RUF012
         verbose_name = _("Form field")
 
 
@@ -89,9 +101,9 @@ class FormSubmission(AbstractFormSubmission):
     class Meta:
         verbose_name = _("Form submission")
         verbose_name_plural = _("Form submissions")
-        ordering = ["-submit_time"]
+        ordering = ["-submit_time"]  # noqa: RUF012
 
-    def redact_pii(self, redacted_by=None) -> None:
+    def redact_pii(self, redacted_by=None) -> None:  # noqa: ANN001
         """
         PIPEDA right-to-erasure: replace PII field values with a redaction marker.
         Only fields flagged is_pii=True on the FormField are redacted.
@@ -130,7 +142,9 @@ class FormPage(AbstractEmailForm):
         blank=True,
         features=["bold", "italic", "link", "ol", "ul"],
         verbose_name=_("Introduction"),
-        help_text=_("Displayed above the form. Explain what the form is for and what happens after submission."),
+        help_text=_(
+            "Displayed above the form. Explain what the form is for and what happens after submission."  # noqa: E501
+        ),
     )
     thank_you_text = RichTextField(
         blank=True,
@@ -141,7 +155,9 @@ class FormPage(AbstractEmailForm):
     consent_text = models.TextField(
         blank=True,
         verbose_name=_("Consent statement"),
-        help_text=_("If set, a mandatory consent checkbox is added to the form. State how the data will be used."),
+        help_text=_(
+            "If set, a mandatory consent checkbox is added to the form. State how the data will be used."  # noqa: E501
+        ),
     )
     retention_days = models.PositiveIntegerField(
         default=365,
@@ -149,7 +165,7 @@ class FormPage(AbstractEmailForm):
         help_text=_("Submissions will be purged after this many days."),
     )
 
-    def get_submission_class(self):
+    def get_submission_class(self):  # noqa: ANN201
         """
         Override to return our extended FormSubmission.
         Wagtail does not read a submission_class class attribute — this method
@@ -157,7 +173,7 @@ class FormPage(AbstractEmailForm):
         """
         return FormSubmission
 
-    def serve(self, request, *args, **kwargs):
+    def serve(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         """
         Override to inject the request onto the form instance.
         Wagtail's default serve() does not pass request to the form,
@@ -166,15 +182,11 @@ class FormPage(AbstractEmailForm):
         from django.template.response import TemplateResponse
 
         if request.method == "POST":
-            form = self.get_form(
-                request.POST, request.FILES, page=self, user=request.user
-            )
+            form = self.get_form(request.POST, request.FILES, page=self, user=request.user)
             form.request = request  # the critical injection
             if form.is_valid():
                 form_submission = self.process_form_submission(form)
-                return self.render_landing_page(
-                    request, form_submission, *args, **kwargs
-                )
+                return self.render_landing_page(request, form_submission, *args, **kwargs)
         else:
             form = self.get_form(page=self, user=request.user)
             form.request = request
@@ -187,7 +199,7 @@ class FormPage(AbstractEmailForm):
             context,
         )
 
-    def get_form_class(self):
+    def get_form_class(self):  # noqa: ANN201
         """
         Extend the Wagtail-generated form class with a mandatory consent
         checkbox if the page has consent_text configured.
@@ -204,7 +216,7 @@ class FormPage(AbstractEmailForm):
                 error_messages={
                     "required": _(
                         "You must accept the consent statement to submit this form. / "
-                        "Vous devez accepter la déclaration de consentement pour soumettre ce formulaire."
+                        "Vous devez accepter la déclaration de consentement pour soumettre ce formulaire."  # noqa: E501
                     )
                 },
             )
@@ -217,7 +229,7 @@ class FormPage(AbstractEmailForm):
 
         return form_class
 
-    def process_form_submission(self, form):
+    def process_form_submission(self, form):  # noqa: ANN001, ANN201
         """
         Override to capture submitter IP and consent before persisting.
         The request is injected onto the form instance via our serve() override.
@@ -249,10 +261,13 @@ class FormPage(AbstractEmailForm):
         expires_at = timezone.now() + timezone.timedelta(days=self.retention_days)
         submission.expires_at = expires_at
 
-        submission.save(update_fields=["submitter_ip", "consent_given", "consent_text_shown", "expires_at"])
+        submission.save(
+            update_fields=["submitter_ip", "consent_given", "consent_text_shown", "expires_at"]
+        )
 
         try:
             from apps.core.signals import form_submission_received
+
             results = form_submission_received.send_robust(
                 sender=self.__class__,
                 form_page=self,
@@ -273,31 +288,33 @@ class FormPage(AbstractEmailForm):
 
         return submission
 
-    def get_submissions_list_url(self):
+    def get_submissions_list_url(self):  # noqa: ANN201
         """URL to the staff submission list for this form page."""
         from django.urls import reverse
+
         return reverse("forms:submission-list", kwargs={"page_id": self.pk})
 
-    content_panels = AbstractEmailForm.content_panels + [
+    content_panels: ClassVar[list] = [
+        *AbstractEmailForm.content_panels,
         FieldPanel("intro"),
         InlinePanel("form_fields", label=_("Form fields")),
         FieldPanel("consent_text"),
         FieldPanel("thank_you_text"),
         MultiFieldPanel(
             [
-                FieldRowPanel([
-                    FieldPanel("from_address", classname="col6"),
-                    FieldPanel("to_address", classname="col6"),
-                ]),
+                FieldRowPanel(
+                    [
+                        FieldPanel("from_address", classname="col6"),
+                        FieldPanel("to_address", classname="col6"),
+                    ]
+                ),
                 FieldPanel("subject"),
             ],
             heading=_("Email notification (optional)"),
         ),
     ]
 
-    settings_panels = AbstractEmailForm.settings_panels + [
-        FieldPanel("retention_days"),
-    ]
+    settings_panels = [*AbstractEmailForm.settings_panels, FieldPanel("retention_days")]  # noqa: RUF012
 
     edit_handler = TabbedInterface(
         [
@@ -313,5 +330,5 @@ class FormPage(AbstractEmailForm):
     class Meta:
         verbose_name = _("Form page")
 
-    parent_page_types = ["cms.HomePage", "cms.GenericPage", "cms.ServiceIndexPage"]
-    subpage_types = []
+    parent_page_types = ["cms.HomePage", "cms.GenericPage", "cms.ServiceIndexPage"]  # noqa: RUF012
+    subpage_types = []  # noqa: RUF012

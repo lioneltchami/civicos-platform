@@ -7,9 +7,10 @@ FiscalYearEndForm: fiscal year end date picker for T3010 prep view.
 MAX_RANGE_DAYS          = 92   — one quarter; reconciliation & receipts list (HTML)
 MAX_RECEIPT_EXPORT_DAYS = 366  — one year + leap day; receipts CSV export
 """
+
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 
 from django import forms
 from django.utils import timezone

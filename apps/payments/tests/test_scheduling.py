@@ -5,6 +5,7 @@ Tests:
 - kickoff_annual_receipts: auto-resolves tax_year, dispatches generate_annual_receipts
 - setup_periodic_tasks management command: idempotent PeriodicTask creation
 """
+
 import inspect
 from io import StringIO
 from unittest.mock import MagicMock, patch
@@ -23,6 +24,7 @@ class KickoffAnnualReceiptsTests(TestCase):
         # bleed from one test into another and cause "already_running" responses
         # in tests that expect a fresh dispatch.
         from django.core.cache import cache
+
         cache.clear()
 
     @patch("apps.payments.tasks_receipts.generate_annual_receipts.delay")
@@ -53,6 +55,7 @@ class KickoffAnnualReceiptsTests(TestCase):
         """
         import ast
         import textwrap
+
         from apps.payments.tasks_receipts import kickoff_annual_receipts
 
         src = inspect.getsource(kickoff_annual_receipts)
@@ -136,10 +139,10 @@ class SetupPeriodicTasksCommandTests(TestCase):
         output = self._run_command()
         self.assertIn("annual", output.lower())
 
-        task = PeriodicTask.objects.filter(
-            name="payments.generate_annual_receipts"
-        ).first()
-        self.assertIsNotNone(task, "PeriodicTask 'payments.generate_annual_receipts' was not created")
+        task = PeriodicTask.objects.filter(name="payments.generate_annual_receipts").first()
+        self.assertIsNotNone(
+            task, "PeriodicTask 'payments.generate_annual_receipts' was not created"
+        )
         self.assertTrue(task.enabled)
 
     def test_idempotent_second_run(self):
@@ -152,9 +155,7 @@ class SetupPeriodicTasksCommandTests(TestCase):
         self._run_command()
         self._run_command()
 
-        count = PeriodicTask.objects.filter(
-            name="payments.generate_annual_receipts"
-        ).count()
+        count = PeriodicTask.objects.filter(name="payments.generate_annual_receipts").count()
         self.assertEqual(
             count,
             1,
@@ -164,7 +165,7 @@ class SetupPeriodicTasksCommandTests(TestCase):
     def test_output_confirms_creation(self):
         """Command output mentions the task name."""
         try:
-            from django_celery_beat.models import PeriodicTask
+            from django_celery_beat.models import PeriodicTask  # noqa: F401
         except ImportError:
             self.skipTest("django-celery-beat not installed")
 

@@ -1,17 +1,26 @@
-from django.db import migrations, models
 import django.db.models.deletion
+from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
+    dependencies = [("payments", "0033_alter_batchlease_created_at_alter_batchlease_id_and_more")]  # noqa: RUF012
 
-    dependencies = [("payments", "0033_alter_batchlease_created_at_alter_batchlease_id_and_more")]
-
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.CreateModel(
             name="ProviderRegistration",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("created_at", models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at")),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
+                ),
                 ("updated_at", models.DateTimeField(auto_now=True, verbose_name="Updated at")),
                 ("tenant_id", models.CharField(db_index=True, max_length=100)),
                 ("operation", models.CharField(max_length=30)),

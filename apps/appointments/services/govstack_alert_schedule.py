@@ -53,6 +53,7 @@ PIPEDA note:
   (owned by the referenced GovStackMessage, not this model) is never logged
   from this module.
 """
+
 from __future__ import annotations
 
 import logging
@@ -78,6 +79,7 @@ _VALID_TARGET_CATEGORIES: frozenset[str] = frozenset({"", "subscriber", "resourc
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _validate_target_category(target_category: str) -> None:
     """Raise ValueError if target_category is not '', 'subscriber', or 'resource'."""
     if target_category not in _VALID_TARGET_CATEGORIES:
@@ -87,7 +89,7 @@ def _validate_target_category(target_category: str) -> None:
         )
 
 
-def _parse_datetime_str(value: str):
+def _parse_datetime_str(value: str):  # noqa: ANN202
     """
     Parse an ISO 8601 datetime string, requiring timezone awareness.
 
@@ -112,7 +114,7 @@ def _parse_datetime_str(value: str):
     return dt
 
 
-def _validate_future_datetime(dt) -> None:
+def _validate_future_datetime(dt) -> None:  # noqa: ANN001
     """Raise ValueError if dt is not strictly in the future (relative to now)."""
     if dt <= timezone.now():
         raise ValueError("alert_datetime must be in the future.")
@@ -132,13 +134,16 @@ def _resolve_message(message_id: str | int) -> GovStackMessage:
     try:
         msg_pk = int(message_id)
     except (ValueError, TypeError) as exc:
-        raise GovStackMessage.DoesNotExist("message_id does not reference a known message.") from exc
+        raise GovStackMessage.DoesNotExist(
+            "message_id does not reference a known message."
+        ) from exc
     return GovStackMessage.objects.get(pk=msg_pk)
 
 
 # ---------------------------------------------------------------------------
 # Public service functions
 # ---------------------------------------------------------------------------
+
 
 def alert_schedule_create(
     event_id: str,
@@ -174,7 +179,9 @@ def alert_schedule_create(
     )
     logger.debug(
         "alert_schedule_create: created alert_schedule pk=%s event_id=%s message_id=%s",
-        alert_schedule.pk, event_id, message_id,
+        alert_schedule.pk,
+        event_id,
+        message_id,
     )
     return alert_schedule
 
@@ -318,7 +325,8 @@ def alert_schedule_modify(
             alert_schedule.save(update_fields=update_fields)
             logger.debug(
                 "alert_schedule_modify: updated alert_schedule pk=%s fields=%r",
-                alert_schedule.pk, update_fields,
+                alert_schedule.pk,
+                update_fields,
             )
         else:
             logger.debug(
@@ -432,7 +440,9 @@ def alert_schedule_list(
             details["alert_schedule_id"] = str(alert_schedule.pk)
 
         if required.get("entity_id", True):
-            org_id = alert_schedule.slot.location.organization_id if alert_schedule.slot_id else None
+            org_id = (
+                alert_schedule.slot.location.organization_id if alert_schedule.slot_id else None
+            )
             details["entity_id"] = str(org_id) if org_id else ""
 
         if required.get("message_id", True):

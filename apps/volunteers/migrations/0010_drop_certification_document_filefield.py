@@ -9,11 +9,11 @@ class Migration(migrations.Migration):
     reference.
     """
 
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("volunteers", "0009_add_screening_vsc_confirmation_doc"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.RemoveField(
             model_name="certification",
             name="document",

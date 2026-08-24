@@ -4,15 +4,22 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('payments', '0011_add_manual_gateway_and_honorarium_purpose'),
+    dependencies = [  # noqa: RUF012
+        ("payments", "0011_add_manual_gateway_and_honorarium_purpose"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterField(
-            model_name='webhookevent',
-            name='gateway',
-            field=models.CharField(choices=[('stripe', 'Stripe'), ('moneris', 'Moneris'), ('manual', 'Manual / Offline')], max_length=20, verbose_name='Gateway'),
+            model_name="webhookevent",
+            name="gateway",
+            field=models.CharField(
+                choices=[
+                    ("stripe", "Stripe"),
+                    ("moneris", "Moneris"),
+                    ("manual", "Manual / Offline"),
+                ],
+                max_length=20,
+                verbose_name="Gateway",
+            ),
         ),
     ]

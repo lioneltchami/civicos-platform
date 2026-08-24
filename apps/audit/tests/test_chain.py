@@ -17,16 +17,15 @@ These tests verify:
 
 import threading
 
-from django.conf import settings
 from django.test import TestCase, TransactionTestCase, skipUnlessDBFeature
 
-from apps.audit.models import AuditLogEntry, AuditEventType, ChainVerificationResult
+from apps.audit.models import AuditEventType, AuditLogEntry
 from apps.audit.services import record_event
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_entry(**kwargs) -> AuditLogEntry:
     """Create an audit entry via the service layer (which sets hashes)."""
@@ -45,6 +44,7 @@ def _make_entry(**kwargs) -> AuditLogEntry:
 # ---------------------------------------------------------------------------
 # Hash correctness
 # ---------------------------------------------------------------------------
+
 
 class AuditEntryHashTests(TestCase):
     """Unit tests for entry_hash computation."""
@@ -98,6 +98,7 @@ class AuditEntryHashTests(TestCase):
 # verify_chain — clean chain
 # ---------------------------------------------------------------------------
 
+
 class VerifyChainCleanTests(TestCase):
     """verify_chain() must return ok=True on an untampered chain."""
 
@@ -147,6 +148,7 @@ class VerifyChainCleanTests(TestCase):
 # ---------------------------------------------------------------------------
 # verify_chain — tampered chain
 # ---------------------------------------------------------------------------
+
 
 class VerifyChainTamperedTests(TestCase):
     """verify_chain() must detect tampering."""
@@ -206,8 +208,7 @@ class VerifyChainTamperedTests(TestCase):
         # Entries 3 and 4 must NOT be flagged — the cascade stops at entry[2]
         # because verify_chain uses entry[2]'s stored (intact) hash going forward.
         for idx in (3, 4):
-            self.assertNotIn(entries[idx].id, violated_ids,
-                             f"entry[{idx}] should not be flagged")
+            self.assertNotIn(entries[idx].id, violated_ids, f"entry[{idx}] should not be flagged")
 
     def test_first_entry_tampered_is_detected(self):
         entries = self._build_chain(3)
@@ -236,6 +237,7 @@ class VerifyChainTamperedTests(TestCase):
 # Concurrent writes (serialisation)
 # ---------------------------------------------------------------------------
 
+
 @skipUnlessDBFeature("has_select_for_update")
 class AuditChainConcurrencyTests(TransactionTestCase):
     """
@@ -253,8 +255,8 @@ class AuditChainConcurrencyTests(TransactionTestCase):
     """
 
     def test_concurrent_writers_produce_unique_prev_hashes(self):
-        THREADS = 4
-        ENTRIES_PER_THREAD = 8
+        THREADS = 4  # noqa: N806
+        ENTRIES_PER_THREAD = 8  # noqa: N806
 
         errors = []
 
@@ -286,8 +288,7 @@ class AuditChainConcurrencyTests(TransactionTestCase):
         # Every prev_hash must be unique (no two entries share the same parent).
         # The only exception is the genesis entry which has prev_hash == "".
         prev_hashes = list(
-            AuditLogEntry.objects.exclude(prev_hash="")
-            .values_list("prev_hash", flat=True)
+            AuditLogEntry.objects.exclude(prev_hash="").values_list("prev_hash", flat=True)
         )
         self.assertEqual(
             len(prev_hashes),

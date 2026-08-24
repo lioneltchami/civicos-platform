@@ -13,7 +13,6 @@ from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.consent.models import ConsentCategory, ConsentPolicy
-from apps.consent.services import ConsentService
 
 _DATA_AGREEMENT_ID = 1
 _DATA_AGREEMENT_DEFAULTS = {
@@ -21,7 +20,7 @@ _DATA_AGREEMENT_DEFAULTS = {
     "name_en": "CivicOS GovStack Official Suite Data Agreement",
     "name_fr": "Entente de données de la suite officielle GovStack CivicOS",
     "purpose_en": "Synthetic local record used only by the pinned GovStack Consent suite.",
-    "purpose_fr": "Enregistrement local synthétique utilisé uniquement par la suite Consent GovStack épinglée.",
+    "purpose_fr": "Enregistrement local synthétique utilisé uniquement par la suite Consent GovStack épinglée.",  # noqa: E501
     "lawful_basis": "consent",
     "is_required": False,
     "is_active": True,
@@ -39,7 +38,7 @@ _DATA_AGREEMENT_DEFAULTS = {
 class Command(BaseCommand):
     help = "Seed local-only deterministic records for the pinned GovStack Consent suite."
 
-    def handle(self, *args, **options):
+    def handle(self, *args, **options) -> None:  # noqa: ANN002, ANN003
         if os.environ.get("GOVSTACK_TEST_TARGET") != "local":
             raise CommandError(
                 "seed_govstack_consent_candidate requires GOVSTACK_TEST_TARGET=local."

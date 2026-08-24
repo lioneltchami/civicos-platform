@@ -19,6 +19,7 @@ Security invariants (enforced on every view):
 - Receipt download returns 202 when document is None (async generation).
 - Pagination via Paginator, not queryset slicing.
 """
+
 from __future__ import annotations
 
 import logging
@@ -26,7 +27,6 @@ from decimal import Decimal
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.files.storage import default_storage
-from django.core.paginator import Paginator
 from django.db.models import Count, Sum
 from django.http import FileResponse, Http404, HttpResponse
 from django.urls import reverse
@@ -56,7 +56,7 @@ def _get_year_filter(raw_value: str | None) -> int | None:
 
     Accepts only years in the range 2000–current_year to prevent
     trivially invalid inputs such as '0000' or '9999'.
-    """
+    """  # noqa: RUF002
     if not raw_value:
         return None
     raw = raw_value.strip()
@@ -65,7 +65,7 @@ def _get_year_filter(raw_value: str | None) -> int | None:
     year = int(raw)
     # Use localtime so a donor in PT/MT/AT on Dec 31 sees the correct year.
     # timezone.now().year would return UTC year, excluding gifts made after
-    # 16:00–21:00 PST on New Year's Eve from the current-year filter.
+    # 16:00–21:00 PST on New Year's Eve from the current-year filter.  # noqa: RUF003
     current_year = localtime(timezone.now()).year
     if not (2000 <= year <= current_year):
         return None
@@ -75,6 +75,7 @@ def _get_year_filter(raw_value: str | None) -> int | None:
 # ---------------------------------------------------------------------------
 # Dashboard
 # ---------------------------------------------------------------------------
+
 
 class DonorPortalDashboardView(LoginRequiredMixin, TemplateView):
     """
@@ -86,7 +87,7 @@ class DonorPortalDashboardView(LoginRequiredMixin, TemplateView):
 
     template_name = "payments/portal_dashboard.html"
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
         user = self.request.user
 
@@ -106,10 +107,14 @@ class DonorPortalDashboardView(LoginRequiredMixin, TemplateView):
             status=OfficialDonationReceipt.RECEIPT_STATUS_ISSUED,
         ).count()
 
-        active_plans = RecurringGiftPlan.objects.filter(
-            donor=user,
-            status=PLAN_STATUS_ACTIVE,
-        ).select_related("campaign").order_by("-created_at")
+        active_plans = (
+            RecurringGiftPlan.objects.filter(
+                donor=user,
+                status=PLAN_STATUS_ACTIVE,
+            )
+            .select_related("campaign")
+            .order_by("-created_at")
+        )
 
         recent_donations = (
             Donation.objects.filter(donor=user)
@@ -135,6 +140,7 @@ class DonorPortalDashboardView(LoginRequiredMixin, TemplateView):
 # Donation history
 # ---------------------------------------------------------------------------
 
+
 class DonationHistoryView(LoginRequiredMixin, ListView):
     """
     Paginated, filterable list of the authenticated donor's donations.
@@ -147,7 +153,7 @@ class DonationHistoryView(LoginRequiredMixin, ListView):
     context_object_name = "donations"
     paginate_by = PAGE_SIZE
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         qs = (
             Donation.objects.filter(donor=self.request.user)
             .select_related("campaign", "payment_intent")
@@ -159,7 +165,7 @@ class DonationHistoryView(LoginRequiredMixin, ListView):
             qs = qs.filter(created_at__year=year)
         return qs
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
         # Available years for the filter dropdown — derived from donor's own data.
         available_years = (
@@ -176,6 +182,7 @@ class DonationHistoryView(LoginRequiredMixin, ListView):
 # Receipt download — SECURITY-CRITICAL
 # ---------------------------------------------------------------------------
 
+
 class ReceiptDownloadView(LoginRequiredMixin, View):
     """
     Serve a donation receipt PDF via Django's default storage.
@@ -187,7 +194,7 @@ class ReceiptDownloadView(LoginRequiredMixin, View):
     FileResponse filename is derived from receipt.serial_number only.
     """
 
-    def get(self, request, receipt_pk):
+    def get(self, request, receipt_pk):  # noqa: ANN001, ANN201
         # IDOR guard — the FK chain donation__donor ensures only the owning
         # donor can access this receipt.  Status filter prevents serving
         # cancelled or superseded PDFs.
@@ -198,7 +205,7 @@ class ReceiptDownloadView(LoginRequiredMixin, View):
                 status=OfficialDonationReceipt.RECEIPT_STATUS_ISSUED,
             )
         except OfficialDonationReceipt.DoesNotExist:
-            raise Http404
+            raise Http404  # noqa: B904
 
         # PDF not yet generated — return 202 Accepted; generation is async.
         if not receipt.document_id:
@@ -215,7 +222,7 @@ class ReceiptDownloadView(LoginRequiredMixin, View):
                 "payments.portal.receipt_file_missing serial=%s",
                 receipt.serial_number,
             )
-            raise Http404
+            raise Http404  # noqa: B904
 
         # Log download event — serial number only, no PII.
         # Wrap FileResponse construction: close the handle if an exception
@@ -241,6 +248,7 @@ class ReceiptDownloadView(LoginRequiredMixin, View):
 # Receipt list
 # ---------------------------------------------------------------------------
 
+
 class ReceiptListView(LoginRequiredMixin, ListView):
     """
     Paginated list of donation receipts for the authenticated donor.
@@ -254,7 +262,7 @@ class ReceiptListView(LoginRequiredMixin, ListView):
     context_object_name = "receipts"
     paginate_by = PAGE_SIZE
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         # Only show issued receipts — donors should not see cancelled/superseded ones.
         qs = (
             OfficialDonationReceipt.objects.filter(
@@ -269,7 +277,7 @@ class ReceiptListView(LoginRequiredMixin, ListView):
             qs = qs.filter(receipt_date__year=year)
         return qs
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
         # Available years from the donor's issued receipt dates.
         available_years = (
@@ -295,6 +303,7 @@ class ReceiptListView(LoginRequiredMixin, ListView):
 # Recurring gift list
 # ---------------------------------------------------------------------------
 
+
 class RecurringGiftListView(LoginRequiredMixin, ListView):
     """
     Full list of the authenticated donor's recurring gift plans,
@@ -304,14 +313,14 @@ class RecurringGiftListView(LoginRequiredMixin, ListView):
     template_name = "payments/portal_recurring_list.html"
     context_object_name = "plans"
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         return (
             RecurringGiftPlan.objects.filter(donor=self.request.user)
             .select_related("campaign")
             .order_by("-created_at")
         )
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
         # Use self.object_list (already fetched by ListView) instead of
         # re-calling get_queryset() which would hit the DB three more times.
@@ -325,6 +334,7 @@ class RecurringGiftListView(LoginRequiredMixin, ListView):
 # ---------------------------------------------------------------------------
 # Recurring gift detail
 # ---------------------------------------------------------------------------
+
 
 class RecurringGiftDetailView(LoginRequiredMixin, DetailView):
     """
@@ -340,30 +350,37 @@ class RecurringGiftDetailView(LoginRequiredMixin, DetailView):
     template_name = "payments/portal_recurring_detail.html"
     context_object_name = "plan"
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         # IDOR: only the owning donor can see their plan.
-        return RecurringGiftPlan.objects.filter(
-            donor=self.request.user
-        ).select_related("campaign")
+        return RecurringGiftPlan.objects.filter(donor=self.request.user).select_related("campaign")
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
         plan = self.object
 
         # Donations linked to this recurring plan — capped to avoid unbounded
         # result sets for long-running plans.
-        plan_donations_qs = Donation.objects.filter(
-            recurring_plan=plan,
-            donor=self.request.user,  # belt-and-suspenders IDOR guard
-        ).select_related("payment_intent").prefetch_related("receipts").order_by("-created_at")
+        plan_donations_qs = (
+            Donation.objects.filter(
+                recurring_plan=plan,
+                donor=self.request.user,  # belt-and-suspenders IDOR guard
+            )
+            .select_related("payment_intent")
+            .prefetch_related("receipts")
+            .order_by("-created_at")
+        )
 
         plan_donations = plan_donations_qs[:BILLING_HISTORY_LIMIT]
 
         # Receipts across all donations on this plan — also capped.
-        receipts = OfficialDonationReceipt.objects.filter(
-            donation__recurring_plan=plan,
-            donation__donor=self.request.user,  # belt-and-suspenders IDOR guard
-        ).select_related("donation").order_by("-receipt_date")[:BILLING_HISTORY_LIMIT]
+        receipts = (
+            OfficialDonationReceipt.objects.filter(
+                donation__recurring_plan=plan,
+                donation__donor=self.request.user,  # belt-and-suspenders IDOR guard
+            )
+            .select_related("donation")
+            .order_by("-receipt_date")[:BILLING_HISTORY_LIMIT]
+        )
 
         # Inform the template when the history has been truncated.
         billing_history_truncated = (

@@ -1,16 +1,22 @@
-from django.db import migrations, models
-import django.db.models.deletion
 import uuid
+
+import django.db.models.deletion
+from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("payments", "0044_item02_rb022_credit_instruction_payment_attempt_binding")]
+    dependencies = [("payments", "0044_item02_rb022_credit_instruction_payment_attempt_binding")]  # noqa: RUF012
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.CreateModel(
             name="GovStackBatchDecision",
             fields=[
-                ("id", models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=uuid.uuid4, editable=False, primary_key=True, serialize=False
+                    ),
+                ),
                 (
                     "created_at",
                     models.DateTimeField(

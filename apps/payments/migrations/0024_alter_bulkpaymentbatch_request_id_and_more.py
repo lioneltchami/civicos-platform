@@ -5,20 +5,41 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('payments', '0023_alter_govstackbill_created_at_and_more'),
+    dependencies = [  # noqa: RUF012
+        ("payments", "0023_alter_govstackbill_created_at_and_more"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterField(
-            model_name='bulkpaymentbatch',
-            name='request_id',
-            field=models.CharField(db_index=True, help_text='RequestID from Source BB. Exactly 12 alphanumeric/hyphen chars per the live GovStack spec.', max_length=16, validators=[django.core.validators.RegexValidator(message='RequestID must be exactly 12 alphanumeric or hyphen characters.', regex='^[a-zA-Z0-9\\-]{12}$')], verbose_name='Request ID'),
+            model_name="bulkpaymentbatch",
+            name="request_id",
+            field=models.CharField(
+                db_index=True,
+                help_text="RequestID from Source BB. Exactly 12 alphanumeric/hyphen chars per the live GovStack spec.",
+                max_length=16,
+                validators=[
+                    django.core.validators.RegexValidator(
+                        message="RequestID must be exactly 12 alphanumeric or hyphen characters.",
+                        regex="^[a-zA-Z0-9\\-]{12}$",
+                    )
+                ],
+                verbose_name="Request ID",
+            ),
         ),
         migrations.AlterField(
-            model_name='prepaymentvalidationrequest',
-            name='request_id',
-            field=models.CharField(help_text='RequestID from Source BB. Exactly 12 chars per live schema.', max_length=16, unique=True, validators=[django.core.validators.RegexValidator(message='RequestID must be exactly 12 alphanumeric or hyphen characters.', regex='^[a-zA-Z0-9\\-]{12}$')], verbose_name='Request ID'),
+            model_name="prepaymentvalidationrequest",
+            name="request_id",
+            field=models.CharField(
+                help_text="RequestID from Source BB. Exactly 12 chars per live schema.",
+                max_length=16,
+                unique=True,
+                validators=[
+                    django.core.validators.RegexValidator(
+                        message="RequestID must be exactly 12 alphanumeric or hyphen characters.",
+                        regex="^[a-zA-Z0-9\\-]{12}$",
+                    )
+                ],
+                verbose_name="Request ID",
+            ),
         ),
     ]

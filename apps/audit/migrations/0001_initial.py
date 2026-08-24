@@ -4,39 +4,155 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
-    dependencies = [
-    ]
+    dependencies = []  # noqa: RUF012
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.CreateModel(
-            name='AuditLogEntry',
+            name="AuditLogEntry",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('timestamp', models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='Timestamp')),
-                ('event_type', models.CharField(choices=[('auth.login.success', 'Login succeeded'), ('auth.login.failed', 'Login failed'), ('auth.logout', 'Logged out'), ('auth.password.changed', 'Password changed'), ('auth.mfa.enabled', 'MFA enabled'), ('auth.account.locked', 'Account locked'), ('authz.denied', 'Access denied'), ('authz.role.granted', 'Role granted'), ('authz.role.revoked', 'Role revoked'), ('data.viewed', 'Record viewed'), ('data.exported', 'Record exported'), ('data.created', 'Record created'), ('data.updated', 'Record updated'), ('data.deleted', 'Record deleted'), ('workflow.submission.received', 'Submission received'), ('workflow.status.changed', 'Status changed'), ('workflow.item.assigned', 'Item assigned'), ('workflow.item.approved', 'Item approved'), ('workflow.item.rejected', 'Item rejected'), ('system.settings.changed', 'Settings changed'), ('system.user.created', 'User created')], db_index=True, max_length=64, verbose_name='Event type')),
-                ('outcome', models.CharField(choices=[('success', 'Success'), ('failure', 'Failure')], default='success', max_length=16, verbose_name='Outcome')),
-                ('actor_id', models.CharField(blank=True, db_index=True, help_text='User UUID, or null for anonymous/system actions', max_length=64, null=True, verbose_name='Actor ID')),
-                ('actor_email', models.EmailField(blank=True, help_text='Snapshot of email at time of event — user may be deleted later', max_length=254, verbose_name='Actor email')),
-                ('actor_ip', models.GenericIPAddressField(blank=True, null=True, verbose_name='Actor IP')),
-                ('actor_user_agent', models.CharField(blank=True, max_length=512, verbose_name='User agent')),
-                ('resource_type', models.CharField(blank=True, db_index=True, help_text='Django app_label.ModelName format', max_length=128, verbose_name='Resource type')),
-                ('resource_id', models.CharField(blank=True, db_index=True, max_length=64, verbose_name='Resource ID')),
-                ('before_state', models.JSONField(blank=True, null=True, verbose_name='Before state')),
-                ('after_state', models.JSONField(blank=True, null=True, verbose_name='After state')),
-                ('event_detail', models.JSONField(blank=True, default=dict, verbose_name='Event detail')),
-                ('request_id', models.CharField(blank=True, max_length=64, verbose_name='Request ID')),
-                ('session_id', models.CharField(blank=True, max_length=64, verbose_name='Session ID')),
-                ('prev_hash', models.CharField(blank=True, max_length=64, verbose_name='Previous entry hash')),
-                ('entry_hash', models.CharField(blank=True, max_length=64, verbose_name='Entry hash')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "timestamp",
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Timestamp"
+                    ),
+                ),
+                (
+                    "event_type",
+                    models.CharField(
+                        choices=[
+                            ("auth.login.success", "Login succeeded"),
+                            ("auth.login.failed", "Login failed"),
+                            ("auth.logout", "Logged out"),
+                            ("auth.password.changed", "Password changed"),
+                            ("auth.mfa.enabled", "MFA enabled"),
+                            ("auth.account.locked", "Account locked"),
+                            ("authz.denied", "Access denied"),
+                            ("authz.role.granted", "Role granted"),
+                            ("authz.role.revoked", "Role revoked"),
+                            ("data.viewed", "Record viewed"),
+                            ("data.exported", "Record exported"),
+                            ("data.created", "Record created"),
+                            ("data.updated", "Record updated"),
+                            ("data.deleted", "Record deleted"),
+                            ("workflow.submission.received", "Submission received"),
+                            ("workflow.status.changed", "Status changed"),
+                            ("workflow.item.assigned", "Item assigned"),
+                            ("workflow.item.approved", "Item approved"),
+                            ("workflow.item.rejected", "Item rejected"),
+                            ("system.settings.changed", "Settings changed"),
+                            ("system.user.created", "User created"),
+                        ],
+                        db_index=True,
+                        max_length=64,
+                        verbose_name="Event type",
+                    ),
+                ),
+                (
+                    "outcome",
+                    models.CharField(
+                        choices=[("success", "Success"), ("failure", "Failure")],
+                        default="success",
+                        max_length=16,
+                        verbose_name="Outcome",
+                    ),
+                ),
+                (
+                    "actor_id",
+                    models.CharField(
+                        blank=True,
+                        db_index=True,
+                        help_text="User UUID, or null for anonymous/system actions",
+                        max_length=64,
+                        null=True,
+                        verbose_name="Actor ID",
+                    ),
+                ),
+                (
+                    "actor_email",
+                    models.EmailField(
+                        blank=True,
+                        help_text="Snapshot of email at time of event — user may be deleted later",
+                        max_length=254,
+                        verbose_name="Actor email",
+                    ),
+                ),
+                (
+                    "actor_ip",
+                    models.GenericIPAddressField(blank=True, null=True, verbose_name="Actor IP"),
+                ),
+                (
+                    "actor_user_agent",
+                    models.CharField(blank=True, max_length=512, verbose_name="User agent"),
+                ),
+                (
+                    "resource_type",
+                    models.CharField(
+                        blank=True,
+                        db_index=True,
+                        help_text="Django app_label.ModelName format",
+                        max_length=128,
+                        verbose_name="Resource type",
+                    ),
+                ),
+                (
+                    "resource_id",
+                    models.CharField(
+                        blank=True, db_index=True, max_length=64, verbose_name="Resource ID"
+                    ),
+                ),
+                (
+                    "before_state",
+                    models.JSONField(blank=True, null=True, verbose_name="Before state"),
+                ),
+                (
+                    "after_state",
+                    models.JSONField(blank=True, null=True, verbose_name="After state"),
+                ),
+                (
+                    "event_detail",
+                    models.JSONField(blank=True, default=dict, verbose_name="Event detail"),
+                ),
+                (
+                    "request_id",
+                    models.CharField(blank=True, max_length=64, verbose_name="Request ID"),
+                ),
+                (
+                    "session_id",
+                    models.CharField(blank=True, max_length=64, verbose_name="Session ID"),
+                ),
+                (
+                    "prev_hash",
+                    models.CharField(blank=True, max_length=64, verbose_name="Previous entry hash"),
+                ),
+                (
+                    "entry_hash",
+                    models.CharField(blank=True, max_length=64, verbose_name="Entry hash"),
+                ),
             ],
             options={
-                'verbose_name': 'Audit log entry',
-                'verbose_name_plural': 'Audit log entries',
-                'ordering': ['-timestamp'],
-                'indexes': [models.Index(fields=['resource_type', 'resource_id'], name='audit_audit_resourc_9b8e87_idx'), models.Index(fields=['actor_id', 'timestamp'], name='audit_audit_actor_i_447825_idx'), models.Index(fields=['event_type', 'timestamp'], name='audit_audit_event_t_73906d_idx')],
+                "verbose_name": "Audit log entry",
+                "verbose_name_plural": "Audit log entries",
+                "ordering": ["-timestamp"],
+                "indexes": [
+                    models.Index(
+                        fields=["resource_type", "resource_id"],
+                        name="audit_audit_resourc_9b8e87_idx",
+                    ),
+                    models.Index(
+                        fields=["actor_id", "timestamp"], name="audit_audit_actor_i_447825_idx"
+                    ),
+                    models.Index(
+                        fields=["event_type", "timestamp"], name="audit_audit_event_t_73906d_idx"
+                    ),
+                ],
             },
         ),
     ]

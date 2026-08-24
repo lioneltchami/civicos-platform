@@ -2,12 +2,11 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("appointments", "0008_staffexception_uniqueconstraint"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddIndex(
             model_name="availabilitytemplate",
             index=models.Index(

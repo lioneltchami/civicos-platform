@@ -59,6 +59,7 @@ Security invariants tested:
   - financial_address never in audit entry details
   - GovStackPaymentAuditEntry created for every service operation
 """
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -141,8 +142,9 @@ def _make_bill(
 # GovStackBeneficiaryService
 # ============================================================================
 
+
 class BeneficiaryServiceTest(TestCase):
-    """S1–S6: GovStackBeneficiaryService unit tests."""
+    """S1–S6: GovStackBeneficiaryService unit tests."""  # noqa: RUF002
 
     def _register(self, payee_id: str = _PAYEE_ID, request_id: str = _REQUEST_ID):
         return GovStackBeneficiaryService.register(
@@ -154,9 +156,7 @@ class BeneficiaryServiceTest(TestCase):
     def test_s1_register_creates_beneficiary(self):
         """S1: register() creates a GovStackBeneficiary record."""
         self._register()
-        self.assertTrue(
-            GovStackBeneficiary.objects.filter(payee_functional_id=_PAYEE_ID).exists()
-        )
+        self.assertTrue(GovStackBeneficiary.objects.filter(payee_functional_id=_PAYEE_ID).exists())
 
     def test_s2_register_creates_audit_entry(self):
         """S2: register() creates a GovStackPaymentAuditEntry with ACTION_BENEFICIARY_REGISTERED."""
@@ -203,15 +203,15 @@ class BeneficiaryServiceTest(TestCase):
         result = GovStackBeneficiaryService.update(
             request_id=_REQUEST_ID,
             source_bb_id=_SOURCE_BB,
-            beneficiaries=[{
-                "PayeeFunctionalID": new_payee,
-                "PaymentModality": "BK",
-            }],
+            beneficiaries=[
+                {
+                    "PayeeFunctionalID": new_payee,
+                    "PaymentModality": "BK",
+                }
+            ],
         )
         self.assertEqual(result["registered"] + result["updated"], 1)
-        self.assertTrue(
-            GovStackBeneficiary.objects.filter(payee_functional_id=new_payee).exists()
-        )
+        self.assertTrue(GovStackBeneficiary.objects.filter(payee_functional_id=new_payee).exists())
 
     def test_s6_update_modifies_existing_record(self):
         """S6: update() updates payment_modality on an existing beneficiary."""
@@ -224,10 +224,12 @@ class BeneficiaryServiceTest(TestCase):
         GovStackBeneficiaryService.update(
             request_id=_REQUEST_ID,
             source_bb_id=_SOURCE_BB,
-            beneficiaries=[{
-                "PayeeFunctionalID": _PAYEE_ID,
-                "PaymentModality": "MO",
-            }],
+            beneficiaries=[
+                {
+                    "PayeeFunctionalID": _PAYEE_ID,
+                    "PaymentModality": "MO",
+                }
+            ],
         )
         obj_after = GovStackBeneficiary.objects.get(payee_functional_id=_PAYEE_ID)
         self.assertEqual(obj_after.payment_modality, "MO")
@@ -237,10 +239,11 @@ class BeneficiaryServiceTest(TestCase):
 # GovStackBulkPaymentService
 # ============================================================================
 
-class BulkPaymentServiceTest(TestCase):
-    """S7–S15: GovStackBulkPaymentService unit tests."""
 
-    _INSTRUCTIONS = [
+class BulkPaymentServiceTest(TestCase):
+    """S7–S15: GovStackBulkPaymentService unit tests."""  # noqa: RUF002
+
+    _INSTRUCTIONS = [  # noqa: RUF012
         {
             "InstructionID": "INSTR-001",
             "PayeeFunctionalID": "2ba5ed20-aa01",
@@ -342,7 +345,7 @@ class BulkPaymentServiceTest(TestCase):
         )
 
     def test_s13_validate_prepayment_duplicate_request_id_raises(self):
-        """S13: A duplicate request_id in validate_prepayment() raises DuplicateValidationRequestError."""
+        """S13: A duplicate request_id in validate_prepayment() raises DuplicateValidationRequestError."""  # noqa: E501
         GovStackBulkPaymentService.validate_prepayment(
             request_id=_REQUEST_ID,
             source_bb_id=_SOURCE_BB,
@@ -408,8 +411,9 @@ class BulkPaymentServiceTest(TestCase):
 # GovStackVoucherService
 # ============================================================================
 
+
 class VoucherServiceTest(TestCase):
-    """S16–S30: GovStackVoucherService unit tests."""
+    """S16–S30: GovStackVoucherService unit tests."""  # noqa: RUF002
 
     def test_s16_preactivate_creates_preactivated_voucher(self):
         """S16: preactivate() creates a GovStackVoucher in PREACTIVATED status."""
@@ -594,8 +598,9 @@ class VoucherServiceTest(TestCase):
 # GovStackP2GService
 # ============================================================================
 
+
 class P2GServiceTest(TestCase):
-    """S31–S35: GovStackP2GService unit tests."""
+    """S31–S35: GovStackP2GService unit tests."""  # noqa: RUF002
 
     def test_s31_get_bill_returns_bill_for_known_id(self):
         """S31: get_bill() returns the GovStackBill for a known bill_id."""
@@ -624,7 +629,7 @@ class P2GServiceTest(TestCase):
         self.assertEqual(bill.status, GovStackBill.STATUS_PAID)
 
     def test_s34_create_transfer_request_duplicate_request_id_raises(self):
-        """S34: A duplicate request_id in create_transfer_request() raises DuplicateBillPaymentError."""
+        """S34: A duplicate request_id in create_transfer_request() raises DuplicateBillPaymentError."""  # noqa: E501
         _make_bill(bill_id="BILL-S34")
         GovStackP2GService.create_transfer_request(
             request_id="TXN-S34-001",
@@ -674,9 +679,7 @@ class P2GServiceTest(TestCase):
         old hardcoded "" that left no evidence of who invoked this endpoint.
         """
         _make_bill(bill_id="BILL-S38")
-        GovStackP2GService.mark_bill_paid(
-            bill_id="BILL-S38", actor_payer_fi_id="FI-S38-CALLER"
-        )
+        GovStackP2GService.mark_bill_paid(bill_id="BILL-S38", actor_payer_fi_id="FI-S38-CALLER")
         entry = GovStackPaymentAuditEntry.objects.filter(
             action=GovStackPaymentAuditEntry.ACTION_BILL_PAID
         ).latest("created_at")

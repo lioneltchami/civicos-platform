@@ -2,12 +2,11 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("appointments", "0004_wave2_slot"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddConstraint(
             model_name="availabilitytemplate",
             constraint=models.CheckConstraint(

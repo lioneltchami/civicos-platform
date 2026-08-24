@@ -31,12 +31,12 @@ Privacy invariants enforced throughout:
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
-from unittest.mock import MagicMock, call, patch
+from datetime import timedelta
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
-from django.test import TestCase, override_settings
+from django.test import TestCase
 from django.utils import timezone
 
 from apps.documents.models import Document, DocumentCategory
@@ -112,9 +112,7 @@ def make_document(
 
 
 def make_active_doc(category, user, **kwargs) -> Document:
-    return make_document(
-        category, user, scan_status=Document.ScanStatus.ACTIVE, **kwargs
-    )
+    return make_document(category, user, scan_status=Document.ScanStatus.ACTIVE, **kwargs)
 
 
 def make_soft_deleted_doc(category, user, grace_days_ago=31) -> Document:
@@ -348,6 +346,7 @@ class SoftDeleteAuditTests(TestCase):
         mock_record.assert_called_once()
         call_kwargs = mock_record.call_args.kwargs
         from apps.audit.models import AuditEventType
+
         self.assertEqual(call_kwargs["event_type"], AuditEventType.RECORD_DELETED)
         self.assertEqual(call_kwargs["resource_type"], "documents.Document")
         self.assertEqual(call_kwargs["resource_id"], str(self.doc.pk))
@@ -564,8 +563,10 @@ class HardDeleteSignalTests(TestCase):
             # when the captureOnCommitCallbacks context exits.
             with self.captureOnCommitCallbacks(execute=True):
                 with patch("apps.documents.services.retention.default_storage") as mock_storage:
+
                     def delete_side_effect(key):
                         call_order.append("storage_delete")
+
                     mock_storage.delete.side_effect = delete_side_effect
                     hard_delete(document=self.doc)
         finally:
@@ -639,6 +640,7 @@ class HardDeleteAuditTests(TestCase):
                 hard_delete(document=self.doc)
 
         from apps.audit.models import AuditEventType
+
         call_kwargs = mock_record.call_args.kwargs
         self.assertEqual(call_kwargs["event_type"], AuditEventType.RECORD_PURGED)
 
@@ -670,8 +672,10 @@ class HardDeleteAuditTests(TestCase):
 
         with patch("apps.documents.services.retention.record_event", side_effect=audit_side_effect):
             with patch("apps.documents.services.retention.default_storage") as mock_storage:
+
                 def delete_side_effect(key):
                     call_order.append("storage_delete")
+
                 mock_storage.delete.side_effect = delete_side_effect
                 hard_delete(document=self.doc)
 
@@ -687,7 +691,6 @@ class HardDeleteAuditTests(TestCase):
 
 
 class ApplyLegalHoldTests(TestCase):
-
     def setUp(self):
         self.category = make_category()
         self.user = make_user()
@@ -695,6 +698,7 @@ class ApplyLegalHoldTests(TestCase):
 
     def _make_staff_user_with_perm(self) -> User:
         from django.contrib.auth.models import Permission
+
         staff = make_user()
         perm = Permission.objects.get(
             content_type__app_label="documents",
@@ -771,6 +775,7 @@ class ApplyLegalHoldTests(TestCase):
             apply_legal_hold(document=self.doc, set_by=staff, reason="ATIP")
 
         from apps.audit.models import AuditEventType
+
         call_kwargs = mock_record.call_args.kwargs
         self.assertEqual(call_kwargs["event_type"], AuditEventType.LEGAL_HOLD_APPLIED)
         self.assertEqual(call_kwargs["actor_id"], str(staff.pk))
@@ -823,7 +828,6 @@ class ApplyLegalHoldTests(TestCase):
 
 
 class ReleaseLegalHoldTests(TestCase):
-
     def setUp(self):
         self.category = make_category()
         self.user = make_user()
@@ -831,6 +835,7 @@ class ReleaseLegalHoldTests(TestCase):
 
     def _make_staff_user_with_perm(self) -> User:
         from django.contrib.auth.models import Permission
+
         staff = make_user()
         perm = Permission.objects.get(
             content_type__app_label="documents",
@@ -897,6 +902,7 @@ class ReleaseLegalHoldTests(TestCase):
             release_legal_hold(document=self.doc, released_by=staff)
 
         from apps.audit.models import AuditEventType
+
         call_kwargs = mock_record.call_args.kwargs
         self.assertEqual(call_kwargs["event_type"], AuditEventType.LEGAL_HOLD_RELEASED)
         # event_detail must include released_by_pk for forensic audit trail.
@@ -917,7 +923,6 @@ class ReleaseLegalHoldTests(TestCase):
 
 
 class MarkPurposeFulfilledTests(TestCase):
-
     def setUp(self):
         self.transitory_category = make_category(is_transitory=True)
         self.non_transitory_category = make_category(is_transitory=False)
@@ -927,7 +932,7 @@ class MarkPurposeFulfilledTests(TestCase):
     def test_soft_deletes_transitory_document(self):
         """mark_purpose_fulfilled() soft-deletes a transitory document."""
         doc = make_active_doc(self.transitory_category, self.user)
-        result = mark_purpose_fulfilled(document=doc, actor=self.actor)
+        mark_purpose_fulfilled(document=doc, actor=self.actor)
         doc.refresh_from_db()
         self.assertIsNotNone(doc.deleted_at)
         self.assertEqual(doc.scan_status, Document.ScanStatus.DELETED)
@@ -983,6 +988,7 @@ class RunDisposalScheduleTests(TestCase):
 
     def setUp(self):
         from apps.documents.tasks import run_disposal_schedule
+
         self.task = run_disposal_schedule
         self.category = make_category(max_retention_days=10, min_retention_days=5)
         self.user = make_user()
@@ -1038,7 +1044,7 @@ class RunDisposalScheduleTests(TestCase):
         concurrent deletion that happened between the snapshot fetch and the loop.
         The task's per-doc except-ValueError block increments skipped_count.
         """
-        doc = self._make_pending_disposal_doc()  # IN pending_disposal() snapshot
+        self._make_pending_disposal_doc()  # IN pending_disposal() snapshot
         with patch(
             "apps.documents.services.retention.soft_delete",
             side_effect=ValueError("Document already soft-deleted"),
@@ -1102,9 +1108,9 @@ class RunDisposalScheduleTests(TestCase):
 
 
 class RunHardDeleteScheduleTests(TestCase):
-
     def setUp(self):
         from apps.documents.tasks import run_hard_delete_schedule
+
         self.task = run_hard_delete_schedule
         self.category = make_category()
         self.user = make_user()
@@ -1131,7 +1137,7 @@ class RunHardDeleteScheduleTests(TestCase):
 
     def test_skips_docs_within_grace_period(self):
         """Documents soft-deleted < 30 days ago are not hard-deleted."""
-        doc = make_soft_deleted_doc(self.category, self.user, grace_days_ago=5)
+        make_soft_deleted_doc(self.category, self.user, grace_days_ago=5)
         with patch("apps.documents.services.retention.default_storage") as mock_storage:
             result = self.task.run()
         mock_storage.delete.assert_not_called()
@@ -1180,9 +1186,9 @@ class RunHardDeleteScheduleTests(TestCase):
 
 
 class NotifyExpiringDocumentsTests(TestCase):
-
     def setUp(self):
         from apps.documents.tasks import notify_expiring_documents
+
         self.task = notify_expiring_documents
         self.category = make_category()
         self.user = make_user()
@@ -1201,10 +1207,8 @@ class NotifyExpiringDocumentsTests(TestCase):
 
     def test_sends_notification_for_expiring_document(self):
         """Sends email for each document expiring within days_before."""
-        doc = self._make_expiring_doc(days_from_now=3)
-        with patch(
-            "apps.documents.tasks.send_email_notification", return_value=True
-        ) as mock_send:
+        self._make_expiring_doc(days_from_now=3)
+        with patch("apps.documents.tasks.send_email_notification", return_value=True) as mock_send:
             result = self.task.run(days_before=7)
 
         mock_send.assert_called_once()
@@ -1263,7 +1267,7 @@ class NotifyExpiringDocumentsTests(TestCase):
             expires_at=timezone.now() + timedelta(days=3),
         )
         with patch("apps.documents.tasks.send_email_notification", return_value=True) as mock_send:
-            result = self.task.run(days_before=7)
+            self.task.run(days_before=7)
         mock_send.assert_not_called()
 
     def test_does_not_notify_already_expired_documents(self):
@@ -1275,7 +1279,7 @@ class NotifyExpiringDocumentsTests(TestCase):
             expires_at=timezone.now() - timedelta(days=1),  # Past
         )
         with patch("apps.documents.tasks.send_email_notification", return_value=True) as mock_send:
-            result = self.task.run(days_before=7)
+            self.task.run(days_before=7)
         mock_send.assert_not_called()
 
     def test_template_failure_counted_as_skipped(self):
@@ -1284,9 +1288,7 @@ class NotifyExpiringDocumentsTests(TestCase):
         document is counted as skipped and the task continues without aborting.
         """
         self._make_expiring_doc(days_from_now=3)
-        with patch(
-            "apps.documents.tasks.send_email_notification", return_value=False
-        ):
+        with patch("apps.documents.tasks.send_email_notification", return_value=False):
             result = self.task.run(days_before=7)
         self.assertEqual(result["skipped"], 1)
         self.assertEqual(result["notified"], 0)
@@ -1297,9 +1299,7 @@ class NotifyExpiringDocumentsTests(TestCase):
         contain original_filename or storage_key.
         """
         self._make_expiring_doc(days_from_now=3)
-        with patch(
-            "apps.documents.tasks.send_email_notification", return_value=True
-        ) as mock_send:
+        with patch("apps.documents.tasks.send_email_notification", return_value=True) as mock_send:
             self.task.run(days_before=7)
 
         call_kwargs = mock_send.call_args.kwargs
@@ -1345,9 +1345,7 @@ class NotifyExpiringDocumentsTests(TestCase):
         """
         expires_in_days = 5
         self._make_expiring_doc(days_from_now=expires_in_days)
-        with patch(
-            "apps.documents.tasks.send_email_notification", return_value=True
-        ) as mock_send:
+        with patch("apps.documents.tasks.send_email_notification", return_value=True) as mock_send:
             self.task.run(days_before=7)
 
         context = mock_send.call_args.kwargs.get("context", {})
@@ -1383,8 +1381,9 @@ class CreateBeatScheduleTests(TestCase):
     """
 
     def setUp(self):
-        from apps.documents.tasks import create_beat_schedule
         from django_celery_beat.models import CrontabSchedule, PeriodicTask
+
+        from apps.documents.tasks import create_beat_schedule
 
         # Migration 0004 already pre-populates the 5 "documents:" PeriodicTask
         # entries as part of the test DB setup. Delete them so each test starts
@@ -1401,7 +1400,8 @@ class CreateBeatScheduleTests(TestCase):
         docs_tasks.delete()
         if crontab_ids:
             orphaned = [
-                cid for cid in crontab_ids
+                cid
+                for cid in crontab_ids
                 if not PeriodicTask.objects.filter(crontab_id=cid).exists()
             ]
             if orphaned:
@@ -1411,18 +1411,22 @@ class CreateBeatScheduleTests(TestCase):
     def test_creates_five_periodic_tasks(self):
         """Exactly 5 PeriodicTask entries are created on first call."""
         from django_celery_beat.models import PeriodicTask
+
         self.assertEqual(
-            PeriodicTask.objects.filter(name__startswith="documents:").count(), 0,
+            PeriodicTask.objects.filter(name__startswith="documents:").count(),
+            0,
             "setUp should have cleared pre-existing documents: tasks",
         )
         self.create_beat_schedule()
         self.assertEqual(
-            PeriodicTask.objects.filter(name__startswith="documents:").count(), 5,
+            PeriodicTask.objects.filter(name__startswith="documents:").count(),
+            5,
         )
 
     def test_idempotent_second_call(self):
         """Calling create_beat_schedule() twice does not duplicate entries."""
         from django_celery_beat.models import PeriodicTask
+
         self.create_beat_schedule()
         count_after_first = PeriodicTask.objects.filter(name__startswith="documents:").count()
         self.create_beat_schedule()
@@ -1433,6 +1437,7 @@ class CreateBeatScheduleTests(TestCase):
         """run_purge_expired_tokens is scheduled at 01:00 UTC."""
         self.create_beat_schedule()
         from django_celery_beat.models import PeriodicTask
+
         task = PeriodicTask.objects.get(name="documents: purge-expired-tokens")
         self.assertEqual(task.crontab.hour, "1")
         self.assertEqual(task.crontab.minute, "0")
@@ -1442,6 +1447,7 @@ class CreateBeatScheduleTests(TestCase):
         """run_disposal_schedule is scheduled at 02:00 UTC."""
         self.create_beat_schedule()
         from django_celery_beat.models import PeriodicTask
+
         task = PeriodicTask.objects.get(name="documents: run-disposal-schedule")
         self.assertEqual(task.crontab.hour, "2")
         self.assertEqual(task.crontab.minute, "0")  # T-8: assert minute field
@@ -1451,6 +1457,7 @@ class CreateBeatScheduleTests(TestCase):
         """run_hard_delete_schedule is scheduled at 03:00 UTC."""
         self.create_beat_schedule()
         from django_celery_beat.models import PeriodicTask
+
         task = PeriodicTask.objects.get(name="documents: run-hard-delete-schedule")
         self.assertEqual(task.crontab.hour, "3")
         self.assertEqual(task.crontab.minute, "0")  # T-8: assert minute field
@@ -1460,6 +1467,7 @@ class CreateBeatScheduleTests(TestCase):
         """cleanup_stale_pending_uploads is scheduled at 04:00 UTC."""
         self.create_beat_schedule()
         from django_celery_beat.models import PeriodicTask
+
         task = PeriodicTask.objects.get(name="documents: cleanup-stale-pending-uploads")
         self.assertEqual(task.crontab.hour, "4")
         self.assertEqual(task.crontab.minute, "0")  # T-8: assert minute field
@@ -1469,6 +1477,7 @@ class CreateBeatScheduleTests(TestCase):
         """notify_expiring_documents is scheduled at 08:00 UTC."""
         self.create_beat_schedule()
         from django_celery_beat.models import PeriodicTask
+
         task = PeriodicTask.objects.get(name="documents: notify-expiring-documents")
         self.assertEqual(task.crontab.hour, "8")
         self.assertEqual(task.crontab.minute, "0")  # T-8: assert minute field
@@ -1478,6 +1487,7 @@ class CreateBeatScheduleTests(TestCase):
         """All registered PeriodicTask entries have enabled=True."""
         self.create_beat_schedule()
         from django_celery_beat.models import PeriodicTask
+
         tasks = PeriodicTask.objects.filter(name__startswith="documents:")
         for task in tasks:
             self.assertTrue(task.enabled, f"Task {task.name} is disabled")
@@ -1499,6 +1509,7 @@ class DocumentPermissionsTests(TestCase):
     def test_manage_legal_hold_in_db(self):
         """manage_legal_hold Permission object exists in the DB after migrations."""
         from django.contrib.auth.models import Permission
+
         self.assertTrue(
             Permission.objects.filter(
                 content_type__app_label="documents",
@@ -1572,6 +1583,7 @@ class PipedaInvariantsTests(TestCase):
         never email addresses (which are PII under PIPEDA clause 4.2).
         """
         from django.contrib.auth.models import Permission
+
         staff = make_user()
         perm = Permission.objects.get(
             content_type__app_label="documents",

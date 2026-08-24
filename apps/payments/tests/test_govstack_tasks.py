@@ -54,7 +54,8 @@ Security invariants tested:
 Harness dispatch identifiers (G1, G9):
   Bulk:   RequestID="RequestID111" SourceBBID="SourceBBID11" BatchID="BatchID11111"
   Prepay: RequestID="abcdef123456" SourceBBID="sourceBBID12" BatchID="batchID12345"
-"""
+"""  # noqa: RUF002
+
 from __future__ import annotations
 
 import json
@@ -62,7 +63,6 @@ from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
-
 from rest_framework.test import APIClient
 
 from apps.payments.govstack_models import (
@@ -78,12 +78,11 @@ from apps.payments.govstack_tasks import (
     validate_prepayment_async,
 )
 
-
 # ---------------------------------------------------------------------------
 # URL constants (harness endpoints used by G1, G9 dispatch tests)
 # ---------------------------------------------------------------------------
 
-BULK_PAYMENT_URL      = "/govstack/payments/bulk-payment"
+BULK_PAYMENT_URL = "/govstack/payments/bulk-payment"
 PREPAY_VALIDATION_URL = "/govstack/payments/prepayment-validation"
 
 # ---------------------------------------------------------------------------
@@ -91,17 +90,17 @@ PREPAY_VALIDATION_URL = "/govstack/payments/prepayment-validation"
 # ---------------------------------------------------------------------------
 
 # Harness identifiers — must match what the server accepts (min_length=10)
-_BP_REQUEST_ID = "RequestID111"    # 12 chars
-_BP_SOURCE_BB  = "SourceBBID11"    # 12 chars
-_BP_BATCH_ID   = "BatchID11111"    # 12 chars
-_BP_INSTR_ID   = "InstructionID111"   # 16 chars
-_BP_PAYEE_ID   = "PayeeFunctionalID111"  # 20 chars
+_BP_REQUEST_ID = "RequestID111"  # 12 chars
+_BP_SOURCE_BB = "SourceBBID11"  # 12 chars
+_BP_BATCH_ID = "BatchID11111"  # 12 chars
+_BP_INSTR_ID = "InstructionID111"  # 16 chars
+_BP_PAYEE_ID = "PayeeFunctionalID111"  # 20 chars
 
-_PV_REQUEST_ID = "abcdef123456"    # 12 chars
-_PV_SOURCE_BB  = "sourceBBID12"    # 12 chars
-_PV_BATCH_ID   = "batchID12345"    # 12 chars
-_PV_INSTR_ID   = "instructionID123"   # 16 chars
-_PV_PAYEE_ID   = "PayeeFunctionalID123"  # 20 chars
+_PV_REQUEST_ID = "abcdef123456"  # 12 chars
+_PV_SOURCE_BB = "sourceBBID12"  # 12 chars
+_PV_BATCH_ID = "batchID12345"  # 12 chars
+_PV_INSTR_ID = "instructionID123"  # 16 chars
+_PV_PAYEE_ID = "PayeeFunctionalID123"  # 20 chars
 
 
 def _bulk_body() -> dict:
@@ -110,12 +109,14 @@ def _bulk_body() -> dict:
         "RequestID": _BP_REQUEST_ID,
         "SourceBBID": _BP_SOURCE_BB,
         "BatchID": _BP_BATCH_ID,
-        "CreditInstructions": [{
-            "InstructionID": _BP_INSTR_ID,
-            "PayeeFunctionalID": _BP_PAYEE_ID,
-            "Amount": 100,
-            "Currency": "USD",
-        }],
+        "CreditInstructions": [
+            {
+                "InstructionID": _BP_INSTR_ID,
+                "PayeeFunctionalID": _BP_PAYEE_ID,
+                "Amount": 100,
+                "Currency": "USD",
+            }
+        ],
     }
 
 
@@ -125,29 +126,36 @@ def _prepay_body() -> dict:
         "RequestID": _PV_REQUEST_ID,
         "SourceBBID": _PV_SOURCE_BB,
         "BatchID": _PV_BATCH_ID,
-        "CreditInstructions": [{
-            "InstructionID": _PV_INSTR_ID,
-            "PayeeFunctionalID": _PV_PAYEE_ID,
-            "Amount": 100,
-            "Currency": "USD",
-            "Narration": "Narration",
-        }],
+        "CreditInstructions": [
+            {
+                "InstructionID": _PV_INSTR_ID,
+                "PayeeFunctionalID": _PV_PAYEE_ID,
+                "Amount": 100,
+                "Currency": "USD",
+                "Narration": "Narration",
+            }
+        ],
     }
 
 
 # ---------------------------------------------------------------------------
 # Constants used by _make_pvr() and G10 to set up GovStackBeneficiary rows.
 # The payee_functional_id must satisfy GovStackBeneficiary._G2P_UUID_VALIDATOR
-# (lowercase hex characters and hyphens, 1–20 chars).
+# (lowercase hex characters and hyphens, 1–20 chars).  # noqa: RUF003
 # ---------------------------------------------------------------------------
 
-_G_PAYEE_ID     = "2ba5ed20-0f42-4eff-8"  # 20 chars — mirrors VALID_PAYEE_ID in test_govstack_beneficiary
-_G_SOURCE_BB_ID = "11668d2a-a8f"           # 13 chars — mirrors VALID_SOURCE_BB_ID in test_govstack_beneficiary
+_G_PAYEE_ID = (
+    "2ba5ed20-0f42-4eff-8"  # 20 chars — mirrors VALID_PAYEE_ID in test_govstack_beneficiary
+)
+_G_SOURCE_BB_ID = (
+    "11668d2a-a8f"  # 13 chars — mirrors VALID_SOURCE_BB_ID in test_govstack_beneficiary
+)
 
 
 # ============================================================================
 # G.  GovStack Celery tasks — async batch processing and prepayment validation
 # ============================================================================
+
 
 class GovStackCeleryTasksTest(TestCase):
     """
@@ -217,7 +225,7 @@ class GovStackCeleryTasksTest(TestCase):
         strings used here ("GPayeeIDtask1234", "GSourceBBtask") are accepted at
         the DB level.  This is intentional — we are testing the task logic, not
         beneficiary registration validation.
-        """
+        """  # noqa: RUF002
         batch = BulkPaymentBatch.objects.create(
             request_id="GReqIDtask01",
             source_bb_id="GSourceBBtask",
@@ -258,7 +266,7 @@ class GovStackCeleryTasksTest(TestCase):
         """
         Create a PrepaymentValidationRequest in STATUS_PENDING.
         Used for direct task invocation in G10–G16.
-        """
+        """  # noqa: RUF002
         return PrepaymentValidationRequest.objects.create(
             request_id=request_id,
             source_bb_id="GSourceBBtask",
@@ -850,12 +858,12 @@ class GovStackCeleryTasksTest(TestCase):
         self.assertEqual(
             completed_entries,
             1,
-            f"Expected exactly 1 ACTION_VALIDATION_COMPLETED audit entry, found {completed_entries}.",
+            f"Expected exactly 1 ACTION_VALIDATION_COMPLETED audit entry, found {completed_entries}.",  # noqa: E501
         )
 
 
 # ---------------------------------------------------------------------------
-# G17–G20 — SSRF guard on the X-Callback-URL dispatch path
+# G17–G20 — SSRF guard on the X-Callback-URL dispatch path  # noqa: RUF003
 # ---------------------------------------------------------------------------
 #
 # Payments §24 finding N5: callback_url is taken verbatim from the caller-
@@ -866,8 +874,9 @@ class GovStackCeleryTasksTest(TestCase):
 # never dispatches to one, while an ordinary public callback URL still
 # works exactly as before (G5, G14 etc. above must keep passing unchanged).
 
+
 class GovStackCallbackSSRFGuardTest(TestCase):
-    """G17–G20: SSRF guard on the async callback dispatch path."""
+    """G17–G20: SSRF guard on the async callback dispatch path."""  # noqa: RUF002
 
     # ------------------------------------------------------------------
     # G17 — _is_safe_callback_url unit-level behaviour
@@ -879,24 +888,24 @@ class GovStackCallbackSSRFGuardTest(TestCase):
             # apps.appointments.tasks._is_safe_outbound_url and
             # apps.consent.tasks._is_safe_outbound_url): plain http:// is now
             # rejected purely on scheme, regardless of the host it points at.
-            "http://example.com/cb",                  # disallowed scheme (plain http)
-            "http://127.0.0.1:8000/cb",                # loopback + disallowed scheme
-            "http://localhost/cb",                     # loopback via hostname + disallowed scheme
+            "http://example.com/cb",  # disallowed scheme (plain http)
+            "http://127.0.0.1:8000/cb",  # loopback + disallowed scheme
+            "http://localhost/cb",  # loopback via hostname + disallowed scheme
             # Unsafe IP ranges, exercised under the now-required https:// scheme
             # so these actually test the IP-blocking logic (not just scheme
             # rejection).
             "https://169.254.169.254/latest/meta-data/",  # cloud metadata (link-local)
-            "https://10.0.0.5/cb",                      # RFC1918 private
-            "https://172.16.5.5/cb",                    # RFC1918 private
-            "https://192.168.1.1/cb",                   # RFC1918 private
-            "https://[::1]/cb",                         # IPv6 loopback
-            "https://224.0.0.1/cb",                     # multicast
-            "https://100.64.0.1/cb",                    # RFC 6598 Shared Address Space / CGNAT
-            "https://192.0.0.1/cb",                      # IANA IETF Protocol Assignments
-            "ftp://example.com/cb",                    # disallowed scheme
-            "file:///etc/passwd",                      # disallowed scheme
-            "javascript:alert(1)",                     # disallowed scheme
-            "",                                        # empty
+            "https://10.0.0.5/cb",  # RFC1918 private
+            "https://172.16.5.5/cb",  # RFC1918 private
+            "https://192.168.1.1/cb",  # RFC1918 private
+            "https://[::1]/cb",  # IPv6 loopback
+            "https://224.0.0.1/cb",  # multicast
+            "https://100.64.0.1/cb",  # RFC 6598 Shared Address Space / CGNAT
+            "https://192.0.0.1/cb",  # IANA IETF Protocol Assignments
+            "ftp://example.com/cb",  # disallowed scheme
+            "file:///etc/passwd",  # disallowed scheme
+            "javascript:alert(1)",  # disallowed scheme
+            "",  # empty
         ]
         for url in unsafe_urls:
             with self.subTest(url=url):

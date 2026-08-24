@@ -9,6 +9,7 @@ Tests:
   NoShowSignalTests             — appt_no_show_marked fires on mark_no_show()
   ReceiverConnectionTests       — all receivers connected after app ready
 """
+
 from __future__ import annotations
 
 import uuid
@@ -25,6 +26,7 @@ User = get_user_model()
 # Shared factories
 # ---------------------------------------------------------------------------
 
+
 def _make_user(is_staff=False):
     return User.objects.create_user(
         email=f"user_{uuid.uuid4().hex[:8]}@example.com",
@@ -37,12 +39,12 @@ def _make_confirmed_booking():
     """Create a confirmed booking with a slot 2 days from now."""
     from apps.appointments.models import (
         AppointmentType,
+        Booking,
         Location,
         Organization,
         ServiceType,
         Slot,
         StaffProfile,
-        Booking,
     )
 
     org = Organization.objects.create(
@@ -114,6 +116,7 @@ def _make_confirmed_booking():
 # appt_booking_created
 # ---------------------------------------------------------------------------
 
+
 class BookingCreatedSignalTests(TestCase):
     def test_signal_fired_after_create_booking(self):
         """appt_booking_created is fired via on_commit after create_booking()."""
@@ -125,8 +128,8 @@ class BookingCreatedSignalTests(TestCase):
             Slot,
             StaffProfile,
         )
-        from apps.appointments.signals import appt_booking_created
         from apps.appointments.services.booking import create_booking
+        from apps.appointments.signals import appt_booking_created
 
         citizen = _make_user()
         staff_user = _make_user(is_staff=True)
@@ -208,11 +211,12 @@ class BookingCreatedSignalTests(TestCase):
 # appt_booking_confirmed
 # ---------------------------------------------------------------------------
 
+
 class BookingConfirmedSignalTests(TestCase):
     def test_signal_fired_on_confirm(self):
-        from apps.appointments.signals import appt_booking_confirmed
-        from apps.appointments.services.booking import confirm_booking
         from apps.appointments.models import Booking
+        from apps.appointments.services.booking import confirm_booking
+        from apps.appointments.signals import appt_booking_confirmed
 
         booking, citizen, slot, staff_user = _make_confirmed_booking()
         # Reset to pending so confirm_booking() is valid
@@ -239,10 +243,11 @@ class BookingConfirmedSignalTests(TestCase):
 # appt_booking_cancelled
 # ---------------------------------------------------------------------------
 
+
 class BookingCancelledSignalTests(TestCase):
     def test_signal_fired_on_cancel(self):
-        from apps.appointments.signals import appt_booking_cancelled
         from apps.appointments.services.booking import cancel_booking
+        from apps.appointments.signals import appt_booking_cancelled
 
         booking, citizen, slot, _ = _make_confirmed_booking()
         # Set spaces_used so cancel doesn't go below 0
@@ -268,14 +273,20 @@ class BookingCancelledSignalTests(TestCase):
 # appt_booking_rescheduled
 # ---------------------------------------------------------------------------
 
+
 class BookingRescheduledSignalTests(TestCase):
     def test_signal_fired_on_reschedule(self):
-        from apps.appointments.signals import appt_booking_rescheduled
-        from apps.appointments.services.booking import reschedule_booking
         from apps.appointments.models import (
-            AppointmentType, Location, Organization, SchedulingPolicy,
-            ServiceType, Slot, StaffProfile,
+            AppointmentType,
+            Location,
+            Organization,
+            SchedulingPolicy,
+            ServiceType,
+            Slot,
+            StaffProfile,
         )
+        from apps.appointments.services.booking import reschedule_booking
+        from apps.appointments.signals import appt_booking_rescheduled
 
         org = Organization.objects.create(
             name_en="RSOrg",
@@ -326,26 +337,41 @@ class BookingRescheduledSignalTests(TestCase):
         now = timezone.now()
         start1 = now + timedelta(days=2)
         old_slot = Slot.objects.create(
-            appointment_type=appt_type, staff=staff, location=location,
-            start_datetime=start1, end_datetime=start1 + timedelta(minutes=30),
+            appointment_type=appt_type,
+            staff=staff,
+            location=location,
+            start_datetime=start1,
+            end_datetime=start1 + timedelta(minutes=30),
             effective_start=start1 - timedelta(minutes=5),
             effective_end=start1 + timedelta(minutes=35),
-            capacity=2, spaces_used=1, status="partial",
+            capacity=2,
+            spaces_used=1,
+            status="partial",
         )
         start2 = now + timedelta(days=3)
         new_slot = Slot.objects.create(
-            appointment_type=appt_type, staff=staff, location=location,
-            start_datetime=start2, end_datetime=start2 + timedelta(minutes=30),
+            appointment_type=appt_type,
+            staff=staff,
+            location=location,
+            start_datetime=start2,
+            end_datetime=start2 + timedelta(minutes=30),
             effective_start=start2 - timedelta(minutes=5),
             effective_end=start2 + timedelta(minutes=35),
-            capacity=2, spaces_used=0, status="available",
+            capacity=2,
+            spaces_used=0,
+            status="available",
         )
 
         from apps.appointments.models import Booking
+
         citizen = _make_user()
         booking = Booking.objects.create(
-            slot=old_slot, citizen=citizen, status="confirmed",
-            appointment_mode="in_person", booking_channel="online", language="en",
+            slot=old_slot,
+            citizen=citizen,
+            status="confirmed",
+            appointment_mode="in_person",
+            booking_channel="online",
+            language="en",
         )
 
         received = []
@@ -369,10 +395,11 @@ class BookingRescheduledSignalTests(TestCase):
 # appt_no_show_marked
 # ---------------------------------------------------------------------------
 
+
 class NoShowSignalTests(TestCase):
     def test_signal_fired_on_no_show(self):
-        from apps.appointments.signals import appt_no_show_marked
         from apps.appointments.services.booking import mark_no_show
+        from apps.appointments.signals import appt_no_show_marked
 
         booking, citizen, slot, _ = _make_confirmed_booking()
         staff = _make_user(is_staff=True)
@@ -397,6 +424,7 @@ class NoShowSignalTests(TestCase):
 # Receiver connection verification
 # ---------------------------------------------------------------------------
 
+
 class ReceiverConnectionTests(TestCase):
     def test_all_receivers_connected(self):
         """Verify all Wave 3 signals have at least one receiver connected."""
@@ -408,6 +436,7 @@ class ReceiverConnectionTests(TestCase):
             appt_booking_rejected,
             appt_no_show_marked,
         )
+
         signals_to_check = [
             ("appt_booking_created", appt_booking_created),
             ("appt_booking_confirmed", appt_booking_confirmed),

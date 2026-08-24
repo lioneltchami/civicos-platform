@@ -8,11 +8,11 @@ class Migration(migrations.Migration):
     sensitive data and no destructive schema operation.
     """
 
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("payments", "0027_item02_failure_lifecycle"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterField(
             model_name="govstackpaymentauditentry",
             name="action",

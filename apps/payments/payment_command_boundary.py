@@ -3,6 +3,7 @@
 This module deliberately does not invoke payment providers. A later worker-only
 runtime step consumes published command records after canonical admission.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -22,11 +23,11 @@ from apps.payments.govstack_models import (
 from apps.payments.models import PaymentCommand, PaymentCommandOutbox
 
 
-class PaymentScopeDenied(PermissionError):
+class PaymentScopeDenied(PermissionError):  # noqa: N818
     """Raised before any command, task, or provider side effect is created."""
 
 
-class PaymentIdempotencyConflict(ValueError):
+class PaymentIdempotencyConflict(ValueError):  # noqa: N818
     """Raised when a request identity is reused for a changed payload."""
 
 
@@ -40,9 +41,7 @@ class PaymentScope:
 
 def _header_tenant(request: Any) -> str:
     return (
-        request.headers.get("X-Platform-TenantId")
-        or request.headers.get("Platform-TenantId")
-        or ""
+        request.headers.get("X-Platform-TenantId") or request.headers.get("Platform-TenantId") or ""
     ).strip()
 
 
@@ -68,10 +67,14 @@ def resolve_registered_bb_scope(request: Any) -> PaymentScope:
     if not caller or not tenant:
         raise PaymentScopeDenied("registered caller and platform tenant are required")
 
-    registration = GovStackRegisteredBB.objects.filter(
-        bb_id=caller,
-        is_active=True,
-    ).only("allowed_platform_tenant_ids").first()
+    registration = (
+        GovStackRegisteredBB.objects.filter(
+            bb_id=caller,
+            is_active=True,
+        )
+        .only("allowed_platform_tenant_ids")
+        .first()
+    )
     allowed = list(registration.allowed_platform_tenant_ids or []) if registration else []
     if not allowed or tenant not in allowed:
         raise PaymentScopeDenied("caller is not authorised for the declared platform tenant")
@@ -110,7 +113,9 @@ class PaymentCommandService:
         )
 
     @staticmethod
-    def reserve(*, scope: PaymentScope, operation: str, request_identity: str, payload: dict[str, Any]) -> tuple[PaymentCommand, bool]:
+    def reserve(
+        *, scope: PaymentScope, operation: str, request_identity: str, payload: dict[str, Any]
+    ) -> tuple[PaymentCommand, bool]:
         operation = (operation or "").strip()
         request_identity = (request_identity or "").strip()
         if not operation or not request_identity:
@@ -162,23 +167,33 @@ class PaymentCommandService:
                     request_identity=request_identity,
                 )
                 if command.fingerprint != fingerprint:
-                    raise PaymentIdempotencyConflict("request identity was reused with a different payload")
+                    raise PaymentIdempotencyConflict(  # noqa: B904
+                        "request identity was reused with a different payload"
+                    )
                 if command.attempt_id is None:
-                    raise PaymentScopeDenied("existing payment command has no durable attempt binding")
+                    raise PaymentScopeDenied(  # noqa: B904
+                        "existing payment command has no durable attempt binding"
+                    )
                 return command, True
 
             transaction.on_commit(lambda: PaymentCommandService.publish(outbox.id))
             return command, False
 
     @staticmethod
-    def publish(outbox_id) -> None:
+    def publish(outbox_id) -> None:  # noqa: ANN001
         """Expose a handoff only after its command/attempt/intent chain exists."""
         with transaction.atomic():
-            outbox = PaymentCommandOutbox.objects.select_for_update().select_related("command", "command__attempt").get(id=outbox_id)
+            outbox = (
+                PaymentCommandOutbox.objects.select_for_update()
+                .select_related("command", "command__attempt")
+                .get(id=outbox_id)
+            )
             command = outbox.command
             if outbox.published_at is not None:
                 return
-            if command.attempt_id is None or str(outbox.payload.get("attempt_id", "")) != str(command.attempt_id):
+            if command.attempt_id is None or str(outbox.payload.get("attempt_id", "")) != str(
+                command.attempt_id
+            ):
                 return
             if not PaymentExecutionIntent.objects.filter(attempt_id=command.attempt_id).exists():
                 return
@@ -186,7 +201,11 @@ class PaymentCommandService:
             outbox.save(update_fields=["published_at", "updated_at"])
             command.status = PaymentCommand.STATUS_DISPATCHED
             command.save(update_fields=["status", "updated_at"])
-            transaction.on_commit(lambda bound_outbox_id=str(outbox.pk): PaymentCommandService.enqueue_consumer(bound_outbox_id))
+            transaction.on_commit(
+                lambda bound_outbox_id=str(outbox.pk): PaymentCommandService.enqueue_consumer(
+                    bound_outbox_id
+                )
+            )
 
     @staticmethod
     def enqueue_consumer(outbox_id: str) -> None:

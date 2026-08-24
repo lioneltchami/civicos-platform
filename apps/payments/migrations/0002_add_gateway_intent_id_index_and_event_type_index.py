@@ -4,24 +4,35 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('payments', '0001_initial'),
+    dependencies = [  # noqa: RUF012
+        ("payments", "0001_initial"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterField(
-            model_name='payment',
-            name='net_amount',
-            field=models.DecimalField(decimal_places=2, editable=False, help_text='Net amount after processor fees. Computed automatically.', max_digits=10, verbose_name='Net Amount'),
+            model_name="payment",
+            name="net_amount",
+            field=models.DecimalField(
+                decimal_places=2,
+                editable=False,
+                help_text="Net amount after processor fees. Computed automatically.",
+                max_digits=10,
+                verbose_name="Net Amount",
+            ),
         ),
         migrations.AlterField(
-            model_name='paymentintent',
-            name='gateway_intent_id',
-            field=models.CharField(blank=True, db_index=True, help_text='ID returned by the payment gateway (e.g. Stripe PaymentIntent ID).', max_length=255, verbose_name='Gateway Intent ID'),
+            model_name="paymentintent",
+            name="gateway_intent_id",
+            field=models.CharField(
+                blank=True,
+                db_index=True,
+                help_text="ID returned by the payment gateway (e.g. Stripe PaymentIntent ID).",
+                max_length=255,
+                verbose_name="Gateway Intent ID",
+            ),
         ),
         migrations.AddIndex(
-            model_name='webhookevent',
-            index=models.Index(fields=['event_type'], name='payments_wh_event_type_idx'),
+            model_name="webhookevent",
+            index=models.Index(fields=["event_type"], name="payments_wh_event_type_idx"),
         ),
     ]

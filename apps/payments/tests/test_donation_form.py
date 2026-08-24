@@ -5,6 +5,7 @@ Tests for DonationForm from apps/payments/forms.py.
 Covers CRA-specific validation rules, eligible_amount computation,
 recurring gift frequency requirements, and campaign queryset filtering.
 """
+
 import uuid
 from datetime import date
 from decimal import Decimal
@@ -14,10 +15,10 @@ from django.test import TestCase
 from apps.payments.forms import DonationForm
 from apps.payments.models import DonationCampaign
 
-
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
+
 
 def make_campaign(is_active=True, **kwargs):
     defaults = {
@@ -51,8 +52,8 @@ def _valid_data(**overrides):
 # Tests
 # ---------------------------------------------------------------------------
 
-class DonationFormTests(TestCase):
 
+class DonationFormTests(TestCase):
     def setUp(self):
         self.campaign = make_campaign(is_active=True)
         self.inactive_campaign = make_campaign(is_active=False, slug="inactive-camp")
@@ -114,8 +115,9 @@ class DonationFormTests(TestCase):
         form = self._form(amount="50.00", advantage_amount="60.00")
         self.assertFalse(form.is_valid())
         self.assertTrue(
-            form.non_field_errors() or any("advantage" in str(e).lower() for e in form.errors.values()),
-            "Expected validation error about advantage amount"
+            form.non_field_errors()
+            or any("advantage" in str(e).lower() for e in form.errors.values()),
+            "Expected validation error about advantage amount",
         )
 
     # 9. advantage_amount == amount — validation error (strict less-than required)
@@ -123,7 +125,7 @@ class DonationFormTests(TestCase):
         form = self._form(amount="50.00", advantage_amount="50.00")
         self.assertFalse(form.is_valid())
 
-    # 10. advantage_amount < amount — valid; eligible_amount = amount − advantage
+    # 10. advantage_amount < amount — valid; eligible_amount = amount − advantage  # noqa: RUF003
     def test_advantage_amount_less_than_donation_valid_with_eligible(self):
         form = self._form(amount="50.00", advantage_amount="10.00")
         self.assertTrue(form.is_valid(), form.errors)
@@ -238,6 +240,7 @@ class DonationFormTests(TestCase):
 # ---------------------------------------------------------------------------
 # Nit 6 — DonationForm amount max_value cap
 # ---------------------------------------------------------------------------
+
 
 class DonationFormAmountCapTests(TestCase):
     """

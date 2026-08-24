@@ -7,7 +7,7 @@ from .services.local_evidence import LocalSchedulerStatusService
 
 
 @require_GET
-def scheduler_status(request):
+def scheduler_status(request):  # noqa: ANN001, ANN201
     """Return bounded non-PII status for the authenticated persisted owner only."""
     user = getattr(request, "user", None)
     if not user or not user.is_authenticated:
@@ -18,7 +18,11 @@ def scheduler_status(request):
         return JsonResponse({"detail": "authorized Scheduler ownership required"}, status=403)
     try:
         limit = int(request.GET.get("limit", "100"))
-        status, rows = LocalSchedulerStatusService().from_database(owner_id=owner_id, tenant_id=tenant_id, limit=limit)
+        status, rows = LocalSchedulerStatusService().from_database(
+            owner_id=owner_id, tenant_id=tenant_id, limit=limit
+        )
     except (ValueError, PermissionError):
         return JsonResponse({"detail": "invalid bounded query"}, status=400)
-    return JsonResponse({"owner": owner_id, "tenant": tenant_id, "status": status.__dict__, "deliveries": rows})
+    return JsonResponse(
+        {"owner": owner_id, "tenant": tenant_id, "status": status.__dict__, "deliveries": rows}
+    )

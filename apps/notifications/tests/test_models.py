@@ -1,4 +1,5 @@
 """Tests for the Notification model."""
+
 import uuid
 
 from django.contrib.auth import get_user_model
@@ -31,7 +32,6 @@ def make_notification(recipient=None, **kwargs):
 
 
 class NotificationModelTest(TestCase):
-
     def test_str_includes_channel_and_email(self):
         user = make_user("citizen@example.com")
         n = make_notification(recipient=user, subject="Your request update")
@@ -65,14 +65,18 @@ class NotificationModelTest(TestCase):
 
     def test_notifications_ordered_newest_first(self):
         user = make_user()
-        n1 = make_notification(recipient=user)
+        make_notification(recipient=user)
         n2 = make_notification(recipient=user)
         notifications = list(Notification.objects.filter(recipient=user))
         # Meta ordering = ["-created_at"], so newest (n2) comes first
         self.assertEqual(notifications[0].pk, n2.pk)
 
     def test_channel_choices_are_valid(self):
-        for channel in (NotificationChannel.EMAIL, NotificationChannel.SMS, NotificationChannel.IN_APP):
+        for channel in (
+            NotificationChannel.EMAIL,
+            NotificationChannel.SMS,
+            NotificationChannel.IN_APP,
+        ):
             n = make_notification(channel=channel)
             self.assertEqual(n.channel, channel)
 

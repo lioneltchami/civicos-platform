@@ -5,6 +5,7 @@ Usage:
     python manage.py seed_consent_categories
     python manage.py seed_consent_categories --verbosity=2
 """
+
 from django.core.management.base import BaseCommand
 
 from apps.consent.models import ConsentCategory
@@ -64,7 +65,7 @@ CATEGORIES = [
         "name_fr": "Analytique pour l'amélioration des services",
         "purpose_en": (
             "With your permission, we collect anonymized usage data to understand how citizens "
-            "use our services and identify areas for improvement. No personal information is shared."
+            "use our services and identify areas for improvement. No personal information is shared."  # noqa: E501
         ),
         "purpose_fr": (
             "Avec votre permission, nous recueillons des données d'utilisation anonymisées pour "
@@ -80,7 +81,7 @@ CATEGORIES = [
         "name_en": "Third-Party Information Sharing",
         "name_fr": "Partage d'informations avec des tiers",
         "purpose_en": (
-            "In some cases, we may need to share your information with other government departments "
+            "In some cases, we may need to share your information with other government departments "  # noqa: E501
             "or agencies to deliver an integrated service. We will always tell you who receives "
             "your information."
         ),
@@ -98,7 +99,7 @@ CATEGORIES = [
 class Command(BaseCommand):
     help = "Seed the 5 standard government consent categories (idempotent)."
 
-    def handle(self, *args, **options):
+    def handle(self, *args, **options) -> None:  # noqa: ANN002, ANN003
         verbosity = options.get("verbosity", 1)
         created_count = 0
         updated_count = 0

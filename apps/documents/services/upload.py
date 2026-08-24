@@ -34,7 +34,6 @@ from __future__ import annotations
 import datetime
 import io
 import logging
-import os
 import uuid
 import zipfile
 from pathlib import Path
@@ -157,7 +156,7 @@ _MAGIC_BYTE_READ_LENGTH: int = 8192
 _S3_BACKEND_PATHS: frozenset[str] = frozenset(
     {
         "storages.backends.s3boto3.S3Boto3Storage",  # django-storages >= 1.13
-        "storages.backends.s3.S3Storage",            # django-storages <= 1.12 (legacy)
+        "storages.backends.s3.S3Storage",  # django-storages <= 1.12 (legacy)
     }
 )
 
@@ -169,7 +168,7 @@ _S3_BACKEND_PATHS: frozenset[str] = frozenset(
 
 def validate_upload_request(
     *,
-    user: "User",
+    user: User,
     category_slug: str,
     original_filename: str,
     mime_type: str,
@@ -204,7 +203,7 @@ def validate_upload_request(
         DocumentCategory.DoesNotExist: category_slug not found (caller converts to 404).
         PermissionDenied:              User is not allowed to upload to this category.
         ValidationError:               File fails size, extension, or MIME type validation.
-    """
+    """  # noqa: RUF002
     from apps.documents.models import Document, DocumentCategory
     from apps.documents.services.retention import schedule_expiry
     from apps.documents.signals import document_upload_initiated
@@ -219,9 +218,7 @@ def validate_upload_request(
 
     # ── Layer 2: Size validation ───────────────────────────────────────────────
     if size_bytes <= 0:
-        raise ValidationError(
-            _("File size must be greater than zero.")
-        )
+        raise ValidationError(_("File size must be greater than zero."))
 
     # Category-level override → global staff/citizen cap → hardcoded fallback.
     if category.max_size_bytes > 0:
@@ -233,8 +230,7 @@ def validate_upload_request(
 
     if size_bytes > max_size:
         raise ValidationError(
-            _("File exceeds the maximum allowed size of %(max)s bytes.")
-            % {"max": max_size}
+            _("File exceeds the maximum allowed size of %(max)s bytes.") % {"max": max_size}
         )
 
     # ── Layer 3: Extension allowlist ──────────────────────────────────────────
@@ -244,8 +240,7 @@ def validate_upload_request(
     ext = raw_suffix.lstrip(".").lower()
     if not ext or ext not in _ALLOWED_EXTENSIONS:
         raise ValidationError(
-            _("File type '.%(ext)s' is not permitted.")
-            % {"ext": ext or "(none)"}
+            _("File type '.%(ext)s' is not permitted.") % {"ext": ext or "(none)"}
         )
 
     # ── Layer 4: MIME type header check (untrusted — secondary) ───────────────
@@ -287,8 +282,8 @@ def validate_upload_request(
             id=doc_uuid,
             category=category,
             uploaded_by=user,
-            original_filename=original_filename,   # stored in DB; NEVER used as path
-            _storage_key=storage_key,               # NEVER returned to clients
+            original_filename=original_filename,  # stored in DB; NEVER used as path
+            _storage_key=storage_key,  # NEVER returned to clients
             mime_type=mime_type,
             size_bytes=size_bytes,
             scan_status=Document.ScanStatus.PENDING_UPLOAD,
@@ -329,7 +324,7 @@ def validate_upload_request(
     except Exception:
         try:
             doc.delete()
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.warning(
                 "validate_upload_request: could not delete doc pk=%s after "
                 "presigned POST failure; stale cleanup will handle it.",
@@ -362,9 +357,9 @@ def validate_upload_request(
 
 def confirm_upload(
     *,
-    user: "User",
+    user: User,
     doc_id: str,
-) -> "Document":
+) -> Document:
     """
     Confirm that a browser upload completed and dispatch the ClamAV scan task.
 
@@ -404,15 +399,19 @@ def confirm_upload(
     try:
         uuid.UUID(doc_id)
     except (ValueError, AttributeError):
-        raise Http404
+        raise Http404  # noqa: B904
 
     # ── select_for_update inside atomic — required before any status check ─────
     with transaction.atomic():
         try:
-            doc = Document.objects.select_for_update(of=("self",)).select_related("category").get(pk=doc_id)
+            doc = (
+                Document.objects.select_for_update(of=("self",))
+                .select_related("category")
+                .get(pk=doc_id)
+            )
         except Document.DoesNotExist:
             # IDOR prevention: 404 even for "not found" case
-            raise Http404
+            raise Http404  # noqa: B904
 
         # ── IDOR guard: 404 not 403 ────────────────────────────────────────────
         if doc.uploaded_by_id != user.pk:
@@ -433,9 +432,7 @@ def confirm_upload(
             Document.ScanStatus.QUARANTINED,
             Document.ScanStatus.DELETED,
         ):
-            raise ValidationError(
-                _("Document is not available for upload confirmation.")
-            )
+            raise ValidationError(_("Document is not available for upload confirmation."))
         # PENDING_UPLOAD: fall through to validation
 
         # ── Layer 4b: Verify file exists at quarantine storage key ────────────
@@ -566,9 +563,7 @@ def confirm_upload(
         # The closure captures doc.pk by value so the lambda is safe after the
         # atomic block exits.
         _doc_pk_str = str(doc.pk)
-        transaction.on_commit(
-            lambda: scan_document.apply_async(args=[_doc_pk_str], countdown=2)
-        )
+        transaction.on_commit(lambda: scan_document.apply_async(args=[_doc_pk_str], countdown=2))
 
     # ── Fire signal ───────────────────────────────────────────────────────────
     # Receivers may do lightweight work (e.g. write a notification row).
@@ -616,16 +611,15 @@ def _make_storage_key(doc_uuid: str, prefix: str = "quarantine") -> str:
     """
     if prefix not in _VALID_PREFIXES:
         raise ValueError(
-            f"Invalid storage prefix {prefix!r}. "
-            f"Must be one of: {sorted(_VALID_PREFIXES)}"
+            f"Invalid storage prefix {prefix!r}. " f"Must be one of: {sorted(_VALID_PREFIXES)}"
         )
     file_uuid = uuid.uuid4().hex
     return f"documents/{prefix}/{doc_uuid}/{file_uuid}.bin"
 
 
 def _user_may_upload_to_category(
-    user: "User",
-    category: "DocumentCategory",
+    user: User,
+    category: DocumentCategory,
 ) -> bool:
     """
     Return True if user is allowed to upload documents in this category.
@@ -643,7 +637,7 @@ def _user_may_upload_to_category(
     The staff_only check (rule 4) must come AFTER the superuser and
     upload_staff_document checks (rules 2–3) so that privileged staff are
     never accidentally blocked by the flag.
-    """
+    """  # noqa: RUF002
     if not user.is_authenticated:
         return False
 
@@ -667,17 +661,13 @@ def _user_may_upload_to_category(
     return True
 
 
-def _user_is_staff_uploader(user: "User") -> bool:
+def _user_is_staff_uploader(user: User) -> bool:
     """
     Return True if this user qualifies for the staff upload size limit.
 
     Staff users get a higher per-file cap (50 MB default vs 10 MB for citizens).
     """
-    return (
-        user.is_staff
-        or user.is_superuser
-        or user.has_perm("documents.upload_staff_document")
-    )
+    return user.is_staff or user.is_superuser or user.has_perm("documents.upload_staff_document")
 
 
 def _civicos() -> dict:
@@ -769,8 +759,8 @@ def _is_s3_storage() -> bool:
 
 def _generate_presigned_post(
     *,
-    doc: "Document",
-    category: "DocumentCategory",
+    doc: Document,
+    category: DocumentCategory,
     max_size: int,
     success_redirect_url: str | None = None,
 ) -> dict:
@@ -821,8 +811,8 @@ def _generate_presigned_post(
 
 def _generate_s3_presigned_post(
     *,
-    doc: "Document",
-    category: "DocumentCategory",
+    doc: Document,
+    category: DocumentCategory,
     ttl_seconds: int,
     expires_at_str: str,
     max_size: int,
@@ -946,9 +936,7 @@ def _generate_s3_presigned_post(
             doc.pk,
             exc,
         )
-        raise ValidationError(
-            _("Could not generate an upload URL. Please try again.")
-        ) from exc
+        raise ValidationError(_("Could not generate an upload URL. Please try again.")) from exc
 
     return {
         "url": presigned["url"],
@@ -973,7 +961,7 @@ def _generate_dev_upload_placeholder(*, expires_at_str: str) -> dict:
     It is NOT wired in production.
     """
     return {
-        "url": "",           # dev client uses the confirm-upload flow directly
+        "url": "",  # dev client uses the confirm-upload flow directly
         "fields": {},
         "expires_at": expires_at_str,
     }
@@ -1020,9 +1008,7 @@ def _verify_s3_object_exists(storage_key: str) -> None:
         # Unexpected S3 error — propagate
         # PIPEDA: storage_key MUST NOT appear in logs. Log exception only.
         logger.error("Unexpected S3 error verifying object existence: %s", exc)
-        raise ValidationError(
-            _("Could not verify file upload. Please try again.")
-        ) from exc
+        raise ValidationError(_("Could not verify file upload. Please try again.")) from exc
 
 
 def _verify_local_file_exists(storage_key: str) -> None:
@@ -1099,9 +1085,7 @@ def _read_local_first_bytes(storage_key: str, *, length: int) -> bytes:
     media_root = Path(settings.MEDIA_ROOT).resolve()
     local_path = (media_root / storage_key).resolve()
     if not local_path.is_relative_to(media_root):
-        raise ValidationError(
-            _("Could not read uploaded file for validation. Please try again.")
-        )
+        raise ValidationError(_("Could not read uploaded file for validation. Please try again."))
     try:
         with open(local_path, "rb") as fh:
             return fh.read(length)
@@ -1168,9 +1152,7 @@ def _read_full_local_file(storage_key: str) -> bytes:
     media_root = Path(settings.MEDIA_ROOT).resolve()
     local_path = (media_root / storage_key).resolve()
     if not local_path.is_relative_to(media_root):
-        raise ValidationError(
-            _("Could not read uploaded file for validation. Please try again.")
-        )
+        raise ValidationError(_("Could not read uploaded file for validation. Please try again."))
     try:
         with open(local_path, "rb") as fh:
             return fh.read()
@@ -1185,9 +1167,7 @@ def _read_full_local_file(storage_key: str) -> bytes:
         ) from exc
 
 
-def _validate_magic_bytes(
-    *, first_bytes: bytes, allowed_mimes: list[str]
-) -> str | None:
+def _validate_magic_bytes(*, first_bytes: bytes, allowed_mimes: list[str]) -> str | None:
     """
     Validate a file's actual content against the allowed MIME type list.
 
@@ -1260,7 +1240,7 @@ def _validate_magic_bytes(
 
     try:
         detected_mime: str = magic.Magic(mime=True).from_buffer(first_bytes)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("magic-byte detection failed: %s", exc)
         raise ValidationError(
             _("Could not determine file type. Please ensure the file is not corrupted.")
@@ -1273,8 +1253,10 @@ def _validate_magic_bytes(
             allowed_mimes,
         )
         raise ValidationError(
-            _("File content does not match its declared type. "
-              "Please ensure you are uploading a valid file.")
+            _(
+                "File content does not match its declared type. "
+                "Please ensure you are uploading a valid file."
+            )
         )
 
     return detected_mime  # M-3: authoritative MIME from libmagic
@@ -1312,10 +1294,12 @@ def _check_zip_bomb(data: bytes) -> None:
         # corrupted or deliberately malformed. Reject it rather than silently
         # accepting unknown content.
         raise ValidationError(
-            _("File is not a valid archive. "
-              "Please ensure the file is not corrupted before uploading.")
+            _(
+                "File is not a valid archive. "
+                "Please ensure the file is not corrupted before uploading."
+            )
         ) from exc
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("ZIP bomb check failed unexpectedly: %s", exc)
         raise ValidationError(
             _("Could not read archive structure. Please ensure the file is not corrupted.")
@@ -1324,8 +1308,7 @@ def _check_zip_bomb(data: bytes) -> None:
     # Guard 1: Entry count limit
     if len(entries) > max_entries:
         raise ValidationError(
-            _("Archive contains too many entries (%(count)d). "
-              "Maximum allowed is %(max)d.")
+            _("Archive contains too many entries (%(count)d). " "Maximum allowed is %(max)d.")
             % {"count": len(entries), "max": max_entries}
         )
 
@@ -1335,8 +1318,10 @@ def _check_zip_bomb(data: bytes) -> None:
             ratio = entry.file_size / entry.compress_size
             if ratio > max_ratio:
                 raise ValidationError(
-                    _("Archive compression ratio is suspicious (%(ratio).1f:1). "
-                      "The file may be a ZIP bomb.")
+                    _(
+                        "Archive compression ratio is suspicious (%(ratio).1f:1). "
+                        "The file may be a ZIP bomb."
+                    )
                     % {"ratio": ratio}
                 )
 
@@ -1347,8 +1332,10 @@ def _check_zip_bomb(data: bytes) -> None:
     for entry in entries:
         if entry.flag_bits & 0x1:
             raise ValidationError(
-                _("Password-protected archives are not accepted. "
-                  "Please remove the password before uploading.")
+                _(
+                    "Password-protected archives are not accepted. "
+                    "Please remove the password before uploading."
+                )
             )
 
 
@@ -1406,17 +1393,21 @@ def _check_pdf_encryption(pdf_bytes: bytes) -> None:
             with _pikepdf.open(io.BytesIO(pdf_bytes)) as _pdf:
                 if _pdf.is_encrypted:
                     raise ValidationError(
-                        _("Password-protected PDFs are not accepted. "
-                          "Please remove the password protection before uploading.")
+                        _(
+                            "Password-protected PDFs are not accepted. "
+                            "Please remove the password protection before uploading."
+                        )
                     )
         except _pikepdf.PasswordError:
-            raise ValidationError(
-                _("Password-protected PDFs are not accepted. "
-                  "Please remove the password protection before uploading.")
+            raise ValidationError(  # noqa: B904
+                _(
+                    "Password-protected PDFs are not accepted. "
+                    "Please remove the password protection before uploading."
+                )
             )
         except ValidationError:
             raise  # Re-raise the encryption ValidationError from the with-block.
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             # Corrupt or malformed PDF — pikepdf could not parse it at all.
             # Treat as invalid file rather than a security bypass.
             logger.warning(
@@ -1425,8 +1416,10 @@ def _check_pdf_encryption(pdf_bytes: bytes) -> None:
                 type(exc).__name__,
             )
             raise ValidationError(
-                _("The PDF file could not be read. "
-                  "Please ensure the file is not corrupted before uploading.")
+                _(
+                    "The PDF file could not be read. "
+                    "Please ensure the file is not corrupted before uploading."
+                )
             ) from exc
     else:
         # Fallback: raw byte search for /Encrypt keyword.
@@ -1439,6 +1432,8 @@ def _check_pdf_encryption(pdf_bytes: bytes) -> None:
         )
         if b"/Encrypt" in pdf_bytes:
             raise ValidationError(
-                _("Password-protected PDFs are not accepted. "
-                  "Please remove the password protection before uploading.")
+                _(
+                    "Password-protected PDFs are not accepted. "
+                    "Please remove the password protection before uploading."
+                )
             )

@@ -5,35 +5,52 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('appointments', '0001_initial'),
+    dependencies = [  # noqa: RUF012
+        ("appointments", "0001_initial"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddField(
-            model_name='appointmenttype',
-            name='allow_anonymous_booking',
-            field=models.BooleanField(default=False, help_text='If True, citizens may book without creating a CivicOS account. Bookings are identified by email address only. NOT recommended for services collecting Protected B data — anonymous bookings cannot be linked to PIPEDA subject access requests.', verbose_name='Allow anonymous booking'),
+            model_name="appointmenttype",
+            name="allow_anonymous_booking",
+            field=models.BooleanField(
+                default=False,
+                help_text="If True, citizens may book without creating a CivicOS account. Bookings are identified by email address only. NOT recommended for services collecting Protected B data — anonymous bookings cannot be linked to PIPEDA subject access requests.",
+                verbose_name="Allow anonymous booking",
+            ),
         ),
         migrations.AlterField(
-            model_name='resource',
-            name='is_active',
-            field=models.BooleanField(db_index=True, default=True, verbose_name='Active'),
+            model_name="resource",
+            name="is_active",
+            field=models.BooleanField(db_index=True, default=True, verbose_name="Active"),
         ),
         migrations.AlterField(
-            model_name='schedulingpolicy',
-            name='buffer_after_minutes',
-            field=models.PositiveIntegerField(default=5, help_text='Wrap-up time after the appointment. Same function as buffer_before.', validators=[django.core.validators.MaxValueValidator(240)], verbose_name='Buffer after appointment (minutes)'),
+            model_name="schedulingpolicy",
+            name="buffer_after_minutes",
+            field=models.PositiveIntegerField(
+                default=5,
+                help_text="Wrap-up time after the appointment. Same function as buffer_before.",
+                validators=[django.core.validators.MaxValueValidator(240)],
+                verbose_name="Buffer after appointment (minutes)",
+            ),
         ),
         migrations.AlterField(
-            model_name='schedulingpolicy',
-            name='buffer_before_minutes',
-            field=models.PositiveIntegerField(default=0, help_text="Setup time before the appointment. Expands the slot's effective busy-time footprint so back-to-back slots cannot be double-booked.", validators=[django.core.validators.MaxValueValidator(240)], verbose_name='Buffer before appointment (minutes)'),
+            model_name="schedulingpolicy",
+            name="buffer_before_minutes",
+            field=models.PositiveIntegerField(
+                default=0,
+                help_text="Setup time before the appointment. Expands the slot's effective busy-time footprint so back-to-back slots cannot be double-booked.",
+                validators=[django.core.validators.MaxValueValidator(240)],
+                verbose_name="Buffer before appointment (minutes)",
+            ),
         ),
         migrations.AlterField(
-            model_name='schedulingpolicy',
-            name='waitlist_notify_batch_size',
-            field=models.PositiveIntegerField(default=3, help_text='How many waitlisted citizens to notify simultaneously when a slot opens. Batch of 3 raises fill rate from ~50% to 80%+ (industry evidence). The first to accept gets the slot; others are notified it was taken.', verbose_name='Waitlist notification batch size'),
+            model_name="schedulingpolicy",
+            name="waitlist_notify_batch_size",
+            field=models.PositiveIntegerField(
+                default=3,
+                help_text="How many waitlisted citizens to notify simultaneously when a slot opens. Batch of 3 raises fill rate from ~50% to 80%+ (industry evidence). The first to accept gets the slot; others are notified it was taken.",
+                verbose_name="Waitlist notification batch size",
+            ),
         ),
     ]

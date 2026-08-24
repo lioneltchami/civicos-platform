@@ -5,7 +5,6 @@ from django.test import TransactionTestCase
 from apps.payments.execution_intent import ExecutionIntentConflict, record_provider_correlation
 from apps.payments.models import PaymentCommand, PaymentCommandOutbox
 from apps.payments.payment_command_boundary import PaymentCommandService, PaymentScope
-from apps.payments.payment_command_consumer import acknowledge_reserved_command
 from apps.payments.payment_command_tasks import consume_bound_command_outbox_task
 
 

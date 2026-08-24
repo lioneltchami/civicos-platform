@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from django.test import TransactionTestCase
 
-from apps.appointments.models import GovStackAlertSchedule, SchedulerOutbox, SchedulerRecipientDelivery
+from apps.appointments.models import (
+    GovStackAlertSchedule,
+    SchedulerOutbox,
+    SchedulerRecipientDelivery,
+)
 from apps.appointments.services import scheduler_runtime
 from apps.appointments.services.govstack_alert_schedule import (
     alert_schedule_create,
@@ -71,12 +75,15 @@ class SchedulerLifecycleTransactionTests(TransactionTestCase):
         self.assertEqual(blocked["outcome"], "not_admittable")
         self.assertEqual(blocked["created"], 0)
         self.assertEqual(blocked["deliveries"], [])
-        self.assertEqual(SchedulerRecipientDelivery.objects.filter(schedule=schedule).count(), before_deliveries)
-        self.assertEqual(SchedulerOutbox.objects.filter(delivery__schedule=schedule).count(), before_outboxes)
+        self.assertEqual(
+            SchedulerRecipientDelivery.objects.filter(schedule=schedule).count(), before_deliveries
+        )
+        self.assertEqual(
+            SchedulerOutbox.objects.filter(delivery__schedule=schedule).count(), before_outboxes
+        )
         schedule.refresh_from_db()
         self.assertIsNone(schedule.admitted_generation)
         self.assertEqual(schedule.admission_outcome, "")
-
 
     def test_modify_delivery_content_invalidates_old_generation_before_new_admission(self):
         slot, staff, _, org = _create_full_slot(
@@ -130,8 +137,12 @@ class SchedulerLifecycleTransactionTests(TransactionTestCase):
         self.assertEqual(stale["outcome"], GovStackAlertSchedule.ADMISSION_STALE_GENERATION)
         self.assertEqual(stale["created"], 0)
         self.assertEqual(stale["deliveries"], [])
-        self.assertEqual(SchedulerRecipientDelivery.objects.filter(schedule=modified).count(), before_deliveries)
-        self.assertEqual(SchedulerOutbox.objects.filter(delivery__schedule=modified).count(), before_outboxes)
+        self.assertEqual(
+            SchedulerRecipientDelivery.objects.filter(schedule=modified).count(), before_deliveries
+        )
+        self.assertEqual(
+            SchedulerOutbox.objects.filter(delivery__schedule=modified).count(), before_outboxes
+        )
 
         new_admission = scheduler_runtime.admit_schedule_generation(
             schedule_id=modified.pk,
@@ -142,7 +153,6 @@ class SchedulerLifecycleTransactionTests(TransactionTestCase):
         modified.refresh_from_db()
         self.assertEqual(modified.delivery_generation, old_generation + 1)
         self.assertEqual(modified.admitted_generation, old_generation + 1)
-
 
     def test_delete_schedule_cannot_leave_recreatable_admission_work(self):
         slot, staff, _, org = _create_full_slot(
@@ -166,12 +176,14 @@ class SchedulerLifecycleTransactionTests(TransactionTestCase):
         )
         delivery = admitted["deliveries"][0]
         self.assertIsNotNone(scheduler_runtime.claim(idempotency_key=delivery.idempotency_key))
-        outbox = SchedulerOutbox.objects.get(delivery=delivery)
+        SchedulerOutbox.objects.get(delivery=delivery)
         self.assertIsNotNone(scheduler_runtime.claim_outbox())
 
         alert_schedule_delete(schedule_id)
         self.assertFalse(GovStackAlertSchedule.objects.filter(pk=schedule_id).exists())
-        self.assertFalse(SchedulerRecipientDelivery.objects.filter(schedule_id=schedule_id).exists())
+        self.assertFalse(
+            SchedulerRecipientDelivery.objects.filter(schedule_id=schedule_id).exists()
+        )
         self.assertFalse(SchedulerOutbox.objects.filter(delivery_id=delivery.pk).exists())
 
         with self.assertRaises(GovStackAlertSchedule.DoesNotExist):
@@ -180,7 +192,9 @@ class SchedulerLifecycleTransactionTests(TransactionTestCase):
                 expected_generation=generation,
                 recipients=recipients,
             )
-        self.assertFalse(SchedulerRecipientDelivery.objects.filter(schedule_id=schedule_id).exists())
+        self.assertFalse(
+            SchedulerRecipientDelivery.objects.filter(schedule_id=schedule_id).exists()
+        )
         self.assertFalse(SchedulerOutbox.objects.filter(delivery_id=delivery.pk).exists())
 
     def test_rearm_advances_generation_and_admits_exactly_once(self):
@@ -212,7 +226,14 @@ class SchedulerLifecycleTransactionTests(TransactionTestCase):
         schedule.delivery_admittable = False
         schedule.admitted_generation = None
         schedule.admission_outcome = ""
-        schedule.save(update_fields=["delivery_admittable", "admitted_generation", "admission_outcome", "updated_at"])
+        schedule.save(
+            update_fields=[
+                "delivery_admittable",
+                "admitted_generation",
+                "admission_outcome",
+                "updated_at",
+            ]
+        )
 
         rearmed = scheduler_runtime.rearm_schedule(schedule_id=schedule.pk)
         schedule.refresh_from_db()
@@ -252,8 +273,12 @@ class SchedulerLifecycleTransactionTests(TransactionTestCase):
             recipients=recipients,
         )
         self.assertEqual(duplicate_admission["outcome"], GovStackAlertSchedule.ADMISSION_DUPLICATE)
-        self.assertEqual(SchedulerRecipientDelivery.objects.filter(schedule=schedule).count(), delivery_count)
-        self.assertEqual(SchedulerOutbox.objects.filter(delivery__schedule=schedule).count(), outbox_count)
+        self.assertEqual(
+            SchedulerRecipientDelivery.objects.filter(schedule=schedule).count(), delivery_count
+        )
+        self.assertEqual(
+            SchedulerOutbox.objects.filter(delivery__schedule=schedule).count(), outbox_count
+        )
 
         repeated_rearm = scheduler_runtime.rearm_schedule(schedule_id=schedule.pk)
         schedule.refresh_from_db()

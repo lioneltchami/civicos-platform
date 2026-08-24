@@ -20,6 +20,7 @@ Categories mirror Volunteer Canada CCVI competency domains:
   - leadership
   - languages
 """
+
 from __future__ import annotations
 
 from django.core.management.base import BaseCommand
@@ -64,7 +65,11 @@ SKILL_TAGS: list[tuple[str, str, str]] = [
     ("Food Handler Certified", "Certificat manipulation des aliments", "health_safety"),
     ("Mental Health First Aid", "Premiers secours en santé mentale", "health_safety"),
     ("Safe Talk (Suicide Prevention)", "Safe Talk (prévention du suicide)", "health_safety"),
-    ("NVCI / Non-Violent Crisis Intervention", "NVCI / Intervention en crise non violente", "health_safety"),
+    (
+        "NVCI / Non-Violent Crisis Intervention",
+        "NVCI / Intervention en crise non violente",
+        "health_safety",
+    ),
     # --- Digital -------------------------------------------------------------
     ("Microsoft Office", "Microsoft Office", "digital"),
     ("Google Workspace", "Google Workspace", "digital"),
@@ -111,7 +116,7 @@ SKILL_TAGS: list[tuple[str, str, str]] = [
 class Command(BaseCommand):
     help = "Seed the SkillTag table with canonical bilingual skill tags (idempotent)."
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser) -> None:  # noqa: ANN001
         parser.add_argument(
             "--clear",
             action="store_true",
@@ -124,18 +129,18 @@ class Command(BaseCommand):
             help="Required with --clear to confirm destructive deletion of all M2M assignments.",
         )
 
-    def handle(self, *args, **options):
+    def handle(self, *args, **options) -> None:  # noqa: ANN002, ANN003
         if options["clear"]:
             # Count M2M rows that will be cascade-deleted and warn the operator.
             opp_count = 0
             profile_count = 0
             try:
                 opp_count = Opportunity.required_skills.through.objects.count()
-            except Exception:
+            except Exception:  # noqa: S110
                 pass
             try:
                 profile_count = VolunteerProfile.skills.through.objects.count()
-            except Exception:
+            except Exception:  # noqa: S110
                 pass
             self.stdout.write(
                 self.style.WARNING(

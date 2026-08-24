@@ -1,7 +1,11 @@
 """Canonical HTTP idempotency helpers shared by GovStack payment entry points."""
+
 from __future__ import annotations
-import hashlib, json
+
+import hashlib
+import json
 from dataclasses import dataclass
+
 
 @dataclass(frozen=True)
 class IdempotencyDecision:
@@ -18,7 +22,11 @@ def canonical_fingerprint(*, tenant: str, method: str, path: str, key: str, payl
     """
     normalized_path = "/" + "/".join(part for part in path.strip().split("/") if part)
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
-    value = "|".join((tenant.strip(), method.strip().upper(), normalized_path, key.strip())) + "|" + canonical
+    value = (
+        "|".join((tenant.strip(), method.strip().upper(), normalized_path, key.strip()))
+        + "|"
+        + canonical
+    )
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 

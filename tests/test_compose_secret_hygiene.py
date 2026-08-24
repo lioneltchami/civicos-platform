@@ -29,7 +29,7 @@ class ComposeSecretHygieneTests(unittest.TestCase):
         self.assertIsNotNone(match, service)
         return match.group("body")
 
-    def test_each_development_app_service_requires_the_environment_secret(self):
+    def test_each_development_app_service_requires_the_environment_secret(self) -> None:
         for service in ("web", "worker-webhooks", "worker-receipts", "beat"):
             with self.subTest(service=service):
                 block = self._service_body(service)
@@ -39,7 +39,7 @@ class ComposeSecretHygieneTests(unittest.TestCase):
         self.assertNotIn("dev-secret-key-change-in-production", COMPOSE)
         self.assertEqual(COMPOSE.count("DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?"), 4)
 
-    def test_environment_template_and_readme_require_a_generated_local_secret(self):
+    def test_environment_template_and_readme_require_a_generated_local_secret(self) -> None:
         self.assertIn("DJANGO_SECRET_KEY=\n", ENV_EXAMPLE)
         self.assertNotIn("REPLACE_WITH_GENERATED_LOCAL_SECRET", ENV_EXAMPLE)
         self.assertIn("get_random_secret_key", ENV_EXAMPLE)
@@ -48,19 +48,19 @@ class ComposeSecretHygieneTests(unittest.TestCase):
         self.assertIn("docker compose config", README)
         self.assertIn("docker compose config --environment", README)
 
-    def test_development_settings_have_no_secret_default(self):
+    def test_development_settings_have_no_secret_default(self) -> None:
         development = DEVELOPMENT_SETTINGS.read_text()
         self.assertIn('SECRET_KEY = env("DJANGO_SECRET_KEY")', development)
         self.assertNotIn('default="django-insecure-', development)
 
     @unittest.skipUnless(importlib.util.find_spec("django"), "Django is not installed")
-    def test_direct_development_settings_require_a_process_local_secret(self):
+    def test_direct_development_settings_require_a_process_local_secret(self) -> None:
         code = "import django; django.setup()"
         environment = os.environ.copy()
         environment.pop("DJANGO_SECRET_KEY", None)
         environment["DJANGO_SETTINGS_MODULE"] = "config.settings.development"
 
-        missing = subprocess.run(
+        missing = subprocess.run(  # noqa: S603
             [sys.executable, "-c", code],
             cwd=ROOT,
             env=environment,
@@ -70,8 +70,8 @@ class ComposeSecretHygieneTests(unittest.TestCase):
         self.assertNotEqual(missing.returncode, 0)
         self.assertIn("DJANGO_SECRET_KEY", missing.stderr + missing.stdout)
 
-        environment["DJANGO_SECRET_KEY"] = "review-only-process-local-secret"
-        loaded = subprocess.run(
+        environment["DJANGO_SECRET_KEY"] = "review-only-process-local-secret"  # noqa: S105
+        loaded = subprocess.run(  # noqa: S603
             [sys.executable, "-c", code],
             cwd=ROOT,
             env=environment,

@@ -14,17 +14,15 @@ GovStack Consent BB v1.3.0 extensions:
   * right_to_be_forgotten()   — RTBF / cascading delete of forgettable records
   * dispatch_webhook()        — Fire webhooks for a given event type
 """
+
 from __future__ import annotations
 
 import hashlib
-import hmac
 import json
 import logging
-from typing import Optional
-
-from django.utils import timezone
 
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
 from apps.forms.utils import _mask_ip
 
@@ -32,13 +30,12 @@ logger = logging.getLogger(__name__)
 
 
 class ConsentService:
-
     # ------------------------------------------------------------------
     # Existing PIPEDA operations
     # ------------------------------------------------------------------
 
     @staticmethod
-    def get_or_create_record(citizen, category):
+    def get_or_create_record(citizen, category):  # noqa: ANN001, ANN205
         """
         Get the current ConsentRecord for a citizen/category, or create one
         in unsigned/pending status.
@@ -60,7 +57,7 @@ class ConsentService:
         return record
 
     @staticmethod
-    def grant(citizen, category_slug: str, request=None, consent_version: str = "", revision=None):
+    def grant(citizen, category_slug: str, request=None, consent_version: str = "", revision=None):  # noqa: ANN001, ANN205
         """
         Grant consent for a category.
 
@@ -81,8 +78,11 @@ class ConsentService:
         Raises ValueError if category does not exist or is inactive.
         """
         from apps.consent.models import (
-            ConsentAuditEntry, ConsentCategory, ConsentRecord,
-            ConsentRevision, ConsentSignature,
+            ConsentAuditEntry,
+            ConsentCategory,
+            ConsentRecord,
+            ConsentRevision,
+            ConsentSignature,
         )
         from apps.consent.signals import consent_granted
 
@@ -176,11 +176,15 @@ class ConsentService:
                 # its final (fully-granted) state — matching the same
                 # "already granted, return existing" idempotency contract as
                 # the existing_qs check above.
-                winner = ConsentRecord.objects.select_for_update().filter(
-                    citizen=citizen,
-                    category=category,
-                    is_current=True,
-                ).first()
+                winner = (
+                    ConsentRecord.objects.select_for_update()
+                    .filter(
+                        citizen=citizen,
+                        category=category,
+                        is_current=True,
+                    )
+                    .first()
+                )
                 if winner is None:
                     # Should be unreachable — the constraint violation implies
                     # a current row exists. Re-raise rather than mask a bug.
@@ -225,14 +229,18 @@ class ConsentService:
             #              signature object in the response envelope.
             # ----------------------------------------------------------------
             _now = timezone.now()
-            _payload_data = json.dumps({
-                "consentRecordId": str(record.pk),
-                "individualId": str(citizen.pk),
-                "dataAgreementId": str(category.pk),
-                "dataAgreementRevisionId": str(revision.pk) if revision else None,
-                "optIn": True,
-                "timestamp": _now.isoformat(),
-            }, sort_keys=True, default=str)
+            _payload_data = json.dumps(
+                {
+                    "consentRecordId": str(record.pk),
+                    "individualId": str(citizen.pk),
+                    "dataAgreementId": str(category.pk),
+                    "dataAgreementRevisionId": str(revision.pk) if revision else None,
+                    "optIn": True,
+                    "timestamp": _now.isoformat(),
+                },
+                sort_keys=True,
+                default=str,
+            )
             _payload_hash = hashlib.sha256(_payload_data.encode()).hexdigest()
             ConsentSignature.objects.create(
                 consent_record=record,
@@ -264,11 +272,16 @@ class ConsentService:
             # ----------------------------------------------------------------
             _record_pk = str(record.pk)
             _citizen_pk = str(citizen.pk)
-            transaction.on_commit(lambda: ConsentService.dispatch_webhook("consent.granted", {
-                "consent_record_id": _record_pk,
-                "category_slug": category_slug,
-                "individual_id": _citizen_pk,
-            }))
+            transaction.on_commit(
+                lambda: ConsentService.dispatch_webhook(
+                    "consent.granted",
+                    {
+                        "consent_record_id": _record_pk,
+                        "category_slug": category_slug,
+                        "individual_id": _citizen_pk,
+                    },
+                )
+            )
 
         # C-03 fix: wrap signal dispatch in on_commit() so email receivers fire only
         # after the outer ATOMIC_REQUESTS transaction commits. Without this, a request
@@ -283,7 +296,7 @@ class ConsentService:
         return record
 
     @staticmethod
-    def withdraw(citizen, category_slug: str, request=None):
+    def withdraw(citizen, category_slug: str, request=None):  # noqa: ANN001, ANN205
         """
         Withdraw consent for a category.
 
@@ -297,7 +310,10 @@ class ConsentService:
         Raises ValueError if no current record found.
         """
         from apps.consent.models import (
-            ConsentAuditEntry, ConsentCategory, ConsentRecord, ConsentRevision,
+            ConsentAuditEntry,
+            ConsentCategory,
+            ConsentRecord,
+            ConsentRevision,
         )
         from apps.consent.signals import consent_withdrawn
 
@@ -319,7 +335,7 @@ class ConsentService:
                     citizen=citizen, category=category, is_current=True
                 )
             except ConsentRecord.DoesNotExist:
-                raise ValueError(f"No consent record found for category {category_slug!r}")
+                raise ValueError(f"No consent record found for category {category_slug!r}")  # noqa: B904
 
             if record.status == ConsentRecord.STATUS_PENDING:
                 raise ValueError("Cannot withdraw consent that was never granted.")
@@ -354,11 +370,16 @@ class ConsentService:
 
             _record_pk = str(record.pk)
             _citizen_pk = str(citizen.pk)
-            transaction.on_commit(lambda: ConsentService.dispatch_webhook("consent.withdrawn", {
-                "consent_record_id": _record_pk,
-                "category_slug": category_slug,
-                "individual_id": _citizen_pk,
-            }))
+            transaction.on_commit(
+                lambda: ConsentService.dispatch_webhook(
+                    "consent.withdrawn",
+                    {
+                        "consent_record_id": _record_pk,
+                        "category_slug": category_slug,
+                        "individual_id": _citizen_pk,
+                    },
+                )
+            )
 
         _record_ref = record
         _request_ref = request
@@ -370,13 +391,13 @@ class ConsentService:
         return record
 
     @staticmethod
-    def attach_signature(
-        record,
+    def attach_signature(  # noqa: ANN205
+        record,  # noqa: ANN001
         verification_type: str,
-        verification_payload,
+        verification_payload,  # noqa: ANN001
         signature: str,
         verification_signed_by: str,
-        request=None,
+        request=None,  # noqa: ANN001
     ):
         """
         Attach a caller-supplied signature to a ConsentRecord and advance its
@@ -437,15 +458,18 @@ class ConsentService:
             # Prevent duplicate signatures
             if ConsentSignature.objects.filter(consent_record=record).exists():
                 from rest_framework.exceptions import ValidationError as DRFValidationError
+
                 raise DRFValidationError(
                     "A signature already exists for this ConsentRecord. Use PUT to update."
                 )
 
             if not signature:
                 from rest_framework.exceptions import ValidationError as DRFValidationError
+
                 raise DRFValidationError({"signature": "This field is required."})
             if not verification_signed_by:
                 from rest_framework.exceptions import ValidationError as DRFValidationError
+
                 raise DRFValidationError({"verificationSignedBy": "This field is required."})
 
             # Normalise verification_payload to a JSON string for storage (TextField)
@@ -459,6 +483,7 @@ class ConsentService:
             payload_hash = hashlib.sha256(vp_str.encode()).hexdigest()
 
             from django.utils import timezone as _tz
+
             _now = _tz.now()
 
             sig = ConsentSignature.objects.create(
@@ -521,7 +546,7 @@ class ConsentService:
         return sig
 
     @staticmethod
-    def update_signature(record, sig, data: dict, request=None):
+    def update_signature(record, sig, data: dict, request=None):  # noqa: ANN001, ANN205
         """
         Update an existing ConsentSignature and create a ConsentRevision +
         ConsentAuditEntry for the change.
@@ -559,7 +584,12 @@ class ConsentService:
         import hashlib
         import json as _json
 
-        from apps.consent.models import ConsentAuditEntry, ConsentRecord, ConsentRevision, ConsentSignature
+        from apps.consent.models import (
+            ConsentAuditEntry,
+            ConsentRecord,
+            ConsentRevision,
+            ConsentSignature,
+        )
 
         actor_ip = _mask_ip(_get_ip(request) or "")
 
@@ -626,7 +656,7 @@ class ConsentService:
         return sig
 
     @staticmethod
-    def has_consent(citizen, category_slug: str) -> bool:
+    def has_consent(citizen, category_slug: str) -> bool:  # noqa: ANN001
         """
         Return True if citizen currently has active granted consent for this category.
 
@@ -656,7 +686,7 @@ class ConsentService:
         ).exists()
 
     @staticmethod
-    def get_citizen_consents(citizen):
+    def get_citizen_consents(citizen):  # noqa: ANN001, ANN205
         """
         Return the CURRENT ConsentRecord for each category for a citizen.
 
@@ -672,14 +702,14 @@ class ConsentService:
         )
 
     @staticmethod
-    def get_active_categories():
+    def get_active_categories():  # noqa: ANN205
         """Return all active consent categories, ordered."""
         from apps.consent.models import ConsentCategory
 
         return ConsentCategory.objects.filter(is_active=True).order_by("sort_order", "slug")
 
     @staticmethod
-    def request_export(citizen, request=None):
+    def request_export(citizen, request=None):  # noqa: ANN001, ANN205
         """
         Create a PIPEDA s.4.9 data export request.
         Raises ValueError if a pending/processing request already exists.
@@ -699,7 +729,7 @@ class ConsentService:
                     format="json",
                 )
             except IntegrityError:
-                raise ValueError(
+                raise ValueError(  # noqa: B904
                     "A data export request is already in progress. "
                     "Please wait for the current request to complete."
                 )
@@ -713,37 +743,49 @@ class ConsentService:
                 details={"format": "json"},
             )
 
-        def _send_export_requested():
+        def _send_export_requested() -> None:
             export_requested.send(
                 sender=DataExportRequest,
                 export_request=export_req,
                 request=request,
             )
             process_data_export.delay(str(export_req.pk))
-            ConsentService.dispatch_webhook("consent.export.requested", {
-                "export_request_id": str(export_req.pk),
-                "individual_id": str(citizen.pk),
-            })
+            ConsentService.dispatch_webhook(
+                "consent.export.requested",
+                {
+                    "export_request_id": str(export_req.pk),
+                    "individual_id": str(citizen.pk),
+                },
+            )
 
         transaction.on_commit(_send_export_requested)
         return export_req
 
     @staticmethod
-    def get_citizen_exports(citizen):
+    def get_citizen_exports(citizen):  # noqa: ANN001, ANN205
         """Return all DataExportRequests for citizen, newest first."""
         from apps.consent.models import DataExportRequest
 
-        return DataExportRequest.objects.filter(citizen=citizen).only(
-            "id", "status", "format", "requested_at", "processed_at",
-            "expires_at", "download_token",
-        ).order_by("-requested_at")
+        return (
+            DataExportRequest.objects.filter(citizen=citizen)
+            .only(
+                "id",
+                "status",
+                "format",
+                "requested_at",
+                "processed_at",
+                "expires_at",
+                "download_token",
+            )
+            .order_by("-requested_at")
+        )
 
     # ------------------------------------------------------------------
     # GovStack: Policy management
     # ------------------------------------------------------------------
 
     @staticmethod
-    def create_policy(data: dict, actor=None) -> tuple:
+    def create_policy(data: dict, actor=None) -> tuple:  # noqa: ANN001
         """
         Create a new ConsentPolicy and an initial ConsentRevision.
 
@@ -786,7 +828,7 @@ class ConsentService:
         return policy, revision
 
     @staticmethod
-    def update_policy(policy, data: dict, actor=None) -> tuple:
+    def update_policy(policy, data: dict, actor=None) -> tuple:  # noqa: ANN001
         """
         Update an existing policy and create a new revision.
 
@@ -827,7 +869,7 @@ class ConsentService:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def create_data_agreement(data: dict, actor=None) -> tuple:
+    def create_data_agreement(data: dict, actor=None) -> tuple:  # noqa: ANN001
         """
         Create a new ConsentCategory (DataAgreement) and an initial ConsentRevision.
 
@@ -864,7 +906,7 @@ class ConsentService:
         return category, revision
 
     @staticmethod
-    def update_data_agreement(category, data: dict, actor=None) -> tuple:
+    def update_data_agreement(category, data: dict, actor=None) -> tuple:  # noqa: ANN001
         """
         Update an existing DataAgreement and create a new revision.
 
@@ -910,7 +952,7 @@ class ConsentService:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _get_latest_revision(category):
+    def _get_latest_revision(category):  # noqa: ANN001, ANN205
         """Return the latest ConsentRevision for a DataAgreement (or None)."""
         from apps.consent.models import ConsentRevision
 
@@ -929,7 +971,7 @@ class ConsentService:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def right_to_be_forgotten(citizen, request=None) -> dict:
+    def right_to_be_forgotten(citizen, request=None) -> dict:  # noqa: ANN001
         """
         GovStack service/individual/record/ DELETE — right to be forgotten.
 
@@ -1072,7 +1114,9 @@ class ConsentService:
                 # propagate to the caller — log and continue.
                 logger.warning(
                     "dispatch_webhook: failed to enqueue task for webhook %s event %s: %s",
-                    webhook.pk, event_type, type(exc).__name__,
+                    webhook.pk,
+                    event_type,
+                    type(exc).__name__,
                 )
 
 
@@ -1081,7 +1125,7 @@ class ConsentService:
 # ---------------------------------------------------------------------------
 
 
-def _get_ip(request) -> Optional[str]:
+def _get_ip(request) -> str | None:  # noqa: ANN001
     """
     Extract client IP address.
 
@@ -1100,7 +1144,7 @@ def _get_ip(request) -> Optional[str]:
     return request.META.get("REMOTE_ADDR")
 
 
-def _get_source(request) -> str:
+def _get_source(request) -> str:  # noqa: ANN001
     if request is None:
         return "api"
     return "api" if getattr(request, "is_api_request", False) else "web"
@@ -1138,7 +1182,7 @@ def _is_current_consent_race(exc: IntegrityError) -> bool:
     return _CURRENT_CONSENT_RACE_CONSTRAINT in str(exc)
 
 
-def _policy_snapshot(policy) -> dict:
+def _policy_snapshot(policy) -> dict:  # noqa: ANN001
     """
     Serialize a ConsentPolicy to a dict for ConsentRevision snapshots.
 
@@ -1160,7 +1204,7 @@ def _policy_snapshot(policy) -> dict:
     }
 
 
-def _data_agreement_snapshot(category) -> dict:
+def _data_agreement_snapshot(category) -> dict:  # noqa: ANN001
     """
     Serialize a ConsentCategory (DataAgreement) to a dict for ConsentRevision
     snapshots.
@@ -1202,7 +1246,7 @@ def _data_agreement_snapshot(category) -> dict:
     }
 
 
-def _consent_record_snapshot(record) -> dict:
+def _consent_record_snapshot(record) -> dict:  # noqa: ANN001
     """
     Serialize a ConsentRecord to a dict for ConsentRevision snapshots.
 
@@ -1215,8 +1259,7 @@ def _consent_record_snapshot(record) -> dict:
         "individual": str(record.citizen_id),
         "dataAgreement": str(record.category_id),
         "dataAgreementRevision": (
-            str(record.data_agreement_revision_id)
-            if record.data_agreement_revision_id else None
+            str(record.data_agreement_revision_id) if record.data_agreement_revision_id else None
         ),
         "dataAgreementRevisionHash": record.data_agreement_revision_hash or "",
         "optIn": record.opt_in,

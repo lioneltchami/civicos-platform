@@ -29,11 +29,12 @@ PIPEDA invariants:
     their inclusion in administrative exports is required by CRA regulation.
   - Logs contain year/month/count only — never individual donor references.
 """
+
 from __future__ import annotations
 
 import calendar as _cal
 import logging
-from datetime import date, datetime, timedelta, timezone as dt_timezone
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 from django.db.models import Count, Exists, OuterRef, Q, Sum
@@ -45,6 +46,7 @@ logger = logging.getLogger("apps.reports.services.donations")
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _month_utc_range(year: int, month: int) -> tuple[datetime, datetime]:
     """
     Half-open UTC [start, end) datetime interval for a calendar month.
@@ -52,11 +54,11 @@ def _month_utc_range(year: int, month: int) -> tuple[datetime, datetime]:
     Filters on ``created_at`` / ``issued_at`` UTC timestamps. Consistent with
     ``apps.reports.services.financial._month_utc_range``.
     """
-    start = datetime(year, month, 1, tzinfo=dt_timezone.utc)
+    start = datetime(year, month, 1, tzinfo=UTC)
     end = (
-        datetime(year + 1, 1, 1, tzinfo=dt_timezone.utc)
+        datetime(year + 1, 1, 1, tzinfo=UTC)
         if month == 12
-        else datetime(year, month + 1, 1, tzinfo=dt_timezone.utc)
+        else datetime(year, month + 1, 1, tzinfo=UTC)
     )
     return start, end
 
@@ -64,8 +66,8 @@ def _month_utc_range(year: int, month: int) -> tuple[datetime, datetime]:
 def _year_utc_range(year: int) -> tuple[datetime, datetime]:
     """Half-open UTC [start, end) interval for a full calendar year."""
     return (
-        datetime(year, 1, 1, tzinfo=dt_timezone.utc),
-        datetime(year + 1, 1, 1, tzinfo=dt_timezone.utc),
+        datetime(year, 1, 1, tzinfo=UTC),
+        datetime(year + 1, 1, 1, tzinfo=UTC),
     )
 
 
@@ -108,10 +110,10 @@ def _filing_deadline(fiscal_year_end: date) -> date:
 
 def _dt_from_date_utc(d: date) -> datetime:
     """Calendar date → UTC midnight datetime (exclusive upper bounds use d + 1 day)."""
-    return datetime(d.year, d.month, d.day, tzinfo=dt_timezone.utc)
+    return datetime(d.year, d.month, d.day, tzinfo=UTC)
 
 
-def _str_decimals(obj):
+def _str_decimals(obj):  # noqa: ANN001, ANN202
     """Recursively convert Decimal values to strings for JSON/JSONB storage."""
     if isinstance(obj, Decimal):
         return str(obj)
@@ -125,6 +127,7 @@ def _str_decimals(obj):
 # ---------------------------------------------------------------------------
 # Public service functions
 # ---------------------------------------------------------------------------
+
 
 def get_monthly_donation_summary(year: int, month: int) -> dict:
     """
@@ -191,8 +194,7 @@ def get_monthly_donation_summary(year: int, month: int) -> dict:
 
     # ── Per-campaign breakdown (1 query) ──────────────────────────────────────
     by_campaign_qs = (
-        base_qs
-        .values("campaign__name_en")
+        base_qs.values("campaign__name_en")
         .annotate(
             count=Count("id"),
             total_amount=Sum("amount"),
@@ -229,7 +231,10 @@ def get_monthly_donation_summary(year: int, month: int) -> dict:
     logger.debug(
         "reports.services.donations.get_monthly_donation_summary year=%s month=%s "
         "donation_count=%s total_donations=%s",
-        year, month, donation_count, total_donations,
+        year,
+        month,
+        donation_count,
+        total_donations,
     )
 
     return {
@@ -311,9 +316,9 @@ def get_annual_donation_summary(year: int) -> dict:
     # ── By-month breakdown (1 query, derive in Python) ────────────────────────
     # TruncMonth is DB-agnostic (works on both SQLite/tests and PostgreSQL/prod).
     from django.db.models.functions import TruncMonth
+
     month_rows = (
-        base_qs
-        .annotate(month_trunc=TruncMonth("created_at"))
+        base_qs.annotate(month_trunc=TruncMonth("created_at"))
         .values("month_trunc")
         .annotate(
             total_amount=Sum("amount"),
@@ -335,8 +340,7 @@ def get_annual_donation_summary(year: int) -> dict:
 
     # ── By-campaign breakdown (1 query) ───────────────────────────────────────
     by_campaign_qs = (
-        base_qs
-        .values("campaign__name_en")
+        base_qs.values("campaign__name_en")
         .annotate(
             count=Count("id"),
             total_amount=Sum("amount"),
@@ -364,7 +368,10 @@ def get_annual_donation_summary(year: int) -> dict:
     logger.info(
         "reports.services.donations.get_annual_donation_summary year=%s "
         "donation_count=%s total_donations=%s receipts_issued=%s",
-        year, totals["donation_count"], totals["total_donations"], receipts_issued,
+        year,
+        totals["donation_count"],
+        totals["total_donations"],
+        receipts_issued,
     )
 
     return {
@@ -476,17 +483,14 @@ def get_t3010_preparatory_data(fiscal_year_end: date) -> dict:
         donation=OuterRef("pk"),
         status="issued",
     )
-    total_receipted = (
-        base_qs.filter(Exists(_has_issued))
-        .aggregate(v=Sum("eligible_amount", default=Decimal("0.00")))["v"]
-        or Decimal("0.00")
-    )
+    total_receipted = base_qs.filter(Exists(_has_issued)).aggregate(
+        v=Sum("eligible_amount", default=Decimal("0.00"))
+    )["v"] or Decimal("0.00")
     totals["total_receipted"] = total_receipted
 
     # ── By-campaign breakdown (1 query) ───────────────────────────────────────
     by_campaign_qs = (
-        base_qs
-        .values("campaign__name_en")
+        base_qs.values("campaign__name_en")
         .annotate(
             count=Count("id"),
             total_amount=Sum("amount"),
@@ -507,9 +511,9 @@ def get_t3010_preparatory_data(fiscal_year_end: date) -> dict:
     # ── By-month breakdown in Python (1 query) ────────────────────────────────
     # TruncMonth is DB-agnostic (works on both SQLite/tests and PostgreSQL/prod).
     from django.db.models.functions import TruncMonth
+
     month_rows = (
-        base_qs
-        .annotate(month_trunc=TruncMonth("created_at"))
+        base_qs.annotate(month_trunc=TruncMonth("created_at"))
         .values("month_trunc")
         .annotate(
             total_amount=Sum("amount"),
@@ -523,8 +527,7 @@ def get_t3010_preparatory_data(fiscal_year_end: date) -> dict:
             "year": row["month_trunc"].year,
             "month": row["month_trunc"].month,
             "month_label": (
-                f"{_cal.month_name[row['month_trunc'].month]} "
-                f"{row['month_trunc'].year}"
+                f"{_cal.month_name[row['month_trunc'].month]} " f"{row['month_trunc'].year}"
             ),
             "total_amount": row["total_amount"] or Decimal("0.00"),
             "eligible_amount": row["eligible_amount"] or Decimal("0.00"),
@@ -547,8 +550,10 @@ def get_t3010_preparatory_data(fiscal_year_end: date) -> dict:
         "reports.services.donations.get_t3010_preparatory_data "
         "fiscal_year_start=%s fiscal_year_end=%s donation_count=%s "
         "total_receipted=%s filing_deadline=%s",
-        fiscal_year_start, fy_end,
-        totals["donation_count"], totals["total_receipted"],
+        fiscal_year_start,
+        fy_end,
+        totals["donation_count"],
+        totals["total_receipted"],
         filing_deadline,
     )
 
@@ -571,7 +576,7 @@ def get_t3010_preparatory_data(fiscal_year_end: date) -> dict:
     }
 
 
-def get_receipt_list_queryset(start: date, end: date):
+def get_receipt_list_queryset(start: date, end: date):  # noqa: ANN201
     """
     Return a QuerySet of OfficialDonationReceipts issued during [start, end].
 
@@ -624,17 +629,19 @@ def compute_donations_snapshot(year: int, month: int) -> dict:
     snapshot = {
         "year": year,
         "month": month,
-        "donations": _str_decimals({
-            "total_donations": summary["total_donations"],
-            "total_eligible_amount": summary["total_eligible_amount"],
-            "total_advantage_amount": summary["total_advantage_amount"],
-            "donation_count": summary["donation_count"],
-            "unique_donor_count": summary["unique_donor_count"],
-            "recurring_count": summary["recurring_count"],
-            "one_time_count": summary["one_time_count"],
-            "average_donation": summary["average_donation"],
-            "by_campaign": summary["by_campaign"],
-        }),
+        "donations": _str_decimals(
+            {
+                "total_donations": summary["total_donations"],
+                "total_eligible_amount": summary["total_eligible_amount"],
+                "total_advantage_amount": summary["total_advantage_amount"],
+                "donation_count": summary["donation_count"],
+                "unique_donor_count": summary["unique_donor_count"],
+                "recurring_count": summary["recurring_count"],
+                "one_time_count": summary["one_time_count"],
+                "average_donation": summary["average_donation"],
+                "by_campaign": summary["by_campaign"],
+            }
+        ),
         "receipts": summary["receipt_summary"],
         "row_count": summary["donation_count"],
     }
@@ -642,7 +649,9 @@ def compute_donations_snapshot(year: int, month: int) -> dict:
     logger.info(
         "reports.services.donations.compute_donations_snapshot year=%s month=%s "
         "donation_count=%s",
-        year, month, summary["donation_count"],
+        year,
+        month,
+        summary["donation_count"],
     )
 
     return snapshot

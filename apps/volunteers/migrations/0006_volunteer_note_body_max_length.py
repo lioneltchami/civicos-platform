@@ -4,15 +4,14 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('volunteers', '0005_screening_verified_clear_blank'),
+    dependencies = [  # noqa: RUF012
+        ("volunteers", "0005_screening_verified_clear_blank"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterField(
-            model_name='volunteernote',
-            name='body',
-            field=models.TextField(max_length=2000, verbose_name='Note body'),
+            model_name="volunteernote",
+            name="body",
+            field=models.TextField(max_length=2000, verbose_name="Note body"),
         ),
     ]

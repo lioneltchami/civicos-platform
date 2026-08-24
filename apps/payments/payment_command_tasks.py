@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from celery import shared_task
 
-from .payment_command_consumer import acknowledge_reserved_command
 from .models import PaymentCommandOutbox
+from .payment_command_consumer import acknowledge_reserved_command
 
 
 @shared_task(
@@ -13,10 +13,12 @@ from .models import PaymentCommandOutbox
     acks_late=True,
     reject_on_worker_lost=True,
 )
-def consume_bound_command_outbox_task(outbox_id: str):
+def consume_bound_command_outbox_task(outbox_id: str):  # noqa: ANN201
     if not outbox_id:
         raise ValueError("bound payment outbox ID is required")
-    outbox = PaymentCommandOutbox.objects.select_related("command", "command__attempt").get(pk=outbox_id)
+    outbox = PaymentCommandOutbox.objects.select_related("command", "command__attempt").get(
+        pk=outbox_id
+    )
     command = outbox.command
     attempt = command.attempt
     if attempt is None:

@@ -10,12 +10,13 @@ accidental PII inclusion when model fields are added in future.
 
 Implemented in Wave 2 (financial) and Wave 3 (donations).
 """
+
 from __future__ import annotations
 
 import csv
 import logging
+from collections.abc import Generator, Iterable
 from datetime import date
-from typing import Generator, Iterable
 
 from django.http import StreamingHttpResponse
 
@@ -25,7 +26,7 @@ logger = logging.getLogger("apps.reports.exports.csv_export")
 class _EchoBuffer:
     """Minimal write buffer required by csv.writer to work with StreamingHttpResponse."""
 
-    def write(self, value: str) -> str:  # noqa: D401
+    def write(self, value: str) -> str:
         return value
 
 
@@ -84,9 +85,7 @@ def streaming_csv_response(
         yield writer.writerow(columns)
         for row in rows:
             if isinstance(row, dict):
-                yield writer.writerow(
-                    [_sanitize_csv_cell(row.get(col, "")) for col in columns]
-                )
+                yield writer.writerow([_sanitize_csv_cell(row.get(col, "")) for col in columns])
             else:
                 yield writer.writerow([_sanitize_csv_cell(v) for v in row])
 
@@ -111,7 +110,7 @@ def export_reconciliation_csv(start: date, end: date) -> StreamingHttpResponse:
     """
     from apps.reports.services.financial import get_reconciliation_queryset
 
-    COLUMNS = [
+    COLUMNS = [  # noqa: N806
         "reference",
         "status",
         "fee_code",
@@ -123,7 +122,7 @@ def export_reconciliation_csv(start: date, end: date) -> StreamingHttpResponse:
 
     qs = get_reconciliation_queryset(start, end)
 
-    def _rows():
+    def _rows():  # noqa: ANN202
         for payment in qs.iterator(chunk_size=500):
             net = payment.amount_paid - payment.refund_total
             yield {
@@ -139,7 +138,9 @@ def export_reconciliation_csv(start: date, end: date) -> StreamingHttpResponse:
     return streaming_csv_response(_rows(), COLUMNS, "reconciliation", start, end)
 
 
-def export_revenue_csv(year: int, month: int, *, revenue: dict | None = None) -> StreamingHttpResponse:
+def export_revenue_csv(
+    year: int, month: int, *, revenue: dict | None = None
+) -> StreamingHttpResponse:
     """
     Stream monthly revenue breakdown as CSV (one row per fee_code / purpose label).
 
@@ -156,7 +157,7 @@ def export_revenue_csv(year: int, month: int, *, revenue: dict | None = None) ->
 
     from apps.reports.services.financial import get_monthly_revenue
 
-    COLUMNS = [
+    COLUMNS = [  # noqa: N806
         "fee_code",
         "gross_revenue",
         "processor_fees",
@@ -168,15 +169,17 @@ def export_revenue_csv(year: int, month: int, *, revenue: dict | None = None) ->
     if revenue is None:
         revenue = get_monthly_revenue(year, month)
 
-    def _fmt(v) -> str:
+    def _fmt(v) -> str:  # noqa: ANN001
         """Format a Decimal (or numeric) to exactly 2 d.p."""
-        from decimal import Decimal as _D, ROUND_HALF_UP
+        from decimal import ROUND_HALF_UP
+        from decimal import Decimal as _D  # noqa: N814
+
         try:
             return str(_D(str(v)).quantize(_D("0.01"), rounding=ROUND_HALF_UP))
         except Exception:
             return str(v)
 
-    def _rows():
+    def _rows():  # noqa: ANN202
         for label, data in revenue["by_fee_code"].items():
             yield {
                 "fee_code": label,
@@ -211,7 +214,7 @@ def export_receipts_csv(start: date, end: date) -> StreamingHttpResponse:
     """
     from apps.reports.services.donations import get_receipt_list_queryset
 
-    COLUMNS = [
+    COLUMNS = [  # noqa: N806
         "receipt_number",
         "status",
         "receipt_date",
@@ -222,7 +225,7 @@ def export_receipts_csv(start: date, end: date) -> StreamingHttpResponse:
 
     qs = get_receipt_list_queryset(start, end)
 
-    def _rows():
+    def _rows():  # noqa: ANN202
         for r in qs.iterator(chunk_size=500):
             campaign_name = ""
             if r.donation_id and r.donation.campaign_id:
@@ -263,9 +266,10 @@ def export_t3010_prep_csv(
     """
     if data is None:
         from apps.reports.services.donations import get_t3010_preparatory_data
+
         data = get_t3010_preparatory_data(fiscal_year_end)
 
-    COLUMNS = [
+    COLUMNS = [  # noqa: N806
         "section",
         "period",
         "donation_count",
@@ -275,14 +279,16 @@ def export_t3010_prep_csv(
         "receipts_issued",
     ]
 
-    def _fmt(v) -> str:
-        from decimal import Decimal as _D, ROUND_HALF_UP
+    def _fmt(v) -> str:  # noqa: ANN001
+        from decimal import ROUND_HALF_UP
+        from decimal import Decimal as _D  # noqa: N814
+
         try:
             return str(_D(str(v)).quantize(_D("0.01"), rounding=ROUND_HALF_UP))
         except Exception:
             return str(v)
 
-    def _rows():
+    def _rows():  # noqa: ANN202
         # ── Summary ───────────────────────────────────────────────────────────
         yield {
             "section": "SUMMARY",
@@ -291,9 +297,7 @@ def export_t3010_prep_csv(
                 f"to {data['fiscal_year_end'].isoformat()}"
             ),
             "donation_count": str(data["donation_count"]),
-            "total_donated": _fmt(
-                data["total_eligible_amount"] + data["total_advantage_amount"]
-            ),
+            "total_donated": _fmt(data["total_eligible_amount"] + data["total_advantage_amount"]),
             "eligible_amount": _fmt(data["total_eligible_amount"]),
             "advantage_amount": _fmt(data["total_advantage_amount"]),
             "receipts_issued": str(data["receipts_issued_in_year"]),

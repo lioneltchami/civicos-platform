@@ -21,10 +21,10 @@ CANDIDATES = {
 
 
 class GovStackTestingPreparationTests(unittest.TestCase):
-    def test_preparation_validator_matches_committed_authority_manifest(self):
+    def test_preparation_validator_matches_committed_authority_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "preparation-evidence.json"
-            completed = subprocess.run(
+            completed = subprocess.run(  # noqa: S603
                 [
                     sys.executable,
                     str(PREPARATION_TOOL),
@@ -46,7 +46,7 @@ class GovStackTestingPreparationTests(unittest.TestCase):
         )
         self.assertIn("not an API compliance result", evidence["claim"])
 
-    def test_candidate_manifests_are_local_only_and_non_claiming(self):
+    def test_candidate_manifests_are_local_only_and_non_claiming(self) -> None:
         for key, directory in CANDIDATES.items():
             manifest = json.loads(
                 (ROOT / "examples" / directory / "candidate-manifest.json").read_text()
@@ -55,10 +55,10 @@ class GovStackTestingPreparationTests(unittest.TestCase):
             self.assertIn("not an API compliance result", manifest["claim_boundary"], key)
             self.assertTrue(manifest["civicos_surface"], key)
 
-    def test_candidate_entrypoints_reject_non_local_execution_without_docker(self):
+    def test_candidate_entrypoints_reject_non_local_execution_without_docker(self) -> None:
         for key, directory in CANDIDATES.items():
             environment = os.environ | {"GOVSTACK_TEST_TARGET": "staging"}
-            completed = subprocess.run(
+            completed = subprocess.run(  # noqa: S603
                 [
                     str(ROOT / "examples" / directory / "test_entrypoint.sh"),
                     "--config",
@@ -73,7 +73,7 @@ class GovStackTestingPreparationTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 65, key)
             self.assertIn("Refusing non-local target", completed.stderr, key)
 
-    def test_testing_preparation_document_links_to_official_workflow(self):
+    def test_testing_preparation_document_links_to_official_workflow(self) -> None:
         document = (
             ROOT / "docs" / "govstack" / "testing" / "TESTING_SITE_PREPARATION.md"
         ).read_text()

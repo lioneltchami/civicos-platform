@@ -4,15 +4,27 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('documents', '0004_document_beat_schedule'),
+    dependencies = [  # noqa: RUF012
+        ("documents", "0004_document_beat_schedule"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterField(
-            model_name='document',
-            name='scan_status',
-            field=models.CharField(choices=[('pending_upload', 'Pending upload'), ('scanning', 'Scanning'), ('active', 'Active'), ('quarantined', 'Quarantined — Infected'), ('deleted', 'Deleted'), ('purged', 'Purged — Storage cleared')], db_index=True, default='pending_upload', max_length=20, verbose_name='Scan status'),
+            model_name="document",
+            name="scan_status",
+            field=models.CharField(
+                choices=[
+                    ("pending_upload", "Pending upload"),
+                    ("scanning", "Scanning"),
+                    ("active", "Active"),
+                    ("quarantined", "Quarantined — Infected"),
+                    ("deleted", "Deleted"),
+                    ("purged", "Purged — Storage cleared"),
+                ],
+                db_index=True,
+                default="pending_upload",
+                max_length=20,
+                verbose_name="Scan status",
+            ),
         ),
     ]

@@ -4,15 +4,30 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('payments', '0005_add_receipt_amount_constraints'),
+    dependencies = [  # noqa: RUF012
+        ("payments", "0005_add_receipt_amount_constraints"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterField(
-            model_name='payment',
-            name='card_brand',
-            field=models.CharField(blank=True, choices=[('visa', 'Visa'), ('mastercard', 'Mastercard'), ('amex', 'Amex'), ('interac', 'Interac'), ('discover', 'Discover'), ('jcb', 'JCB'), ('diners', 'Diners Club'), ('unionpay', 'UnionPay'), ('other', 'Other')], max_length=20, null=True, verbose_name='Card Brand'),
+            model_name="payment",
+            name="card_brand",
+            field=models.CharField(
+                blank=True,
+                choices=[
+                    ("visa", "Visa"),
+                    ("mastercard", "Mastercard"),
+                    ("amex", "Amex"),
+                    ("interac", "Interac"),
+                    ("discover", "Discover"),
+                    ("jcb", "JCB"),
+                    ("diners", "Diners Club"),
+                    ("unionpay", "UnionPay"),
+                    ("other", "Other"),
+                ],
+                max_length=20,
+                null=True,
+                verbose_name="Card Brand",
+            ),
         ),
     ]

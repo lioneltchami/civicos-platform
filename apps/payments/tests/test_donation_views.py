@@ -5,6 +5,7 @@ Tests for views in apps/payments/views/donation.py.
 Covers: DonationSelectView, DonationConfirmView, create_donation_intent_api,
 DonationSuccessView, DonationCancelView, RecurringGiftCancelView.
 """
+
 import json
 import uuid
 from datetime import date
@@ -18,14 +19,14 @@ from django.urls import reverse
 
 from apps.payments.gateways.exceptions import GatewayError
 from apps.payments.models import (
+    FREQUENCY_MONTHLY,
+    PLAN_STATUS_ACTIVE,
+    PLAN_STATUS_CANCELLED,
+    CharitySettings,
     DonationCampaign,
     PaymentIntent,
     RecurringGiftPlan,
     TenantPaymentConfig,
-    CharitySettings,
-    PLAN_STATUS_ACTIVE,
-    PLAN_STATUS_CANCELLED,
-    FREQUENCY_MONTHLY,
 )
 from apps.payments.views.donation import DONATION_SESSION_KEY
 
@@ -35,6 +36,7 @@ User = get_user_model()
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
+
 
 def make_user(email=None, password="testpass123", **kwargs):
     email = email or f"user_{uuid.uuid4().hex[:6]}@example.com"
@@ -119,8 +121,8 @@ CANCEL_URL = reverse("donate:donation_cancel")
 # Base test class
 # ---------------------------------------------------------------------------
 
-class DonationViewTestBase(TestCase):
 
+class DonationViewTestBase(TestCase):
     def setUp(self):
         cache.clear()
         self.user = make_user()
@@ -182,8 +184,8 @@ class DonationViewTestBase(TestCase):
 # DonationSelectView
 # ---------------------------------------------------------------------------
 
-class DonationSelectViewTests(DonationViewTestBase):
 
+class DonationSelectViewTests(DonationViewTestBase):
     # 1. GET returns 200, form in context
     def test_get_returns_200_with_form(self):
         resp = self.client.get(SELECT_URL)
@@ -192,59 +194,77 @@ class DonationSelectViewTests(DonationViewTestBase):
 
     # 2. POST with valid data redirects to confirm URL
     def test_post_valid_redirects_to_confirm(self):
-        resp = self.client.post(SELECT_URL, data={
-            "campaign": str(self.campaign.pk),
-            "amount": "50.00",
-            "donor_name": "Jane Citizen",
-            "donor_email": "jane@example.ca",
-            "is_recurring": False,
-            "frequency": "",
-            "is_anonymous": False,
-            "advantage_amount": "",
-        })
+        resp = self.client.post(
+            SELECT_URL,
+            data={
+                "campaign": str(self.campaign.pk),
+                "amount": "50.00",
+                "donor_name": "Jane Citizen",
+                "donor_email": "jane@example.ca",
+                "is_recurring": False,
+                "frequency": "",
+                "is_anonymous": False,
+                "advantage_amount": "",
+            },
+        )
         self.assertRedirects(resp, CONFIRM_URL, fetch_redirect_response=False)
 
     # 3. POST stores session keys
     def test_post_valid_stores_session_keys(self):
-        self.client.post(SELECT_URL, data={
-            "campaign": str(self.campaign.pk),
-            "amount": "50.00",
-            "donor_name": "Jane Citizen",
-            "donor_email": "jane@example.ca",
-            "is_recurring": False,
-            "frequency": "",
-            "is_anonymous": False,
-            "advantage_amount": "",
-        })
+        self.client.post(
+            SELECT_URL,
+            data={
+                "campaign": str(self.campaign.pk),
+                "amount": "50.00",
+                "donor_name": "Jane Citizen",
+                "donor_email": "jane@example.ca",
+                "is_recurring": False,
+                "frequency": "",
+                "is_anonymous": False,
+                "advantage_amount": "",
+            },
+        )
         session = self.client.session
         self.assertIn(DONATION_SESSION_KEY, session)
         sd = session[DONATION_SESSION_KEY]
-        for key in ("campaign_pk", "amount", "eligible_amount", "advantage_amount",
-                    "donor_name", "donor_email"):
+        for key in (
+            "campaign_pk",
+            "amount",
+            "eligible_amount",
+            "advantage_amount",
+            "donor_name",
+            "donor_email",
+        ):
             self.assertIn(key, sd, f"Session missing key: {key}")
 
     # 4. POST with invalid data re-renders form (no redirect)
     def test_post_invalid_rerenders_form(self):
-        resp = self.client.post(SELECT_URL, data={
-            "campaign": str(self.campaign.pk),
-            "amount": "0.00",  # Invalid: below minimum
-            "donor_name": "Jane Citizen",
-            "donor_email": "jane@example.ca",
-        })
+        resp = self.client.post(
+            SELECT_URL,
+            data={
+                "campaign": str(self.campaign.pk),
+                "amount": "0.00",  # Invalid: below minimum
+                "donor_name": "Jane Citizen",
+                "donor_email": "jane@example.ca",
+            },
+        )
         self.assertEqual(resp.status_code, 200)
 
     # 5. Session amounts stored as strings (not float)
     def test_session_amounts_are_strings(self):
-        self.client.post(SELECT_URL, data={
-            "campaign": str(self.campaign.pk),
-            "amount": "50.00",
-            "donor_name": "Jane Citizen",
-            "donor_email": "jane@example.ca",
-            "is_recurring": False,
-            "frequency": "",
-            "is_anonymous": False,
-            "advantage_amount": "",
-        })
+        self.client.post(
+            SELECT_URL,
+            data={
+                "campaign": str(self.campaign.pk),
+                "amount": "50.00",
+                "donor_name": "Jane Citizen",
+                "donor_email": "jane@example.ca",
+                "is_recurring": False,
+                "frequency": "",
+                "is_anonymous": False,
+                "advantage_amount": "",
+            },
+        )
         sd = self.client.session[DONATION_SESSION_KEY]
         for key in ("amount", "eligible_amount", "advantage_amount"):
             self.assertIsInstance(sd[key], str, f"{key} must be a string")
@@ -259,8 +279,8 @@ class DonationSelectViewTests(DonationViewTestBase):
 # DonationConfirmView
 # ---------------------------------------------------------------------------
 
-class DonationConfirmViewTests(DonationViewTestBase):
 
+class DonationConfirmViewTests(DonationViewTestBase):
     # 7. GET with valid session renders 200
     def test_get_with_session_returns_200(self):
         self._set_donation_session()
@@ -293,8 +313,8 @@ class DonationConfirmViewTests(DonationViewTestBase):
 # create_donation_intent_api
 # ---------------------------------------------------------------------------
 
-class CreateDonationIntentApiTests(DonationViewTestBase):
 
+class CreateDonationIntentApiTests(DonationViewTestBase):
     # 11. Unauthenticated POST → 401 WITHOUT calling the gateway (Fix 1)
     def test_unauthenticated_post_returns_401_before_gateway(self):
         self._set_donation_session()
@@ -390,9 +410,7 @@ class CreateDonationIntentApiTests(DonationViewTestBase):
     def test_gateway_error_returns_502(self):
         self.client.force_login(self.user)
         self._set_donation_session()
-        with self._mock_gateway(
-            raises=GatewayError("gateway down", gateway_code="unavailable")
-        ):
+        with self._mock_gateway(raises=GatewayError("gateway down", gateway_code="unavailable")):
             resp = self._post_intent()
         self.assertEqual(resp.status_code, 502)
         data = resp.json()
@@ -454,8 +472,8 @@ class CreateDonationIntentApiTests(DonationViewTestBase):
 # DonationSuccessView
 # ---------------------------------------------------------------------------
 
-class DonationSuccessViewTests(DonationViewTestBase):
 
+class DonationSuccessViewTests(DonationViewTestBase):
     # 23. GET with valid payment_intent_pk query param → 200
     def test_get_with_valid_pk_returns_200(self):
         self.client.force_login(self.user)
@@ -492,8 +510,8 @@ class DonationSuccessViewTests(DonationViewTestBase):
 # DonationCancelView
 # ---------------------------------------------------------------------------
 
-class DonationCancelViewTests(DonationViewTestBase):
 
+class DonationCancelViewTests(DonationViewTestBase):
     # 28. GET clears session → 200
     def test_get_clears_session_returns_200(self):
         self.client.force_login(self.user)
@@ -525,6 +543,7 @@ class DonationCancelViewTests(DonationViewTestBase):
 # ---------------------------------------------------------------------------
 # M-C — DonationCancelView IDOR defence
 # ---------------------------------------------------------------------------
+
 
 class MCDonationCancelIDORTests(DonationViewTestBase):
     """M-C: DonationCancelView must filter by payer=request.user."""
@@ -587,8 +606,8 @@ class MCDonationCancelIDORTests(DonationViewTestBase):
 # RecurringGiftCancelView
 # ---------------------------------------------------------------------------
 
-class RecurringGiftCancelViewTests(DonationViewTestBase):
 
+class RecurringGiftCancelViewTests(DonationViewTestBase):
     def _cancel_url(self, plan_pk):
         return reverse("donate:recurring_cancel", kwargs={"plan_pk": str(plan_pk)})
 
@@ -627,7 +646,7 @@ class RecurringGiftCancelViewTests(DonationViewTestBase):
         # We test with a plan that has an empty-ish subscription id by using a unique value
         # but verifying the gateway cancel is NOT called if subscription_id is empty-ish.
         # Since the model requires it, we test the gateway_cancelled=False path
-        plan = make_recurring_plan(self.user, gateway_subscription_id="")
+        make_recurring_plan(self.user, gateway_subscription_id="")
         # This will fail model validation since gateway_subscription_id is required
         # So we test by patching the view's plan attribute
         # Actually the model allows blank=False but blank is enforced at form level
@@ -672,7 +691,9 @@ class RecurringGiftCancelViewTests(DonationViewTestBase):
         self.client.force_login(self.user)
         plan = make_recurring_plan(self.user)
         mock_gw = MagicMock()
-        mock_gw.cancel_subscription.side_effect = GatewayError("network error", gateway_code="network_error")
+        mock_gw.cancel_subscription.side_effect = GatewayError(
+            "network error", gateway_code="network_error"
+        )
 
         with patch("apps.payments.views.donation.get_gateway", return_value=mock_gw):
             resp = self.client.post(self._cancel_url(plan.pk))
@@ -684,6 +705,7 @@ class RecurringGiftCancelViewTests(DonationViewTestBase):
     # 38. Audit entry created on cancellation
     def test_audit_entry_created_on_cancel(self):
         from apps.payments.models import PaymentAuditEntry
+
         self.client.force_login(self.user)
         plan = make_recurring_plan(self.user)
         with self._mock_gateway():
@@ -696,6 +718,7 @@ class RecurringGiftCancelViewTests(DonationViewTestBase):
 # Fix 2: PaymentIntent metadata must include CRA fields
 # ---------------------------------------------------------------------------
 
+
 class CreateDonationIntentMetadataTests(DonationViewTestBase):
     """Fix 2: advantage_amount, eligible_amount, is_anonymous, donor_legal_name
     must be stored in PaymentIntent.metadata so the webhook handler can produce
@@ -704,7 +727,9 @@ class CreateDonationIntentMetadataTests(DonationViewTestBase):
     # 39. Metadata contains advantage_amount from session
     def test_metadata_contains_advantage_amount(self):
         self.client.force_login(self.user)
-        sd = self._default_session_data(advantage_amount="10.00", eligible_amount="40.00", amount="50.00")
+        sd = self._default_session_data(
+            advantage_amount="10.00", eligible_amount="40.00", amount="50.00"
+        )
         self._set_donation_session(sd)
         with self._mock_gateway():
             resp = self._post_intent()
@@ -715,7 +740,9 @@ class CreateDonationIntentMetadataTests(DonationViewTestBase):
     # 40. Metadata contains eligible_amount from session
     def test_metadata_contains_eligible_amount(self):
         self.client.force_login(self.user)
-        sd = self._default_session_data(advantage_amount="10.00", eligible_amount="40.00", amount="50.00")
+        sd = self._default_session_data(
+            advantage_amount="10.00", eligible_amount="40.00", amount="50.00"
+        )
         self._set_donation_session(sd)
         with self._mock_gateway():
             resp = self._post_intent()
@@ -781,6 +808,7 @@ class CreateDonationIntentMetadataTests(DonationViewTestBase):
 # H7 — Stripe metadata must not contain PII (PIPEDA compliance)
 # ---------------------------------------------------------------------------
 
+
 class StripePIIMetadataTests(DonationViewTestBase):
     """
     H7: donor_legal_name (and any other PII) must NOT be sent to Stripe in
@@ -814,12 +842,14 @@ class StripePIIMetadataTests(DonationViewTestBase):
     def test_stripe_metadata_does_not_contain_donor_legal_name(self):
         resp, calls = self._post_intent_capturing_gateway_call(donor_name="Jean Tremblay")
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(len(calls), 1, "Gateway create_payment_intent should be called exactly once")
+        self.assertEqual(
+            len(calls), 1, "Gateway create_payment_intent should be called exactly once"
+        )
         stripe_metadata = calls[0].get("metadata", {})
         self.assertNotIn(
             "donor_legal_name",
             stripe_metadata,
-            f"donor_legal_name must NOT be sent to Stripe metadata (PIPEDA). Got: {stripe_metadata}",
+            f"donor_legal_name must NOT be sent to Stripe metadata (PIPEDA). Got: {stripe_metadata}",  # noqa: E501
         )
 
     # 47. PII fields (name, email) must NOT be in Stripe metadata
@@ -827,8 +857,16 @@ class StripePIIMetadataTests(DonationViewTestBase):
         resp, calls = self._post_intent_capturing_gateway_call(donor_name="Marie Curie")
         self.assertEqual(resp.status_code, 200)
         stripe_metadata = calls[0].get("metadata", {})
-        pii_fields = ["donor_legal_name", "name", "full_name", "email", "donor_email",
-                      "address", "donor_address", "postal_code"]
+        pii_fields = [
+            "donor_legal_name",
+            "name",
+            "full_name",
+            "email",
+            "donor_email",
+            "address",
+            "donor_address",
+            "postal_code",
+        ]
         for field in pii_fields:
             self.assertNotIn(
                 field,
@@ -841,7 +879,13 @@ class StripePIIMetadataTests(DonationViewTestBase):
         resp, calls = self._post_intent_capturing_gateway_call()
         self.assertEqual(resp.status_code, 200)
         stripe_metadata = calls[0].get("metadata", {})
-        for field in ("campaign_pk", "source", "advantage_amount", "eligible_amount", "is_anonymous"):
+        for field in (
+            "campaign_pk",
+            "source",
+            "advantage_amount",
+            "eligible_amount",
+            "is_anonymous",
+        ):
             self.assertIn(
                 field,
                 stripe_metadata,
@@ -853,6 +897,7 @@ class StripePIIMetadataTests(DonationViewTestBase):
 # H-E — DonationSuccessView IDOR fix
 # ---------------------------------------------------------------------------
 
+
 class DonationSuccessViewIDORTests(DonationViewTestBase):
     """
     H-E: DonationSuccessView must not allow one authenticated user to view
@@ -863,9 +908,7 @@ class DonationSuccessViewIDORTests(DonationViewTestBase):
     def test_success_view_requires_own_intent(self):
         """Another user's intent UUID must return 404 for a different authenticated user."""
         other_user = make_user()
-        other_intent = make_payment_intent(
-            other_user, status=PaymentIntent.STATUS_COMPLETED
-        )
+        other_intent = make_payment_intent(other_user, status=PaymentIntent.STATUS_COMPLETED)
         self.client.force_login(self.user)  # logged in as a different user
         resp = self.client.get(SUCCESS_URL, {"payment_intent_pk": str(other_intent.pk)})
         self.assertEqual(resp.status_code, 404)
@@ -923,6 +966,7 @@ class DonationSuccessViewIDORTests(DonationViewTestBase):
 # M-D — Rate limit order: auth check must precede rate-limit check
 # ---------------------------------------------------------------------------
 
+
 class MDRateLimitOrderTests(DonationViewTestBase):
     """M-D: unauthenticated requests must NOT consume the rate-limit quota."""
 
@@ -942,21 +986,25 @@ class MDRateLimitOrderTests(DonationViewTestBase):
         self.client.force_login(self.user)
         self._set_donation_session()
         with patch("apps.payments.views.donation.cache") as mock_cache:
-            mock_cache.add.return_value = True   # key created
-            mock_cache.incr.return_value = 1     # count = 1, under limit
+            mock_cache.add.return_value = True  # key created
+            mock_cache.incr.return_value = 1  # count = 1, under limit
             with self._mock_gateway():
-                resp = self._post_intent()
+                self._post_intent()
         # cache.add must have been called with a key containing the user PK
         self.assertTrue(mock_cache.add.called, "cache.add should have been called")
         cache_key = mock_cache.add.call_args[0][0]
-        self.assertIn(str(self.user.pk), cache_key, "Rate limit key must include user PK for auth'd users")
+        self.assertIn(
+            str(self.user.pk), cache_key, "Rate limit key must include user PK for auth'd users"
+        )
         self.assertNotIn("_ip_", cache_key, "Rate limit key must NOT be IP-based for auth'd users")
 
     def test_rate_limit_fires_after_auth_check(self):
         """Auth check must come before rate limit — 401 returned, not 429."""
         # Fill up the IP rate-limit bucket manually (simulating a bot attack)
-        from django.core.cache import cache as real_cache
         import hashlib
+
+        from django.core.cache import cache as real_cache
+
         ip = "127.0.0.1"
         ip_hash = hashlib.sha256(ip.encode()).hexdigest()[:16]
         ip_key = f"donation_ratelimit_ip_{ip_hash}"
@@ -965,13 +1013,17 @@ class MDRateLimitOrderTests(DonationViewTestBase):
         # An unauthenticated request — should get 401, not 429
         self._set_donation_session()
         resp = self._post_intent()
-        self.assertEqual(resp.status_code, 401,
-            "Unauthenticated request should return 401 (auth check), not 429 (rate limit).")
+        self.assertEqual(
+            resp.status_code,
+            401,
+            "Unauthenticated request should return 401 (auth check), not 429 (rate limit).",
+        )
 
 
 # ---------------------------------------------------------------------------
 # M-E — RecurringGiftCancelView defers Stripe call to on_commit
 # ---------------------------------------------------------------------------
+
 
 class MERecurringCancelDeferredTests(DonationViewTestBase):
     """M-E: gateway.cancel_subscription must be called via on_commit, not inside atomic()."""
@@ -1003,6 +1055,7 @@ class MERecurringCancelDeferredTests(DonationViewTestBase):
         called before on_commit callbacks execute.
         """
         import inspect
+
         from apps.payments.views import donation as donation_module
 
         source = inspect.getsource(donation_module.RecurringGiftCancelView.post)
@@ -1033,7 +1086,9 @@ class MERecurringCancelDeferredTests(DonationViewTestBase):
         plan = make_recurring_plan(self.user)
 
         mock_gw = MagicMock()
-        mock_gw.cancel_subscription.side_effect = GatewayError("stripe down", gateway_code="network_error")
+        mock_gw.cancel_subscription.side_effect = GatewayError(
+            "stripe down", gateway_code="network_error"
+        )
 
         with patch("apps.payments.views.donation.get_gateway", return_value=mock_gw):
             with self.captureOnCommitCallbacks(execute=True):
@@ -1050,14 +1105,17 @@ class MERecurringCancelDeferredTests(DonationViewTestBase):
 # M-F — IP masking via ipware in audit logs
 # ---------------------------------------------------------------------------
 
+
 class MFIPMaskingDonationTests(DonationViewTestBase):
-    """M-F: session-expired log in donation views uses _mask_ip(_get_client_ip()), not REMOTE_ADDR."""
+    """M-F: session-expired log in donation views uses _mask_ip(_get_client_ip()), not REMOTE_ADDR."""  # noqa: E501
 
     def test_session_expired_log_uses_get_client_ip(self):
         """session_expired warning must use _get_client_ip, not raw REMOTE_ADDR."""
         self.client.force_login(self.user)
         # No session set — triggers the session_expired log warning path
-        with patch("apps.payments.views.donation._get_client_ip", return_value="10.0.0.1") as mock_ip:
+        with patch(
+            "apps.payments.views.donation._get_client_ip", return_value="10.0.0.1"
+        ) as mock_ip:
             resp = self._post_intent()
         # Should be 403 (session expired) — proving the session_expired branch was hit
         self.assertEqual(resp.status_code, 403)
@@ -1067,6 +1125,7 @@ class MFIPMaskingDonationTests(DonationViewTestBase):
 # ---------------------------------------------------------------------------
 # M-M — DonationCancelView cancels Stripe PI
 # ---------------------------------------------------------------------------
+
 
 class MMDonationCancelStripeTests(DonationViewTestBase):
     """M-M: DonationCancelView must cancel the live Stripe PI via on_commit."""

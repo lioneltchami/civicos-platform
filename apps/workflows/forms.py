@@ -1,7 +1,6 @@
 """Forms for the workflows staff queue views."""
 
 from django import forms
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.utils.translation import gettext_lazy as _
 

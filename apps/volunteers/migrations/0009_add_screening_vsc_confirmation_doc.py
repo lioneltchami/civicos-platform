@@ -3,12 +3,11 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("volunteers", "0008_add_honorarium_t4a_document"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddField(
             model_name="screeningrecord",
             name="vsc_confirmation_doc",

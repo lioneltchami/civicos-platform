@@ -3,20 +3,19 @@
 The task claim and outcome writes are transactionally fenced in
 ``scheduler_runtime``. Transport happens only after the claim transaction ends.
 """
+
 from __future__ import annotations
 
-from celery import shared_task
-from django.utils import timezone
 import requests
 
 from apps.appointments.models import (
     GovStackSubscriberProfile,
     Resource,
-    SchedulerOutbox,
     SchedulerRecipientDelivery,
     StaffProfile,
 )
 from apps.appointments.services import scheduler_runtime as runtime
+from celery import shared_task
 
 
 def _resolve_push_destination(row: SchedulerRecipientDelivery) -> str:
@@ -31,7 +30,11 @@ def _resolve_push_destination(row: SchedulerRecipientDelivery) -> str:
         if row.recipient_kind == "resource":
             resource = Resource.objects.get(pk=row.recipient_ref)
             return resource.alert_url if resource.alert_preference == "push" else ""
-    except (GovStackSubscriberProfile.DoesNotExist, StaffProfile.DoesNotExist, Resource.DoesNotExist):
+    except (
+        GovStackSubscriberProfile.DoesNotExist,
+        StaffProfile.DoesNotExist,
+        Resource.DoesNotExist,
+    ):
         return ""
     return ""
 
@@ -44,13 +47,15 @@ def _resolve_push_destination(row: SchedulerRecipientDelivery) -> str:
     soft_time_limit=60,
     time_limit=75,
 )
-def deliver_scheduler_recipient(self, idempotency_key: str) -> dict:
+def deliver_scheduler_recipient(self, idempotency_key: str) -> dict:  # noqa: ANN001
     """Claim, transport, and persist one recipient outcome without DB-held I/O."""
     token = runtime.claim(idempotency_key=idempotency_key)
     if not token:
         return {"claimed": False}
 
-    row = SchedulerRecipientDelivery.objects.select_related("schedule__message").get(idempotency_key=idempotency_key)
+    row = SchedulerRecipientDelivery.objects.select_related("schedule__message").get(
+        idempotency_key=idempotency_key
+    )
     destination_url = _resolve_push_destination(row)
     body = {
         "alert_schedule_id": str(row.schedule_id),
@@ -65,7 +70,9 @@ def deliver_scheduler_recipient(self, idempotency_key: str) -> dict:
     from apps.appointments.tasks import _ALERT_DISPATCH_TIMEOUT_SECONDS, _is_safe_outbound_url
 
     if not destination_url or not _is_safe_outbound_url(destination_url):
-        runtime.fail(idempotency_key=idempotency_key, lease_token=token, error_class="unsafe_destination")
+        runtime.fail(
+            idempotency_key=idempotency_key, lease_token=token, error_class="unsafe_destination"
+        )
         return {"claimed": True, "delivered": False, "error_class": "unsafe_destination"}
 
     try:
@@ -85,10 +92,14 @@ def deliver_scheduler_recipient(self, idempotency_key: str) -> dict:
         runtime.fail(idempotency_key=idempotency_key, lease_token=token, error_class="http_error")
         return {"claimed": True, "delivered": False, "error_class": "http_error"}
     except requests.exceptions.RequestException:
-        runtime.fail(idempotency_key=idempotency_key, lease_token=token, error_class="transport_error")
+        runtime.fail(
+            idempotency_key=idempotency_key, lease_token=token, error_class="transport_error"
+        )
         return {"claimed": True, "delivered": False, "error_class": "transport_error"}
     except Exception:
-        runtime.fail(idempotency_key=idempotency_key, lease_token=token, error_class="transport_exception")
+        runtime.fail(
+            idempotency_key=idempotency_key, lease_token=token, error_class="transport_exception"
+        )
         return {"claimed": True, "delivered": False, "error_class": "transport_exception"}
 
     runtime.succeed(idempotency_key=idempotency_key, lease_token=token)
@@ -112,13 +123,17 @@ def publish_scheduler_outbox() -> dict:
             deliver_scheduler_recipient.delay(idempotency_key)
         except TimeoutError as exc:
             runtime.mark_outbox_unknown_handoff(
-                outbox_id=outbox_id, token=token, generation=generation,
+                outbox_id=outbox_id,
+                token=token,
+                generation=generation,
                 error_class=type(exc).__name__,
             )
             continue
         except Exception as exc:
             runtime.mark_outbox_failed(
-                outbox_id=outbox_id, token=token, generation=generation,
+                outbox_id=outbox_id,
+                token=token,
+                generation=generation,
                 error_class=type(exc).__name__,
             )
             continue

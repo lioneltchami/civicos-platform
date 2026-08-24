@@ -9,6 +9,7 @@ Covers all branches:
 - Idempotent update branches: crontab_id mismatch, task path mismatch,
   args mismatch, task disabled → re-enabled, no changes (already up-to-date)
 """
+
 import json
 from io import StringIO
 
@@ -23,15 +24,17 @@ def _call_setup(stdout=None, **kwargs):
 
 
 class SetupPeriodicTasksBasicTest(TestCase):
-
     def test_creates_crontab_and_periodic_task(self):
         from django_celery_beat.models import CrontabSchedule, PeriodicTask
 
         _call_setup()
 
-        self.assertEqual(CrontabSchedule.objects.filter(
-            minute="0", hour="8", day_of_month="2", month_of_year="1"
-        ).count(), 1)
+        self.assertEqual(
+            CrontabSchedule.objects.filter(
+                minute="0", hour="8", day_of_month="2", month_of_year="1"
+            ).count(),
+            1,
+        )
         self.assertTrue(
             PeriodicTask.objects.filter(name="payments.generate_annual_receipts").exists()
         )
@@ -117,7 +120,6 @@ class SetupPeriodicTasksIdempotentTest(TestCase):
 
 
 class SetupPeriodicTasksDryRunTest(TestCase):
-
     def test_dry_run_prints_warning(self):
         output = _call_setup(dry_run=True)
         self.assertIn("Dry run", output)
@@ -147,7 +149,6 @@ class SetupPeriodicTasksDryRunTest(TestCase):
 
 
 class SetupPeriodicTasksStaticYearTest(TestCase):
-
     def test_static_year_uses_real_task_path(self):
         from django_celery_beat.models import PeriodicTask
 
@@ -192,11 +193,11 @@ class SetupPeriodicTasksUpdateBranchesTest(TestCase):
         """Create the crontab and task via a first run."""
         _call_setup()
         from django_celery_beat.models import PeriodicTask
+
         return PeriodicTask.objects.get(name="payments.generate_annual_receipts")
 
     def test_disabled_task_gets_re_enabled(self):
         """If someone disables the task manually, a second run re-enables it."""
-        from django_celery_beat.models import PeriodicTask
 
         task = self._create_initial_task()
         task.enabled = False
@@ -211,7 +212,6 @@ class SetupPeriodicTasksUpdateBranchesTest(TestCase):
 
     def test_stale_task_path_gets_updated(self):
         """If the task path stored in DB is stale, running the command updates it."""
-        from django_celery_beat.models import PeriodicTask
 
         task = self._create_initial_task()
         task.task = "some.old.task.path"

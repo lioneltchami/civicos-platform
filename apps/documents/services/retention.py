@@ -57,7 +57,7 @@ _DEFAULT_HARD_DELETE_GRACE_DAYS: int = 30
 
 def schedule_expiry(
     *,
-    document: "Document",
+    document: Document,
 ) -> None:
     """
     Set expires_at and retain_until on a newly created Document.
@@ -117,8 +117,7 @@ def schedule_expiry(
     document.save(update_fields=["expires_at", "retain_until", "updated_at"])
 
     logger.debug(
-        "schedule_expiry: doc pk=%s category=%r transitory=%s "
-        "expires_at=%s retain_until=%s",
+        "schedule_expiry: doc pk=%s category=%r transitory=%s " "expires_at=%s retain_until=%s",
         document.pk,
         category.slug,
         category.is_transitory,
@@ -129,10 +128,10 @@ def schedule_expiry(
 
 def soft_delete(
     *,
-    document: "Document",
-    deleted_by: "User | None" = None,
+    document: Document,
+    deleted_by: User | None = None,
     reason: str = "",
-) -> "Document":
+) -> Document:
     """
     Soft-delete a document: set deleted_at=now(), scan_status=DELETED.
 
@@ -201,7 +200,9 @@ def soft_delete(
             )
 
         doc.deleted_at = now
-        doc.scan_status = Document.ScanStatus.DELETED  # CONTRACT: required for pending_hard_delete()
+        doc.scan_status = (
+            Document.ScanStatus.DELETED
+        )  # CONTRACT: required for pending_hard_delete()
         doc.deleted_by = deleted_by
         doc.deletion_reason = reason
         doc.save(
@@ -237,9 +238,9 @@ def soft_delete(
         _deleted_by_pk = deleted_by.pk if deleted_by else None
 
         def _fire_soft_deleted(
-            _pk=_doc_pk_s,
-            _dbpk=_deleted_by_pk,
-        ):
+            _pk=_doc_pk_s,  # noqa: ANN001
+            _dbpk=_deleted_by_pk,  # noqa: ANN001
+        ) -> None:
             results = document_soft_deleted.send_robust(
                 sender=Document,
                 document_pk=_pk,
@@ -274,7 +275,7 @@ def soft_delete(
 
 def hard_delete(
     *,
-    document: "Document",
+    document: Document,
 ) -> None:
     """
     Irreversibly hard-delete a document from storage.
@@ -336,9 +337,7 @@ def hard_delete(
     # Using the caller's in-memory instance — for performance only.
     # All checks are repeated under lock below (the authoritative TOCTOU guard).
     if document.legal_hold:
-        raise ValueError(
-            f"Document {document.pk} is on legal hold and cannot be hard-deleted."
-        )
+        raise ValueError(f"Document {document.pk} is on legal hold and cannot be hard-deleted.")
     if document.deleted_at is None:
         raise ValueError(
             f"Document {document.pk} has not been soft-deleted. "
@@ -380,13 +379,10 @@ def hard_delete(
         # Re-check ALL preconditions against the locked DB row.
         if doc.legal_hold:
             raise ValueError(
-                f"Document {doc.pk} is on legal hold (set concurrently). "
-                "Hard deletion aborted."
+                f"Document {doc.pk} is on legal hold (set concurrently). " "Hard deletion aborted."
             )
         if doc.deleted_at is None:
-            raise ValueError(
-                f"Document {doc.pk} has not been soft-deleted (concurrent race)."
-            )
+            raise ValueError(f"Document {doc.pk} has not been soft-deleted (concurrent race).")
         if doc.scan_status != Document.ScanStatus.DELETED:
             raise ValueError(
                 f"Document {doc.pk} scan_status is {doc.scan_status!r} under lock; "
@@ -432,8 +428,7 @@ def hard_delete(
     else:
         # storage_key already empty — storage cleared in a previous run.
         logger.info(
-            "hard_delete: doc pk=%r has empty storage_key; "
-            "skipping S3 delete (idempotent).",
+            "hard_delete: doc pk=%r has empty storage_key; " "skipping S3 delete (idempotent).",
             doc_pk,
         )
 
@@ -488,9 +483,9 @@ def hard_delete(
         # send_robust() never raises; inspect return values for receiver exceptions.
         # PIPEDA: kwargs contain ONLY document_pk and category_slug.
         def _fire_hard_deleted(
-            _pk=_doc_pk_s,
-            _slug=_cat_slug,
-        ):
+            _pk=_doc_pk_s,  # noqa: ANN001
+            _slug=_cat_slug,  # noqa: ANN001
+        ) -> None:
             results = document_hard_deleted.send_robust(
                 sender=Document,
                 document_pk=_pk,
@@ -515,9 +510,9 @@ def hard_delete(
 
 def mark_purpose_fulfilled(
     *,
-    document: "Document",
-    actor: "User",
-) -> "Document":
+    document: Document,
+    actor: User,
+) -> Document:
     """
     For transitory documents: perform soft-delete inline once purpose is fulfilled.
 
@@ -633,7 +628,9 @@ def mark_purpose_fulfilled(
         # and race to call soft_delete() before we complete the deletion ourselves.
         doc.expires_at = now
         doc.deleted_at = now
-        doc.scan_status = Document.ScanStatus.DELETED  # CONTRACT: required for pending_hard_delete()
+        doc.scan_status = (
+            Document.ScanStatus.DELETED
+        )  # CONTRACT: required for pending_hard_delete()
         doc.deleted_by = actor
         doc.deletion_reason = "transitory_purpose_fulfilled"
         doc.save(
@@ -667,9 +664,9 @@ def mark_purpose_fulfilled(
         _actor_pk = actor.pk
 
         def _fire_soft_deleted(
-            _pk=_doc_pk_s,
-            _dbpk=_actor_pk,
-        ):
+            _pk=_doc_pk_s,  # noqa: ANN001
+            _dbpk=_actor_pk,  # noqa: ANN001
+        ) -> None:
             results = document_soft_deleted.send_robust(
                 sender=Document,
                 document_pk=_pk,
@@ -704,10 +701,10 @@ def mark_purpose_fulfilled(
 
 def apply_legal_hold(
     *,
-    document: "Document",
-    set_by: "User",
+    document: Document,
+    set_by: User,
     reason: str,
-) -> "Document":
+) -> Document:
     """
     Apply a legal hold to a document, blocking all automated disposal.
 
@@ -758,9 +755,7 @@ def apply_legal_hold(
         doc = Document.objects.select_for_update().get(pk=document.pk)
 
         if doc.legal_hold:
-            raise ValueError(
-                f"Document {doc.pk} is already on legal hold (concurrent race)."
-            )
+            raise ValueError(f"Document {doc.pk} is already on legal hold (concurrent race).")
 
         doc.legal_hold = True
         doc.legal_hold_reason = reason
@@ -796,9 +791,9 @@ def apply_legal_hold(
         _set_by_pk = set_by.pk
 
         def _fire_legal_hold_applied(
-            _pk=_doc_pk_s,
-            _sbpk=_set_by_pk,
-        ):
+            _pk=_doc_pk_s,  # noqa: ANN001
+            _sbpk=_set_by_pk,  # noqa: ANN001
+        ) -> None:
             results = document_legal_hold_changed.send_robust(
                 sender=Document,
                 document_pk=_pk,
@@ -831,10 +826,10 @@ def apply_legal_hold(
 
 def release_legal_hold(
     *,
-    document: "Document",
-    released_by: "User",
+    document: Document,
+    released_by: User,
     reason: str = "",
-) -> "Document":
+) -> Document:
     """
     Release a legal hold, re-enabling automated disposal per the retention schedule.
 
@@ -879,17 +874,13 @@ def release_legal_hold(
 
     # Pre-lock check.
     if not document.legal_hold:
-        raise ValueError(
-            f"Document {document.pk} is not on legal hold. Nothing to release."
-        )
+        raise ValueError(f"Document {document.pk} is not on legal hold. Nothing to release.")
 
     with transaction.atomic():
         doc = Document.objects.select_for_update().get(pk=document.pk)
 
         if not doc.legal_hold:
-            raise ValueError(
-                f"Document {doc.pk} is not on legal hold (concurrent race)."
-            )
+            raise ValueError(f"Document {doc.pk} is not on legal hold (concurrent race).")
 
         doc.legal_hold = False
         # NOTE: legal_hold_reason and legal_hold_set_by are preserved for audit
@@ -917,9 +908,9 @@ def release_legal_hold(
         _released_by_pk = released_by.pk
 
         def _fire_legal_hold_released(
-            _pk=_doc_pk_s,
-            _rbpk=_released_by_pk,
-        ):
+            _pk=_doc_pk_s,  # noqa: ANN001
+            _rbpk=_released_by_pk,  # noqa: ANN001
+        ) -> None:
             results = document_legal_hold_changed.send_robust(
                 sender=Document,
                 document_pk=_pk,
@@ -985,9 +976,7 @@ def purge_expired_tokens(*, dry_run: bool = False) -> int:
     # The two conditions are independent — we want to clean up both in one pass:
     #   - Expired tokens: cannnot be redeemed regardless of used_at.
     #   - Used tokens: single-use semantics; the download is complete.
-    qs = DocumentAccessToken.objects.filter(
-        Q(expires_at__lte=now) | Q(used_at__isnull=False)
-    )
+    qs = DocumentAccessToken.objects.filter(Q(expires_at__lte=now) | Q(used_at__isnull=False))
 
     if dry_run:
         count = qs.count()

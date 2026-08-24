@@ -7,5 +7,5 @@ class CivicOSAuthConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
 
     def ready(self) -> None:
-        import apps.auth_extension.signals  # noqa: F401
+        import apps.auth_extension.signals
         import apps.auth_extension.tasks  # noqa: F401 — register Celery tasks

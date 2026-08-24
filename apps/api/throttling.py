@@ -45,7 +45,7 @@ class _TestBypassMixin:
     ``DEFAULT_THROTTLE_CLASSES: []`` override in test.py.
     """
 
-    def get_cache_key(self, request, view):
+    def get_cache_key(self, request, view):  # noqa: ANN001, ANN202
         if getattr(settings, "TESTING", False):
             return None
         return super().get_cache_key(request, view)

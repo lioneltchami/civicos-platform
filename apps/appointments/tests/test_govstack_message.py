@@ -10,6 +10,7 @@ Covers 4 endpoints:
 Test numbering: MSG1-MSGxx, following the EV/AP/SUB numbering convention
 used in test_govstack_event.py / test_govstack_appointment.py.
 """
+
 from __future__ import annotations
 
 import json
@@ -18,7 +19,12 @@ from urllib.parse import urlencode
 
 from django.test import TestCase, override_settings
 
-from apps.appointments.models import GovStackAlertSchedule, GovStackBBCredential, GovStackMessage, Organization
+from apps.appointments.models import (
+    GovStackAlertSchedule,
+    GovStackBBCredential,
+    GovStackMessage,
+    Organization,
+)
 from apps.appointments.services.govstack_alert_schedule import alert_schedule_create
 from apps.appointments.services.govstack_event import event_create
 from apps.appointments.services.govstack_message import message_create
@@ -39,6 +45,7 @@ _AUTH = {"requestor_id": "test-bb", "request_token": "test-token"}
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _qs(**extra):
     params = {**_AUTH, **extra}
@@ -71,6 +78,7 @@ def _create_message(entity_id=None, category="reminder", message_body="Hello"):
 # Base test case
 # ===========================================================================
 
+
 class MessageBaseTestCase(TestCase):
     """Shared HTTP helpers for all message endpoint tests."""
 
@@ -95,14 +103,19 @@ class MessageBaseTestCase(TestCase):
 # MSG1-MSG8: POST /message/new
 # ===========================================================================
 
+
 class MessageNewTests(MessageBaseTestCase):
     """MSG1-MSG8: POST /message/new"""
 
     def test_msg1_happy_path_creates_message(self):
         org = _create_org()
-        qry = {"message_details": {
-            "entity_id": str(org.pk), "category": "reminder", "message_body": "Your appointment is tomorrow.",
-        }}
+        qry = {
+            "message_details": {
+                "entity_id": str(org.pk),
+                "category": "reminder",
+                "message_body": "Your appointment is tomorrow.",
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
@@ -160,6 +173,7 @@ class MessageNewTests(MessageBaseTestCase):
 # MSG9-MSG15: PUT /message/modifications
 # ===========================================================================
 
+
 class MessageModificationsTests(MessageBaseTestCase):
     """MSG9-MSG15: PUT /message/modifications"""
 
@@ -209,6 +223,7 @@ class MessageModificationsTests(MessageBaseTestCase):
 # MSG16-MSG21: DELETE /message
 # ===========================================================================
 
+
 class MessageDeleteTests(MessageBaseTestCase):
     """MSG16-MSG21: DELETE /message"""
 
@@ -236,9 +251,10 @@ class MessageDeleteTests(MessageBaseTestCase):
     def test_msg20_protected_error_when_referenced_by_alert_schedule(self):
         """MSG20: deleting a message still referenced by an AlertSchedule → 400 MESSAGE_IN_USE."""
         msg = _create_message()
-        slots = event_create(name="Test Event", slots=[
-            {"from": "2027-01-01T09:00:00Z", "to": "2027-01-01T10:00:00Z"}
-        ])
+        slots = event_create(
+            name="Test Event",
+            slots=[{"from": "2027-01-01T09:00:00Z", "to": "2027-01-01T10:00:00Z"}],
+        )
         alert_schedule_create(
             event_id=str(slots[0].pk),
             message_id=str(msg.pk),
@@ -252,9 +268,10 @@ class MessageDeleteTests(MessageBaseTestCase):
 
     def test_msg21_delete_succeeds_after_referencing_alert_schedule_removed(self):
         msg = _create_message()
-        slots = event_create(name="Test Event 2", slots=[
-            {"from": "2027-01-02T09:00:00Z", "to": "2027-01-02T10:00:00Z"}
-        ])
+        slots = event_create(
+            name="Test Event 2",
+            slots=[{"from": "2027-01-02T09:00:00Z", "to": "2027-01-02T10:00:00Z"}],
+        )
         alert_schedule = alert_schedule_create(
             event_id=str(slots[0].pk),
             message_id=str(msg.pk),
@@ -268,6 +285,7 @@ class MessageDeleteTests(MessageBaseTestCase):
 # ===========================================================================
 # MSG22-MSG28: GET /message/list_details
 # ===========================================================================
+
 
 class MessageListDetailsTests(MessageBaseTestCase):
     """MSG22-MSG28: GET /message/list_details"""
@@ -341,10 +359,12 @@ class MessageListDetailsTests(MessageBaseTestCase):
 
     def test_msg27_message_body_included_when_required_flag_true(self):
         msg = _create_message(message_body="secret template text")
-        resp = self._get({
-            "message_filter": {"message_id": str(msg.pk)},
-            "message_details_required": {"message_body": True},
-        })
+        resp = self._get(
+            {
+                "message_filter": {"message_id": str(msg.pk)},
+                "message_details_required": {"message_body": True},
+            }
+        )
         item = resp.json()[0]
         self.assertEqual(item["details"]["message_body"], "secret template text")
 
@@ -357,6 +377,7 @@ class MessageListDetailsTests(MessageBaseTestCase):
 # ===========================================================================
 # MSG29-MSG31: Auth / role enforcement
 # ===========================================================================
+
 
 @override_settings(GOVSTACK_SCHEDULER_REQUIRE_TOKEN=True)
 class MessageRoleEnforcementTests(MessageBaseTestCase):
@@ -379,7 +400,9 @@ class MessageRoleEnforcementTests(MessageBaseTestCase):
         correct plaintext secret. Finding #1 fix: request_token must never equal
         bb_id — it must verify against a separate hashed secret.
         """
-        bb = GovStackRegisteredBB.objects.create(bb_id=_AUTH["requestor_id"], is_active=True, role=role)
+        bb = GovStackRegisteredBB.objects.create(
+            bb_id=_AUTH["requestor_id"], is_active=True, role=role
+        )
         token = GovStackBBCredential.generate_plaintext_token()
         credential = GovStackBBCredential(bb=bb)
         credential.set_token(token)
@@ -424,6 +447,7 @@ class MessageRoleEnforcementTests(MessageBaseTestCase):
 # MSG34: spec-literal wire format (the `qry` query PARAMETER's JSON value,
 # single-nested — no additional outer wrapper key)
 # ===========================================================================
+
 
 class MessageSpecWireFormatTests(MessageBaseTestCase):
     """

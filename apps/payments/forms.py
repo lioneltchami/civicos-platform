@@ -9,8 +9,9 @@ Design decisions:
 - All fields have explicit labels for WCAG 2.1 AA compliance.
 - Tax is only applied when FeeSchedule.is_taxable is True.
 """
+
 import logging
-from decimal import Decimal, ROUND_DOWN
+from decimal import ROUND_DOWN, Decimal
 
 from django import forms
 from django.db.models import Sum
@@ -52,10 +53,12 @@ class FeePaymentForm(forms.Form):
     fee_code = forms.CharField(
         label=_("Fee Code"),
         max_length=50,
-        widget=forms.TextInput(attrs={
-            "placeholder": _("e.g. PERMIT-BUILDING"),
-            "autocomplete": "off",
-        }),
+        widget=forms.TextInput(
+            attrs={
+                "placeholder": _("e.g. PERMIT-BUILDING"),
+                "autocomplete": "off",
+            }
+        ),
     )
     quantity = forms.IntegerField(
         label=_("Quantity"),
@@ -73,16 +76,16 @@ class FeePaymentForm(forms.Form):
         widget=forms.TextInput(attrs={"autocomplete": "off"}),
     )
 
-    def clean_province(self):
+    def clean_province(self):  # noqa: ANN201
         value = self.cleaned_data.get("province", "").strip().upper()
         if not value:
             raise forms.ValidationError(_("Please select a province or territory."))
         return value
 
-    def clean_fee_code(self):
+    def clean_fee_code(self):  # noqa: ANN201
         return self.cleaned_data.get("fee_code", "").strip().upper()
 
-    def clean(self):
+    def clean(self):  # noqa: ANN201
         cleaned = super().clean()
         province = cleaned.get("province")
         fee_code = cleaned.get("fee_code")
@@ -108,9 +111,9 @@ class FeePaymentForm(forms.Form):
 
             cleaned["tax_rate"] = tax
             if tax:
-                cleaned["tax_amount"] = (
-                    cleaned["subtotal"] * tax.combined_rate
-                ).quantize(Decimal("0.01"))
+                cleaned["tax_amount"] = (cleaned["subtotal"] * tax.combined_rate).quantize(
+                    Decimal("0.01")
+                )
                 cleaned["total"] = cleaned["subtotal"] + cleaned["tax_amount"]
             else:
                 cleaned["tax_amount"] = Decimal("0.00")
@@ -136,11 +139,13 @@ class RefundForm(forms.Form):
         min_value=Decimal("0.01"),
         max_digits=10,
         decimal_places=2,
-        widget=forms.NumberInput(attrs={
-            "class": "form-control",
-            "step": "0.01",
-            "min": "0.01",
-        }),
+        widget=forms.NumberInput(
+            attrs={
+                "class": "form-control",
+                "step": "0.01",
+                "min": "0.01",
+            }
+        ),
     )
     reason = forms.ChoiceField(
         label=_("Reason"),
@@ -155,7 +160,7 @@ class RefundForm(forms.Form):
         help_text=_("Optional. For internal records only — not shown to the payer."),
     )
 
-    def __init__(self, *args, payment=None, **kwargs):
+    def __init__(self, *args, payment=None, **kwargs) -> None:  # noqa: ANN001, ANN002, ANN003
         super().__init__(*args, **kwargs)
         self.payment = payment
 
@@ -163,23 +168,19 @@ class RefundForm(forms.Form):
             # C-D: exclude GATEWAY_STATUS_FAILED rows — failed Stripe calls are
             # not real money movements and must not reduce the max refundable cap.
             # This mirrors _compute_already_refunded() in views/refund.py.
-            already = (
-                Refund.objects.filter(payment=payment)
-                .exclude(gateway_status=Refund.GATEWAY_STATUS_FAILED)
-                .aggregate(total=Sum("amount"))["total"]
-                or Decimal("0.00")
-            )
+            already = Refund.objects.filter(payment=payment).exclude(
+                gateway_status=Refund.GATEWAY_STATUS_FAILED
+            ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
             max_refundable = payment.amount_paid - already
             self.fields["amount"].max_value = max_refundable
             self.fields["amount"].widget.attrs["max"] = str(max_refundable)
             max_display = max_refundable.quantize(Decimal("0.01"), rounding=ROUND_DOWN)
             paid_display = payment.amount_paid.quantize(Decimal("0.01"))
             self.fields["amount"].help_text = _(
-                f"Maximum refundable: ${max_display}. "
-                f"Original amount paid: ${paid_display}."
+                f"Maximum refundable: ${max_display}. " f"Original amount paid: ${paid_display}."
             )
 
-    def clean_amount(self):
+    def clean_amount(self):  # noqa: ANN201
         amount = self.cleaned_data.get("amount")
         if amount is not None and amount <= Decimal("0.00"):
             raise forms.ValidationError(_("Refund amount must be greater than zero."))
@@ -196,7 +197,7 @@ class DonationForm(forms.Form):
     direct charging.
     """
 
-    from apps.payments.models import DonationCampaign as _DonationCampaign  # noqa: F811
+    from apps.payments.models import DonationCampaign as _DonationCampaign
 
     campaign = forms.ModelChoiceField(
         label=_("Campaign"),
@@ -211,13 +212,15 @@ class DonationForm(forms.Form):
         max_value=Decimal("999999.99"),  # $1M cap — prevents accidental 7-figure charges
         max_digits=10,
         decimal_places=2,
-        widget=forms.NumberInput(attrs={
-            "class": "form-control",
-            "step": "0.01",
-            "min": "1.00",
-            "max": "999999.99",
-            "placeholder": "0.00",
-        }),
+        widget=forms.NumberInput(
+            attrs={
+                "class": "form-control",
+                "step": "0.01",
+                "min": "1.00",
+                "max": "999999.99",
+                "placeholder": "0.00",
+            }
+        ),
     )
     is_recurring = forms.BooleanField(
         label=_("Make this a recurring gift"),
@@ -227,7 +230,8 @@ class DonationForm(forms.Form):
     frequency = forms.ChoiceField(
         label=_("Frequency"),
         required=False,
-        choices=[("", _("— Select frequency —"))] + [
+        choices=[
+            ("", _("— Select frequency —")),
             ("monthly", _("Monthly")),
             ("quarterly", _("Quarterly")),
             ("annually", _("Annually")),
@@ -237,19 +241,23 @@ class DonationForm(forms.Form):
     donor_name = forms.CharField(
         label=_("Full Name"),
         max_length=200,
-        widget=forms.TextInput(attrs={
-            "class": "form-control",
-            "autocomplete": "name",
-            "placeholder": _("Your legal name"),
-        }),
+        widget=forms.TextInput(
+            attrs={
+                "class": "form-control",
+                "autocomplete": "name",
+                "placeholder": _("Your legal name"),
+            }
+        ),
     )
     donor_email = forms.EmailField(
         label=_("Email Address"),
-        widget=forms.EmailInput(attrs={
-            "class": "form-control",
-            "autocomplete": "email",
-            "placeholder": _("you@example.ca"),
-        }),
+        widget=forms.EmailInput(
+            attrs={
+                "class": "form-control",
+                "autocomplete": "email",
+                "placeholder": _("you@example.ca"),
+            }
+        ),
     )
     is_anonymous = forms.BooleanField(
         label=_("Make my donation anonymous"),
@@ -268,21 +276,24 @@ class DonationForm(forms.Form):
             "Fair market value of any benefit you received in exchange for this donation "
             "(CRA requirement). Enter 0.00 if none."
         ),
-        widget=forms.NumberInput(attrs={
-            "class": "form-control",
-            "step": "0.01",
-            "min": "0.00",
-        }),
+        widget=forms.NumberInput(
+            attrs={
+                "class": "form-control",
+                "step": "0.01",
+                "min": "0.00",
+            }
+        ),
     )
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         super().__init__(*args, **kwargs)
         from apps.payments.models import DonationCampaign
+
         self.fields["campaign"].queryset = DonationCampaign.objects.filter(is_active=True).order_by(
             "sort_order", "name_en"
         )
 
-    def clean(self):
+    def clean(self):  # noqa: ANN201
         cleaned = super().clean()
         amount = cleaned.get("amount")
         advantage_amount = cleaned.get("advantage_amount") or Decimal("0.00")

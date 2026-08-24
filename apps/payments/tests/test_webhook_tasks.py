@@ -5,9 +5,10 @@ Mocks only Stripe HTTP calls (via gateway.parse_webhook_event).
 Uses patch("django.db.transaction.on_commit", side_effect=lambda fn: fn())
 to fire on_commit callbacks immediately in TestCase.
 """
+
 import uuid
 from decimal import Decimal
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -32,6 +33,7 @@ User = get_user_model()
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_user(email=None):
     email = email or f"user_{uuid.uuid4().hex[:6]}@example.com"
@@ -113,6 +115,7 @@ def _failed_event_data(gateway_intent_id="pi_test_001"):
 # Idempotency gate tests
 # ---------------------------------------------------------------------------
 
+
 class IdempotencyGateTests(TestCase):
     """Test that already-processed events are skipped."""
 
@@ -160,6 +163,7 @@ class IdempotencyGateTests(TestCase):
 # payment_intent.succeeded handler tests
 # ---------------------------------------------------------------------------
 
+
 class PaymentIntentSucceededHandlerTests(TestCase):
     """Test _handle_payment_intent_succeeded via the task."""
 
@@ -173,8 +177,10 @@ class PaymentIntentSucceededHandlerTests(TestCase):
             gateway_intent_id=pi.gateway_intent_id,
             gateway_charge_id=charge_id,
         )
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = mock_parse_return
             mock_get_gw.return_value = mock_gw
@@ -236,8 +242,10 @@ class PaymentIntentSucceededHandlerTests(TestCase):
             event_type="payment_intent.succeeded",
         )
         mock_parse_return = _succeeded_event_data(gateway_intent_id=pi.gateway_intent_id)
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = mock_parse_return
             mock_get_gw.return_value = mock_gw
@@ -246,7 +254,7 @@ class PaymentIntentSucceededHandlerTests(TestCase):
         self.assertEqual(Payment.objects.count(), 1)
 
     def test_duplicate_charge_id_is_idempotent(self):
-        """If a Payment already exists for the charge_id, handler returns without creating another."""
+        """If a Payment already exists for the charge_id, handler returns without creating another."""  # noqa: E501
         pi = _make_payment_intent()
         charge_id = "ch_duplicate_test"
 
@@ -264,8 +272,10 @@ class PaymentIntentSucceededHandlerTests(TestCase):
             gateway_charge_id=charge_id,
         )
 
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = mock_parse_return
             mock_get_gw.return_value = mock_gw
@@ -278,17 +288,17 @@ class PaymentIntentSucceededHandlerTests(TestCase):
             gateway_intent_id=pi2.gateway_intent_id,
             gateway_charge_id=charge_id,  # Same charge ID
         )
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw2, \
-             patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw2,
+            patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+        ):
             mock_gw2 = MagicMock()
             mock_gw2.parse_webhook_event.return_value = mock_parse_return2
             mock_get_gw2.return_value = mock_gw2
             process_stripe_webhook(str(event2.pk))
 
         # Only one Payment should exist for this charge_id
-        self.assertEqual(
-            Payment.objects.filter(gateway_charge_id=charge_id).count(), 1
-        )
+        self.assertEqual(Payment.objects.filter(gateway_charge_id=charge_id).count(), 1)
 
     def test_intent_not_found_logs_error_and_marks_event(self):
         """PaymentIntent not found → task returns, event is not marked processed."""
@@ -300,8 +310,10 @@ class PaymentIntentSucceededHandlerTests(TestCase):
             gateway_intent_id="pi_does_not_exist",
             gateway_charge_id="ch_no_intent",
         )
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = mock_parse_return
             mock_get_gw.return_value = mock_gw
@@ -323,8 +335,10 @@ class PaymentIntentSucceededHandlerTests(TestCase):
         def capture_on_commit(fn):
             on_commit_callbacks.append(fn)
 
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch("django.db.transaction.on_commit", side_effect=capture_on_commit):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch("django.db.transaction.on_commit", side_effect=capture_on_commit),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = mock_parse_return
             mock_get_gw.return_value = mock_gw
@@ -338,6 +352,7 @@ class PaymentIntentSucceededHandlerTests(TestCase):
 # payment_intent.payment_failed handler tests
 # ---------------------------------------------------------------------------
 
+
 class PaymentIntentFailedHandlerTests(TestCase):
     """Test _handle_payment_intent_failed via the task."""
 
@@ -347,8 +362,10 @@ class PaymentIntentFailedHandlerTests(TestCase):
             event_type="payment_intent.payment_failed",
         )
         mock_parse_return = _failed_event_data(gateway_intent_id=pi.gateway_intent_id)
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = mock_parse_return
             mock_get_gw.return_value = mock_gw
@@ -385,8 +402,10 @@ class PaymentIntentFailedHandlerTests(TestCase):
             event_type="payment_intent.payment_failed",
         )
         mock_parse_return = _failed_event_data(gateway_intent_id="pi_not_found_fail")
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = mock_parse_return
             mock_get_gw.return_value = mock_gw
@@ -397,6 +416,7 @@ class PaymentIntentFailedHandlerTests(TestCase):
 # ---------------------------------------------------------------------------
 # charge.refunded handler tests
 # ---------------------------------------------------------------------------
+
 
 class ChargeRefundedHandlerTests(TestCase):
     """Test _handle_charge_refunded via the task."""
@@ -453,6 +473,7 @@ class ChargeRefundedHandlerTests(TestCase):
 # ---------------------------------------------------------------------------
 # customer.subscription.deleted handler tests
 # ---------------------------------------------------------------------------
+
 
 class SubscriptionDeletedHandlerTests(TestCase):
     """Test _handle_subscription_deleted via the task."""
@@ -551,6 +572,7 @@ class SubscriptionDeletedHandlerTests(TestCase):
 # customer.subscription.updated handler tests
 # ---------------------------------------------------------------------------
 
+
 class SubscriptionUpdatedHandlerTests(TestCase):
     """Test _handle_subscription_updated via the task."""
 
@@ -636,6 +658,7 @@ class SubscriptionUpdatedHandlerTests(TestCase):
 # Unknown event type tests
 # ---------------------------------------------------------------------------
 
+
 class UnknownEventTypeTests(TestCase):
     """Test behavior for unhandled event types."""
 
@@ -674,6 +697,7 @@ class UnknownEventTypeTests(TestCase):
 # ---------------------------------------------------------------------------
 # Parse error tests
 # ---------------------------------------------------------------------------
+
 
 class ParseErrorTests(TestCase):
     """Test error handling when gateway.parse_webhook_event raises."""
@@ -721,6 +745,7 @@ class ParseErrorTests(TestCase):
 # Item 15 — _handle_subscription_updated backwards-transition guard
 # Item 16 — updated_at populated by QuerySet.update()
 # ---------------------------------------------------------------------------
+
 
 class SubscriptionUpdatedBackwardsTransitionTests(TestCase):
     """
@@ -792,6 +817,7 @@ class SubscriptionUpdatedBackwardsTransitionTests(TestCase):
     def test_subscription_updated_sets_updated_at(self):
         """updated_at must be bumped; auto_now=True is NOT respected by QuerySet.update()."""
         from datetime import timedelta
+
         sub_id = f"sub_{uuid.uuid4().hex[:8]}"
         plan = self._make_recurring_plan(sub_id=sub_id, status=PLAN_STATUS_PAUSED)
 
@@ -811,8 +837,9 @@ class SubscriptionUpdatedBackwardsTransitionTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Task-level error handler + retry logic (lines 137–154)
+# Task-level error handler + retry logic (lines 137–154)  # noqa: RUF003
 # ---------------------------------------------------------------------------
+
 
 class TaskHandlerErrorAndRetryTests(TestCase):
     """
@@ -827,7 +854,7 @@ class TaskHandlerErrorAndRetryTests(TestCase):
     `apps.payments.tasks._HANDLERS` to inject a handler that raises the desired
     exception.  For retry interception, we patch `process_stripe_webhook.retry`
     (the bound method on the Celery task) so self.retry() is interceptable.
-    """
+    """  # noqa: RUF002
 
     def _make_webhook_and_intent(self, event_type="payment_intent.succeeded"):
         pi = _make_payment_intent()
@@ -840,15 +867,18 @@ class TaskHandlerErrorAndRetryTests(TestCase):
     def _patched_handlers(self, exc):
         """Return a fake _HANDLERS dict whose only handler raises exc."""
         import types as _types
-        return _types.MappingProxyType({
-            "payment_intent.succeeded": MagicMock(side_effect=exc),
-        })
+
+        return _types.MappingProxyType(
+            {
+                "payment_intent.succeeded": MagicMock(side_effect=exc),
+            }
+        )
 
     def test_gateway_network_error_stores_error_and_attempts_retry(self):
         """GatewayNetworkError inside a handler: error/retry_count stored, retry attempted."""
+        import apps.payments.tasks as tasks_module
         from apps.payments.gateways.exceptions import GatewayNetworkError
         from celery.exceptions import Retry
-        import apps.payments.tasks as tasks_module
 
         pi, event = self._make_webhook_and_intent()
         parse_return = _succeeded_event_data(gateway_intent_id=pi.gateway_intent_id)
@@ -856,9 +886,11 @@ class TaskHandlerErrorAndRetryTests(TestCase):
 
         mock_retry = MagicMock(side_effect=Retry())
 
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch.object(tasks_module, "_HANDLERS", self._patched_handlers(retry_exc)), \
-             patch.object(process_stripe_webhook, "retry", mock_retry):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch.object(tasks_module, "_HANDLERS", self._patched_handlers(retry_exc)),
+            patch.object(process_stripe_webhook, "retry", mock_retry),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = parse_return
             mock_get_gw.return_value = mock_gw
@@ -873,9 +905,9 @@ class TaskHandlerErrorAndRetryTests(TestCase):
 
     def test_gateway_rate_limit_error_stores_error_and_attempts_retry(self):
         """GatewayRateLimitError inside a handler: error/retry_count stored, retry attempted."""
+        import apps.payments.tasks as tasks_module
         from apps.payments.gateways.exceptions import GatewayRateLimitError
         from celery.exceptions import Retry
-        import apps.payments.tasks as tasks_module
 
         pi, event = self._make_webhook_and_intent()
         parse_return = _succeeded_event_data(gateway_intent_id=pi.gateway_intent_id)
@@ -883,9 +915,11 @@ class TaskHandlerErrorAndRetryTests(TestCase):
 
         mock_retry = MagicMock(side_effect=Retry())
 
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch.object(tasks_module, "_HANDLERS", self._patched_handlers(retry_exc)), \
-             patch.object(process_stripe_webhook, "retry", mock_retry):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch.object(tasks_module, "_HANDLERS", self._patched_handlers(retry_exc)),
+            patch.object(process_stripe_webhook, "retry", mock_retry),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = parse_return
             mock_get_gw.return_value = mock_gw
@@ -906,8 +940,10 @@ class TaskHandlerErrorAndRetryTests(TestCase):
         parse_return = _succeeded_event_data(gateway_intent_id=pi.gateway_intent_id)
         boom = RuntimeError("unexpected database error")
 
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch.object(tasks_module, "_HANDLERS", self._patched_handlers(boom)):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch.object(tasks_module, "_HANDLERS", self._patched_handlers(boom)),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = parse_return
             mock_get_gw.return_value = mock_gw
@@ -926,9 +962,10 @@ class TaskHandlerErrorAndRetryTests(TestCase):
         parse_return = _succeeded_event_data(gateway_intent_id=pi.gateway_intent_id)
         self.assertEqual(event.retry_count, 0)
 
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch.object(tasks_module, "_HANDLERS",
-                         self._patched_handlers(RuntimeError("boom"))):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch.object(tasks_module, "_HANDLERS", self._patched_handlers(RuntimeError("boom"))),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = parse_return
             mock_get_gw.return_value = mock_gw
@@ -941,8 +978,10 @@ class TaskHandlerErrorAndRetryTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Missing gateway_intent_id guard in _handle_payment_intent_succeeded (lines 192–197)
+# Missing gateway_intent_id guard in _handle_payment_intent_succeeded
+# (lines 192-197).
 # ---------------------------------------------------------------------------
+
 
 class MissingIntentIdGuardTests(TestCase):
     """_handle_payment_intent_succeeded returns early when gateway_intent_id is empty."""
@@ -955,7 +994,7 @@ class MissingIntentIdGuardTests(TestCase):
         mock_parse_return = (
             "payment_intent.succeeded",
             {
-                "gateway_intent_id": "",   # empty
+                "gateway_intent_id": "",  # empty
                 "gateway_charge_id": "ch_no_intent",
                 "amount_paid": Decimal("50.00"),
                 "processor_fee": Decimal("0.00"),
@@ -979,8 +1018,9 @@ class MissingIntentIdGuardTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# card_last_four truncation (lines 222–227)
+# card_last_four truncation (lines 222–227)  # noqa: RUF003
 # ---------------------------------------------------------------------------
+
 
 class CardLastFourTruncationTests(TestCase):
     """When card_last_four is longer than 4 chars it is truncated to the last 4."""
@@ -1000,13 +1040,15 @@ class CardLastFourTruncationTests(TestCase):
                 "processor_fee": Decimal("0.00"),
                 "net_amount": Decimal("100.00"),
                 "payment_method_type": "card",
-                "card_last_four": "424242",   # 6 chars → should become "4242"
+                "card_last_four": "424242",  # 6 chars → should become "4242"
                 "card_brand": "visa",
                 "paid_at": "1700000000",
             },
         )
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = mock_parse_return
             mock_get_gw.return_value = mock_gw
@@ -1017,8 +1059,9 @@ class CardLastFourTruncationTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# paid_at parse failure fallback (lines 236–243)
+# paid_at parse failure fallback (lines 236–243)  # noqa: RUF003
 # ---------------------------------------------------------------------------
+
 
 class PaidAtParseFailureFallbackTests(TestCase):
     """When paid_at is not a valid Unix timestamp, paid_at falls back to timezone.now()."""
@@ -1041,11 +1084,13 @@ class PaidAtParseFailureFallbackTests(TestCase):
                 "payment_method_type": "card",
                 "card_last_four": "4242",
                 "card_brand": "visa",
-                "paid_at": "not-a-timestamp",   # invalid
+                "paid_at": "not-a-timestamp",  # invalid
             },
         )
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = mock_parse_return
             mock_get_gw.return_value = mock_gw
@@ -1058,8 +1103,9 @@ class PaidAtParseFailureFallbackTests(TestCase):
 
 # ---------------------------------------------------------------------------
 # Signal error swallowing in on_commit closures
-# (lines 301–302, 413–414, 487–488, 557–558, 676–681)
+# (lines 301–302, 413–414, 487–488, 557–558, 676–681)  # noqa: RUF003
 # ---------------------------------------------------------------------------
+
 
 class SignalErrorSwallowingTests(TestCase):
     """
@@ -1104,8 +1150,10 @@ class SignalErrorSwallowingTests(TestCase):
             )
             mock_parse_return = _succeeded_event_data(gateway_intent_id=pi.gateway_intent_id)
             # Should not raise even though the signal receiver raises
-            with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-                 patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
+            with (
+                patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+                patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+            ):
                 mock_gw = MagicMock()
                 mock_gw.parse_webhook_event.return_value = mock_parse_return
                 mock_get_gw.return_value = mock_gw
@@ -1148,8 +1196,10 @@ class SignalErrorSwallowingTests(TestCase):
                     "paid_at": "1700000000",
                 },
             )
-            with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-                 patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
+            with (
+                patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+                patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+            ):
                 mock_gw = MagicMock()
                 mock_gw.parse_webhook_event.return_value = mock_parse_return
                 mock_get_gw.return_value = mock_gw
@@ -1175,8 +1225,10 @@ class SignalErrorSwallowingTests(TestCase):
                 event_type="payment_intent.payment_failed",
             )
             mock_parse_return = _failed_event_data(gateway_intent_id=pi.gateway_intent_id)
-            with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-                 patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
+            with (
+                patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+                patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+            ):
                 mock_gw = MagicMock()
                 mock_gw.parse_webhook_event.return_value = mock_parse_return
                 mock_get_gw.return_value = mock_gw
@@ -1189,8 +1241,9 @@ class SignalErrorSwallowingTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Campaign DoesNotExist fallback (lines 359–360)
+# Campaign DoesNotExist fallback (lines 359–360)  # noqa: RUF003
 # ---------------------------------------------------------------------------
+
 
 class CampaignNotFoundFallbackTests(TestCase):
     """If campaign_pk points to a non-existent campaign, donation is created with campaign=None."""
@@ -1198,7 +1251,7 @@ class CampaignNotFoundFallbackTests(TestCase):
     def _make_donation_intent_with_bad_campaign(self, user=None):
         if user is None:
             user = _make_user()
-        bad_campaign_pk = str(uuid.uuid4())   # Doesn't exist in DB
+        bad_campaign_pk = str(uuid.uuid4())  # Doesn't exist in DB
         return PaymentIntent.objects.create(
             payer=user,
             amount=Decimal("75.00"),
@@ -1209,7 +1262,7 @@ class CampaignNotFoundFallbackTests(TestCase):
             gateway_intent_id=f"pi_test_{uuid.uuid4().hex[:8]}",
             metadata={
                 "is_recurring": "0",
-                "campaign_pk": bad_campaign_pk,   # Non-existent
+                "campaign_pk": bad_campaign_pk,  # Non-existent
                 "advantage_amount": "0.00",
                 "eligible_amount": "75.00",
                 "is_anonymous": "0",
@@ -1240,8 +1293,10 @@ class CampaignNotFoundFallbackTests(TestCase):
                 "paid_at": "1700000000",
             },
         )
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = mock_parse_return
             mock_get_gw.return_value = mock_gw
@@ -1252,8 +1307,9 @@ class CampaignNotFoundFallbackTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Decimal / InvalidOperation fallback for eligible_amount (lines 398–399)
+# Decimal / InvalidOperation fallback for eligible_amount (lines 398–399)  # noqa: RUF003
 # ---------------------------------------------------------------------------
+
 
 class EligibleAmountFallbackTests(TestCase):
     """When eligible_amount metadata is not a valid Decimal, falls back to payment - advantage."""
@@ -1273,7 +1329,7 @@ class EligibleAmountFallbackTests(TestCase):
                 "is_recurring": "0",
                 "campaign_pk": "",
                 "advantage_amount": "10.00",
-                "eligible_amount": "not-a-number",   # invalid
+                "eligible_amount": "not-a-number",  # invalid
                 "is_anonymous": "0",
                 "donor_legal_name": "Test Donor",
             },
@@ -1302,8 +1358,10 @@ class EligibleAmountFallbackTests(TestCase):
                 "paid_at": "1700000000",
             },
         )
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = mock_parse_return
             mock_get_gw.return_value = mock_gw
@@ -1315,8 +1373,9 @@ class EligibleAmountFallbackTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Donor legal name fallback (lines 412–413)
+# Donor legal name fallback (lines 412–413)  # noqa: RUF003
 # ---------------------------------------------------------------------------
+
 
 class DonorLegalNameFallbackTests(TestCase):
     """When donor_legal_name metadata is empty, falls back to placeholder."""
@@ -1338,12 +1397,12 @@ class DonorLegalNameFallbackTests(TestCase):
                 "advantage_amount": "0.00",
                 "eligible_amount": "40.00",
                 "is_anonymous": "0",
-                "donor_legal_name": "",   # empty
+                "donor_legal_name": "",  # empty
             },
         )
 
     def test_empty_donor_legal_name_uses_placeholder_when_no_full_name(self):
-        """When donor_legal_name is empty AND get_full_name() AND str(donor) return '', use placeholder."""
+        """When donor_legal_name is empty AND get_full_name() AND str(donor) return '', use placeholder."""  # noqa: E501
         from apps.payments.models import Donation
 
         user = _make_user()
@@ -1371,10 +1430,12 @@ class DonorLegalNameFallbackTests(TestCase):
         # so the placeholder path (line 413) is reached.
         # The source code does: getattr(donor, "get_full_name", lambda: "")() or str(donor)
         # Both must return falsy for the placeholder to kick in.
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()), \
-             patch.object(type(user), "get_full_name", return_value=""), \
-             patch.object(type(user), "__str__", return_value=""):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+            patch.object(type(user), "get_full_name", return_value=""),
+            patch.object(type(user), "__str__", return_value=""),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = mock_parse_return
             mock_get_gw.return_value = mock_gw
@@ -1385,8 +1446,9 @@ class DonorLegalNameFallbackTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Donor address fallback via donor_profile / profile attrs (lines 436–441)
+# Donor address fallback via donor_profile / profile attrs (lines 436–441)  # noqa: RUF003
 # ---------------------------------------------------------------------------
+
 
 class DonorAddressFallbackTests(TestCase):
     """
@@ -1435,8 +1497,10 @@ class DonorAddressFallbackTests(TestCase):
                 "paid_at": "1700000000",
             },
         )
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = mock_parse_return
             mock_get_gw.return_value = mock_gw
@@ -1452,11 +1516,16 @@ class DonorAddressFallbackTests(TestCase):
         mock_donor_profile = MagicMock()
         mock_donor_profile.postal_address = "456 Donor Ave, Ottawa ON K1A 0A9"
 
-        pi = self._make_donation_intent(user)
+        self._make_donation_intent(user)
 
         # Re-fetch user and attach donor_profile but hide postal_address
-        with patch.object(type(user), "postal_address",
-                          new_callable=lambda: property(lambda self: (_ for _ in ()).throw(AttributeError("no postal_address")))):
+        with patch.object(
+            type(user),
+            "postal_address",
+            new_callable=lambda: property(
+                lambda self: (_ for _ in ()).throw(AttributeError("no postal_address"))
+            ),
+        ):
             # The hasattr check in the handler will fail for postal_address,
             # fall through to donor_profile
             pass  # Can't use property trick easily; use the simpler approach below
@@ -1475,7 +1544,7 @@ class DonorAddressFallbackTests(TestCase):
         self.assertIn("[Address required", donation.donor_address_snapshot)
 
     def test_missing_postal_address_uses_placeholder(self):
-        """When neither postal_address, donor_profile nor profile has the address, use placeholder."""
+        """When neither postal_address, donor_profile nor profile has the address, use placeholder."""  # noqa: E501
         from apps.payments.models import Donation
 
         user = _make_user()
@@ -1492,8 +1561,9 @@ class DonorAddressFallbackTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# charge.refunded — already-recorded Refund path (lines 616–660)
+# charge.refunded — already-recorded Refund path (lines 616–660)  # noqa: RUF003
 # ---------------------------------------------------------------------------
+
 
 class ChargeRefundedAlreadyRecordedTests(TestCase):
     """
@@ -1516,6 +1586,7 @@ class ChargeRefundedAlreadyRecordedTests(TestCase):
         pi.transition(PaymentIntent.STATUS_PROCESSING)
         pi.transition(PaymentIntent.STATUS_COMPLETED)
         from apps.payments.models import Payment
+
         return Payment.objects.create(
             intent=pi,
             gateway_charge_id=charge_id,
@@ -1527,7 +1598,7 @@ class ChargeRefundedAlreadyRecordedTests(TestCase):
 
     def test_already_recorded_refund_creates_audit_entry_not_duplicate_refund(self):
         """Second charge.refunded webhook with same refund_id: audit entry only."""
-        from apps.payments.models import Refund, PaymentAuditEntry
+        from apps.payments.models import PaymentAuditEntry, Refund
 
         charge_id = f"ch_{uuid.uuid4().hex[:8]}"
         refund_id = f"re_{uuid.uuid4().hex[:8]}"
@@ -1553,7 +1624,7 @@ class ChargeRefundedAlreadyRecordedTests(TestCase):
             "charge.refunded",
             {
                 "gateway_charge_id": charge_id,
-                "gateway_refund_id": refund_id,   # same ID → already recorded path
+                "gateway_refund_id": refund_id,  # same ID → already recorded path
                 "refund_amount": Decimal("50.00"),
                 "refund_status": "succeeded",
             },
@@ -1567,13 +1638,11 @@ class ChargeRefundedAlreadyRecordedTests(TestCase):
         # No additional Refund row created
         self.assertEqual(Refund.objects.count(), refund_count_before)
         # But an audit entry with action=refund_completed should exist
-        self.assertTrue(
-            PaymentAuditEntry.objects.filter(action="refund_completed").exists()
-        )
+        self.assertTrue(PaymentAuditEntry.objects.filter(action="refund_completed").exists())
 
     def test_stripe_dashboard_refund_creates_refund_requested_audit_entry(self):
         """No existing Refund row → creates refund_requested audit entry, no Refund row."""
-        from apps.payments.models import Refund, PaymentAuditEntry
+        from apps.payments.models import PaymentAuditEntry, Refund
 
         charge_id = f"ch_{uuid.uuid4().hex[:8]}"
         refund_id = f"re_{uuid.uuid4().hex[:8]}"
@@ -1587,7 +1656,7 @@ class ChargeRefundedAlreadyRecordedTests(TestCase):
             "charge.refunded",
             {
                 "gateway_charge_id": charge_id,
-                "gateway_refund_id": refund_id,   # new refund ID → no Refund row exists
+                "gateway_refund_id": refund_id,  # new refund ID → no Refund row exists
                 "refund_amount": Decimal("100.00"),
                 "refund_status": "succeeded",
             },
@@ -1610,8 +1679,10 @@ class ChargeRefundedAlreadyRecordedTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Missing gateway_subscription_id guard in _handle_subscription_deleted (lines 675–681)
+# Missing gateway_subscription_id guard in _handle_subscription_deleted
+# (lines 675-681).
 # ---------------------------------------------------------------------------
+
 
 class SubscriptionDeletedMissingIdTests(TestCase):
     """_handle_subscription_deleted returns early when gateway_subscription_id is empty."""
@@ -1624,7 +1695,7 @@ class SubscriptionDeletedMissingIdTests(TestCase):
         mock_parse_return = (
             "customer.subscription.deleted",
             {
-                "gateway_subscription_id": "",   # empty
+                "gateway_subscription_id": "",  # empty
                 "status": "canceled",
                 "current_period_end": "1700000000",
                 "cancel_at_period_end": False,
@@ -1645,6 +1716,7 @@ class SubscriptionDeletedMissingIdTests(TestCase):
 # ---------------------------------------------------------------------------
 # Invoice payment succeeded — RecurringGiftPlan not found (line 729)
 # ---------------------------------------------------------------------------
+
 
 class InvoiceSucceededPlanNotFoundTests(TestCase):
     """When the RecurringGiftPlan doesn't exist, handler returns early."""
@@ -1675,8 +1747,9 @@ class InvoiceSucceededPlanNotFoundTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# _send_recurring_payment_signal on_commit dispatch (lines 854–859)
+# _send_recurring_payment_signal on_commit dispatch (lines 854–859)  # noqa: RUF003
 # ---------------------------------------------------------------------------
+
 
 class RecurringPaymentSignalDispatchTests(TestCase):
     """
@@ -1698,8 +1771,8 @@ class RecurringPaymentSignalDispatchTests(TestCase):
 
     def test_donation_completed_signal_dispatched_for_recurring_invoice(self):
         """on_commit in _handle_invoice_payment_succeeded sends donation_completed."""
-        from apps.payments.signals import donation_completed
         from apps.payments.models import Donation
+        from apps.payments.signals import donation_completed
 
         received_signals = []
 
@@ -1722,8 +1795,10 @@ class RecurringPaymentSignalDispatchTests(TestCase):
                     "processor_fee": Decimal("0.00"),
                 },
             )
-            with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-                 patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
+            with (
+                patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+                patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+            ):
                 mock_gw = MagicMock()
                 mock_gw.parse_webhook_event.return_value = mock_parse_return
                 mock_get_gw.return_value = mock_gw
@@ -1739,8 +1814,9 @@ class RecurringPaymentSignalDispatchTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Missing intent_id guard in _handle_payment_intent_payment_failed (lines 908–909)
+# Missing intent_id guard in _handle_payment_intent_payment_failed (lines 908–909)  # noqa: RUF003
 # ---------------------------------------------------------------------------
+
 
 class PaymentIntentFailedMissingIntentIdTests(TestCase):
     """_handle_payment_intent_failed returns early when gateway_intent_id is empty."""
@@ -1753,7 +1829,7 @@ class PaymentIntentFailedMissingIntentIdTests(TestCase):
         mock_parse_return = (
             "payment_intent.payment_failed",
             {
-                "gateway_intent_id": "",   # empty
+                "gateway_intent_id": "",  # empty
                 "failure_reason": "card_declined",
             },
         )
@@ -1769,9 +1845,10 @@ class PaymentIntentFailedMissingIntentIdTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Charge id guard in _handle_charge_refunded (lines 960–967)
-# (maps to lines 593–599 in source — no charge_id → early return)
+# Charge id guard in _handle_charge_refunded (lines 960–967)  # noqa: RUF003
+# (maps to lines 593–599 in source — no charge_id → early return)  # noqa: RUF003
 # ---------------------------------------------------------------------------
+
 
 class ChargeRefundedMissingChargeIdTests(TestCase):
     """_handle_charge_refunded returns early when charge_id is empty."""
@@ -1784,7 +1861,7 @@ class ChargeRefundedMissingChargeIdTests(TestCase):
         mock_parse_return = (
             "charge.refunded",
             {
-                "gateway_charge_id": "",          # empty — guard should fire
+                "gateway_charge_id": "",  # empty — guard should fire
                 "gateway_refund_id": "re_test_001",
                 "refund_amount": Decimal("50.00"),
                 "refund_status": "succeeded",
@@ -1802,15 +1879,16 @@ class ChargeRefundedMissingChargeIdTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# One-time donation — is_recurring skip and idempotency (lines 341, 345–350)
+# One-time donation — is_recurring skip and idempotency (lines 341, 345–350)  # noqa: RUF003
 # ---------------------------------------------------------------------------
+
 
 class OneDonationSkipPathsTests(TestCase):
     """
     _handle_one_time_donation returns early when:
     1. intent.metadata["is_recurring"] == "1"  → recurring subscription flow (line 341)
     2. Donation row already exists for this intent (idempotency, lines 345–350)
-    """
+    """  # noqa: RUF002
 
     def _make_donation_intent(self, user, extra_meta=None):
         meta = {
@@ -1854,8 +1932,10 @@ class OneDonationSkipPathsTests(TestCase):
                 "paid_at": "1700000000",
             },
         )
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = mock_parse_return
             mock_get_gw.return_value = mock_gw
@@ -1888,8 +1968,9 @@ class OneDonationSkipPathsTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Advantage amount — InvalidOperation fallback (lines 379–390, 401)
+# Advantage amount — InvalidOperation fallback (lines 379–390, 401)  # noqa: RUF003
 # ---------------------------------------------------------------------------
+
 
 class AdvantageAmountFallbackTests(TestCase):
     """
@@ -1928,8 +2009,10 @@ class AdvantageAmountFallbackTests(TestCase):
                 "paid_at": "1700000000",
             },
         )
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = mock_parse_return
             mock_get_gw.return_value = mock_gw
@@ -1940,14 +2023,17 @@ class AdvantageAmountFallbackTests(TestCase):
         from apps.payments.models import Donation
 
         user = _make_user()
-        pi = self._make_donation_intent(user, meta={
-            "is_recurring": "0",
-            "campaign_pk": "",
-            "advantage_amount": "not-a-decimal",   # invalid
-            "eligible_amount": "80.00",
-            "is_anonymous": "0",
-            "donor_legal_name": "Test Donor",
-        })
+        pi = self._make_donation_intent(
+            user,
+            meta={
+                "is_recurring": "0",
+                "campaign_pk": "",
+                "advantage_amount": "not-a-decimal",  # invalid
+                "eligible_amount": "80.00",
+                "is_anonymous": "0",
+                "donor_legal_name": "Test Donor",
+            },
+        )
         self._run_donation_flow(pi)
 
         donation = Donation.objects.get(payment_intent=pi)
@@ -1958,14 +2044,17 @@ class AdvantageAmountFallbackTests(TestCase):
         from apps.payments.models import Donation
 
         user = _make_user()
-        pi = self._make_donation_intent(user, meta={
-            "is_recurring": "0",
-            "campaign_pk": "",
-            "advantage_amount": "5.00",
-            "eligible_amount": "",   # empty → fallback
-            "is_anonymous": "0",
-            "donor_legal_name": "Test Donor",
-        })
+        pi = self._make_donation_intent(
+            user,
+            meta={
+                "is_recurring": "0",
+                "campaign_pk": "",
+                "advantage_amount": "5.00",
+                "eligible_amount": "",  # empty → fallback
+                "is_anonymous": "0",
+                "donor_legal_name": "Test Donor",
+            },
+        )
         self._run_donation_flow(pi)
 
         donation = Donation.objects.get(payment_intent=pi)
@@ -1975,15 +2064,16 @@ class AdvantageAmountFallbackTests(TestCase):
 
 # ---------------------------------------------------------------------------
 # Invoice payment succeeded — missing sub_id and already-processed guards
-# (lines 808–813, 822–827)
+# (lines 808–813, 822–827)  # noqa: RUF003
 # ---------------------------------------------------------------------------
+
 
 class InvoiceSucceededGuardTests(TestCase):
     """
     _handle_invoice_payment_succeeded returns early when:
     1. gateway_subscription_id is empty (lines 808–813)
     2. A Payment already exists for this gateway_charge_id (lines 822–827)
-    """
+    """  # noqa: RUF002
 
     def test_invoice_succeeded_missing_sub_id_returns_early(self):
         """Empty gateway_subscription_id → no Payment created, event marked processed."""
@@ -1994,7 +2084,7 @@ class InvoiceSucceededGuardTests(TestCase):
         mock_parse_return = (
             "invoice.payment_succeeded",
             {
-                "gateway_subscription_id": "",   # empty
+                "gateway_subscription_id": "",  # empty
                 "gateway_charge_id": f"ch_{uuid.uuid4().hex[:8]}",
                 "amount_paid": Decimal("25.00"),
                 "processor_fee": Decimal("0.00"),
@@ -2016,7 +2106,7 @@ class InvoiceSucceededGuardTests(TestCase):
         sub_id = f"sub_{uuid.uuid4().hex[:8]}"
         charge_id = f"ch_{uuid.uuid4().hex[:8]}"
 
-        plan = RecurringGiftPlan.objects.create(
+        RecurringGiftPlan.objects.create(
             donor=user,
             amount=Decimal("25.00"),
             frequency="monthly",
@@ -2039,8 +2129,10 @@ class InvoiceSucceededGuardTests(TestCase):
                 "processor_fee": Decimal("0.00"),
             },
         )
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = mock_parse_return
             mock_get_gw.return_value = mock_gw
@@ -2053,8 +2145,10 @@ class InvoiceSucceededGuardTests(TestCase):
             event_type="invoice.payment_succeeded",
             gateway_intent_id=sub_id,
         )
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = mock_parse_return
             mock_get_gw.return_value = mock_gw
@@ -2066,8 +2160,9 @@ class InvoiceSucceededGuardTests(TestCase):
 
 # ---------------------------------------------------------------------------
 # Invoice payment failed — missing sub_id guard and happy path
-# (lines 981–991 / "966–967" from coverage report)
+# (lines 981–991 / "966–967" from coverage report)  # noqa: RUF003
 # ---------------------------------------------------------------------------
+
 
 class InvoiceFailedGuardTests(TestCase):
     """_handle_invoice_payment_failed returns early when gateway_subscription_id is empty."""
@@ -2092,7 +2187,7 @@ class InvoiceFailedGuardTests(TestCase):
         mock_parse_return = (
             "invoice.payment_failed",
             {
-                "gateway_subscription_id": "",   # empty
+                "gateway_subscription_id": "",  # empty
             },
         )
         with patch("apps.payments.gateway.get_gateway") as mock_get_gw:
@@ -2143,8 +2238,9 @@ class InvoiceFailedGuardTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# One-time donation idempotency — Donation already exists (lines 345–350)
+# One-time donation idempotency — Donation already exists (lines 345–350)  # noqa: RUF003
 # ---------------------------------------------------------------------------
+
 
 class DonationAlreadyExistsIdempotencyTests(TestCase):
     """
@@ -2152,7 +2248,7 @@ class DonationAlreadyExistsIdempotencyTests(TestCase):
     (e.g. two charge.succeeded webhooks for the same payment_intent), the
     Donation.objects.filter(payment_intent=intent).exists() guard fires (lines 345–350)
     and the handler returns without creating a second Donation row.
-    """
+    """  # noqa: RUF002
 
     def _run_donation_intent_flow(self, pi, charge_id):
         """Run the full payment_intent.succeeded flow for a DONATION intent."""
@@ -2174,8 +2270,10 @@ class DonationAlreadyExistsIdempotencyTests(TestCase):
                 "paid_at": "1700000000",
             },
         )
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = mock_parse_return
             mock_get_gw.return_value = mock_gw
@@ -2184,7 +2282,7 @@ class DonationAlreadyExistsIdempotencyTests(TestCase):
 
     def test_donation_idempotency_via_direct_handler_call(self):
         """Calling _handle_one_time_donation twice on same intent creates only one Donation."""
-        from apps.payments.models import Donation, DONATION_STATUS_COMPLETED
+        from apps.payments.models import Donation
 
         user = _make_user()
         if hasattr(user, "postal_address"):
@@ -2225,7 +2323,6 @@ class DonationAlreadyExistsIdempotencyTests(TestCase):
         )
 
         from apps.payments.tasks import _handle_one_time_donation
-        import django.db.transaction as _tx
 
         with patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
             # First call — creates Donation
@@ -2240,19 +2337,21 @@ class DonationAlreadyExistsIdempotencyTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Advantage amount InvalidOperation branch (lines 388–390)
+# Advantage amount InvalidOperation branch (lines 388–390)  # noqa: RUF003
 # and advantage_description from campaign (line 426)
 # ---------------------------------------------------------------------------
+
 
 class AdvantageAmountInvalidOperationTests(TestCase):
     """
     Line 379–385: when advantage_amount is a string that can't be parsed as Decimal,
     falls back to Decimal("0.00") and logs a warning.
     Line 426: when campaign exists, advantage_description is read from it.
-    """
+    """  # noqa: RUF002
 
     def _make_campaign(self):
         from apps.payments.models import DonationCampaign
+
         return DonationCampaign.objects.create(
             slug=f"camp-{uuid.uuid4().hex[:6]}",
             name_en="Test Campaign",
@@ -2290,8 +2389,10 @@ class AdvantageAmountInvalidOperationTests(TestCase):
                 "paid_at": "1700000000",
             },
         )
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = mock_parse_return
             mock_get_gw.return_value = mock_gw
@@ -2299,18 +2400,21 @@ class AdvantageAmountInvalidOperationTests(TestCase):
         return pi
 
     def test_invalid_advantage_amount_logs_warning_and_sets_zero(self):
-        """InvalidOperation in advantage_amount parsing → fallback to 0.00 (lines 379–390)."""
+        """InvalidOperation in advantage_amount parsing → fallback to 0.00 (lines 379–390)."""  # noqa: RUF002
         from apps.payments.models import Donation
 
         user = _make_user()
-        pi = self._run_donation_with_meta(user, {
-            "is_recurring": "0",
-            "campaign_pk": "",
-            "advantage_amount": "bad_decimal",
-            "eligible_amount": "60.00",
-            "is_anonymous": "0",
-            "donor_legal_name": "Test Donor",
-        })
+        pi = self._run_donation_with_meta(
+            user,
+            {
+                "is_recurring": "0",
+                "campaign_pk": "",
+                "advantage_amount": "bad_decimal",
+                "eligible_amount": "60.00",
+                "is_anonymous": "0",
+                "donor_legal_name": "Test Donor",
+            },
+        )
         donation = Donation.objects.get(payment_intent=pi)
         self.assertEqual(donation.advantage_amount, Decimal("0.00"))
 
@@ -2320,29 +2424,33 @@ class AdvantageAmountInvalidOperationTests(TestCase):
 
         campaign = self._make_campaign()
         user = _make_user()
-        pi = self._run_donation_with_meta(user, {
-            "is_recurring": "0",
-            "campaign_pk": str(campaign.pk),
-            "advantage_amount": "5.00",
-            "eligible_amount": "55.00",
-            "is_anonymous": "0",
-            "donor_legal_name": "Test Donor",
-        })
+        pi = self._run_donation_with_meta(
+            user,
+            {
+                "is_recurring": "0",
+                "campaign_pk": str(campaign.pk),
+                "advantage_amount": "5.00",
+                "eligible_amount": "55.00",
+                "is_anonymous": "0",
+                "donor_legal_name": "Test Donor",
+            },
+        )
         donation = Donation.objects.get(payment_intent=pi)
         self.assertEqual(donation.advantage_description, "Commemorative pin")
 
 
 # ---------------------------------------------------------------------------
-# Recurring invoice — donor has no name (lines 908–909)
-# and _send_donation_completed signal error swallowed (lines 966–967)
+# Recurring invoice — donor has no name (lines 908–909)  # noqa: RUF003
+# and _send_donation_completed signal error swallowed (lines 966–967)  # noqa: RUF003
 # ---------------------------------------------------------------------------
+
 
 class RecurringInvoiceDonorNameFallbackTests(TestCase):
     """
     Lines 907–914: when donor has no name (get_full_name() and str() both empty),
     donor_name_snapshot is set to "Recurring Donor".
     Lines 966-967: exception in the on_commit signal closure is swallowed.
-    """
+    """  # noqa: RUF002
 
     def _make_recurring_plan(self, user=None):
         if user is None:
@@ -2371,8 +2479,10 @@ class RecurringInvoiceDonorNameFallbackTests(TestCase):
                 "processor_fee": Decimal("0.00"),
             },
         )
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = mock_parse_return
             mock_get_gw.return_value = mock_gw
@@ -2385,8 +2495,10 @@ class RecurringInvoiceDonorNameFallbackTests(TestCase):
         user = _make_user()
         plan = self._make_recurring_plan(user=user)
 
-        with patch.object(type(user), "get_full_name", return_value=""), \
-             patch.object(type(user), "__str__", return_value=""):
+        with (
+            patch.object(type(user), "get_full_name", return_value=""),
+            patch.object(type(user), "__str__", return_value=""),
+        ):
             self._run_invoice_succeeded(plan)
 
         donation = Donation.objects.filter(recurring_plan=plan).last()
@@ -2412,9 +2524,10 @@ class RecurringInvoiceDonorNameFallbackTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Campaign advantage fallback (lines 388–390) and donor_profile address
-# branch in one-time donation (lines 436–441)
+# Campaign advantage fallback (lines 388–390) and donor_profile address  # noqa: RUF003
+# branch in one-time donation (lines 436–441)  # noqa: RUF003
 # ---------------------------------------------------------------------------
+
 
 class CampaignAdvantageAndDonorProfileTests(TestCase):
     """
@@ -2422,10 +2535,11 @@ class CampaignAdvantageAndDonorProfileTests(TestCase):
     use campaign.advantage_amount as the fallback.
     Lines 436–441: when donor has donor_profile attr but not postal_address,
     use donor_profile.postal_address.
-    """
+    """  # noqa: RUF002
 
     def _make_campaign(self, advantage_amount=Decimal("10.00")):
         from apps.payments.models import DonationCampaign
+
         return DonationCampaign.objects.create(
             slug=f"camp-{uuid.uuid4().hex[:6]}",
             name_en="Test Campaign",
@@ -2434,7 +2548,7 @@ class CampaignAdvantageAndDonorProfileTests(TestCase):
         )
 
     def test_empty_advantage_meta_falls_back_to_campaign_amount(self):
-        """When advantage_amount is absent and a campaign exists, use campaign default (lines 388-390)."""
+        """When advantage_amount is absent and a campaign exists, use campaign default (lines 388-390)."""  # noqa: E501
         from apps.payments.models import Donation
 
         campaign = self._make_campaign(advantage_amount=Decimal("10.00"))
@@ -2450,7 +2564,7 @@ class CampaignAdvantageAndDonorProfileTests(TestCase):
             metadata={
                 "is_recurring": "0",
                 "campaign_pk": str(campaign.pk),
-                "advantage_amount": "",   # empty → campaign fallback
+                "advantage_amount": "",  # empty → campaign fallback
                 "eligible_amount": "",
                 "is_anonymous": "0",
                 "donor_legal_name": "Test Donor",
@@ -2474,8 +2588,10 @@ class CampaignAdvantageAndDonorProfileTests(TestCase):
                 "paid_at": "1700000000",
             },
         )
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = mock_parse_return
             mock_get_gw.return_value = mock_gw
@@ -2485,7 +2601,7 @@ class CampaignAdvantageAndDonorProfileTests(TestCase):
         self.assertEqual(donation.advantage_amount, Decimal("10.00"))
 
     # NOTE: the elif donor_profile / elif profile branches in _handle_one_time_donation
-    # (lines 436–441) are only reachable when the User model does NOT have a
+    # (lines 436–441) are only reachable when the User model does NOT have a  # noqa: RUF003
     # postal_address field directly. Since postal_address IS a first-class field on the
     # current User model, hasattr(donor, "postal_address") always returns True and those
     # elif branches are structurally unreachable with real DB objects. They exist as a
@@ -2495,6 +2611,7 @@ class CampaignAdvantageAndDonorProfileTests(TestCase):
 # ---------------------------------------------------------------------------
 # Subscription updated — empty sub_id guard (line 729)
 # ---------------------------------------------------------------------------
+
 
 class SubscriptionUpdatedEmptySubIdTests(TestCase):
     """_handle_subscription_updated returns early (line 729) when sub_id is empty."""
@@ -2519,7 +2636,7 @@ class SubscriptionUpdatedEmptySubIdTests(TestCase):
         mock_parse_return = (
             "customer.subscription.updated",
             {
-                "gateway_subscription_id": "",   # empty → guard at line 728-729
+                "gateway_subscription_id": "",  # empty → guard at line 728-729
                 "status": "paused",
                 "current_period_end": "1700000000",
                 "cancel_at_period_end": False,
@@ -2538,9 +2655,10 @@ class SubscriptionUpdatedEmptySubIdTests(TestCase):
         self.assertTrue(event.processed)
 
 
-# NOTE: The elif donor_profile / elif profile branches in _handle_invoice_payment_succeeded
-# (lines 854–859) are only reachable when the User model does NOT have a postal_address
-# field directly. Since postal_address IS a first-class field on the current User model,
+# NOTE: The elif donor_profile / elif profile branches in
+# _handle_invoice_payment_succeeded (lines 854-859) are only reachable when the User
+# model does not have a postal_address field. Since postal_address is a first-class
+# field on the current User model,
 # hasattr(donor_user, "postal_address") always returns True and those elif branches are
 # structurally unreachable with real DB objects. They serve as a safety net for future
 # model changes. No test is added here.

@@ -29,6 +29,7 @@ SSRF note: alert_url and status_poll_url are stored as-is in Wave C. Wave F
 alert dispatch MUST validate HTTPS-only and block private IP ranges before
 issuing outbound HTTP calls to these URLs.
 """
+
 from __future__ import annotations
 
 import logging
@@ -73,7 +74,7 @@ def _validate_url(url: str, field_name: str) -> None:
         try:
             _https_validator(url)
         except DjangoValidationError:
-            raise ValueError(
+            raise ValueError(  # noqa: B904
                 f"{field_name} must be a valid HTTPS URL. "
                 f"Plain HTTP and malformed URLs are not permitted."
             )
@@ -84,7 +85,7 @@ def _validate_email_format(email: str) -> None:
     try:
         _django_validate_email(email)
     except DjangoValidationError:
-        raise ValueError("Invalid email address format.")
+        raise ValueError("Invalid email address format.")  # noqa: B904
 
 
 def _split_name(name: str) -> tuple[str, str]:
@@ -177,9 +178,7 @@ def subscriber_create(
         try:
             user.save()
         except IntegrityError as exc:
-            raise ValueError(
-                "A subscriber with this email already exists."
-            ) from exc
+            raise ValueError("A subscriber with this email already exists.") from exc
 
         profile = GovStackSubscriberProfile.objects.create(
             user=user,
@@ -236,8 +235,7 @@ def subscriber_modify(
     """
     with transaction.atomic():
         profile = (
-            GovStackSubscriberProfile.objects
-            .select_for_update()
+            GovStackSubscriberProfile.objects.select_for_update()
             .select_related("user")
             .get(user_id=subscriber_id, user__is_active=True)
         )
@@ -274,7 +272,7 @@ def subscriber_modify(
             try:
                 user.save(update_fields=user_update_fields)
             except IntegrityError:
-                raise ValueError("A subscriber with this email already exists.")
+                raise ValueError("A subscriber with this email already exists.")  # noqa: B904
             logger.debug(
                 "subscriber_modify: updated user pk=%d fields=%r",
                 user.pk,
@@ -336,8 +334,7 @@ def subscriber_delete(subscriber_id: int) -> None:
     """
     with transaction.atomic():
         profile = (
-            GovStackSubscriberProfile.objects
-            .select_for_update()
+            GovStackSubscriberProfile.objects.select_for_update()
             .select_related("user")
             .get(user_id=subscriber_id, user__is_active=True)
         )
@@ -409,14 +406,13 @@ def subscriber_list(
         try:
             subscriber_id_ints = [int(sid) for sid in subscriber_id_filter]
         except (ValueError, TypeError):
-            raise ValueError("subscriber_id filter must contain only integers.")
+            raise ValueError("subscriber_id filter must contain only integers.")  # noqa: B904
         qs = qs.filter(user_id__in=subscriber_id_ints)
 
     name_filter = filter_data.get("name", "")
     if name_filter:
         qs = qs.filter(
-            Q(user__first_name__icontains=name_filter)
-            | Q(user__last_name__icontains=name_filter)
+            Q(user__first_name__icontains=name_filter) | Q(user__last_name__icontains=name_filter)
         )
 
     phone_filter = filter_data.get("phone", "")
@@ -443,7 +439,7 @@ def subscriber_list(
     if status_poll_url_filter:
         qs = qs.filter(status_poll_url__icontains=status_poll_url_filter)
 
-    MAX_RESULTS = 500
+    MAX_RESULTS = 500  # noqa: N806
     qs = qs.order_by("pk")[:MAX_RESULTS]
 
     # --- shape results ---
@@ -478,7 +474,7 @@ def subscriber_list(
 
     if len(results) == MAX_RESULTS:
         logger.warning(
-            "subscriber_list: result capped at %d rows. Use subscriber_id or other filters to narrow.",
+            "subscriber_list: result capped at %d rows. Use subscriber_id or other filters to narrow.",  # noqa: E501
             MAX_RESULTS,
         )
     logger.debug("subscriber_list: returned %d results", len(results))

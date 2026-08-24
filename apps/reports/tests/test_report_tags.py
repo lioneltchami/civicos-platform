@@ -22,6 +22,7 @@ a specific thousands separator character.
 
 Settings: --settings=config.settings.test
 """
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -102,8 +103,7 @@ class CadMoneyPositiveValueTests(TestCase):
         result = cad_money(Decimal("999.99"))
         self.assertIn("999", result)
         self.assertIn(".99", result)
-        self.assertNotIn(_THOU, result,
-            "Values below 1000 must not have a thousands separator")
+        self.assertNotIn(_THOU, result, "Values below 1000 must not have a thousands separator")
 
     @override_settings(LANGUAGE_CODE="en-CA")
     def test_exactly_1000_has_grouping(self):
@@ -136,10 +136,10 @@ class CadMoneyNegativeValueTests(TestCase):
     @override_settings(LANGUAGE_CODE="en-CA")
     def test_negative_zero(self):
         from decimal import Decimal
+
         # -0.00 is identical to 0.00 in Python/Decimal arithmetic
         result = cad_money(Decimal("-0.00"))
-        self.assertEqual(result, "0.00",
-            "Negative zero must format identically to positive zero")
+        self.assertEqual(result, "0.00", "Negative zero must format identically to positive zero")
 
 
 class CadMoneyInvalidInputTests(TestCase):
@@ -315,12 +315,14 @@ class CadMoneyLocaleConsistencyTests(TestCase):
     def test_en_ca_thousands_grouping_character(self):
         """en-CA uses non-breaking space (U+00A0) as the thousands separator."""
         result = cad_money(Decimal("1000.00"))
-        self.assertIn(_THOU, result,
-            "en-CA thousands separator must be non-breaking space (U+00A0)")
+        self.assertIn(
+            _THOU, result, "en-CA thousands separator must be non-breaking space (U+00A0)"
+        )
 
     @override_settings(LANGUAGE_CODE="fr-CA")
     def test_fr_ca_thousands_grouping_character(self):
         """fr-CA uses non-breaking space (U+00A0) as the thousands separator."""
         result = cad_money(Decimal("1000.00"))
-        self.assertIn(_THOU, result,
-            "fr-CA thousands separator must be non-breaking space (U+00A0)")
+        self.assertIn(
+            _THOU, result, "fr-CA thousands separator must be non-breaking space (U+00A0)"
+        )

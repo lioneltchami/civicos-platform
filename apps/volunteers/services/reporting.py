@@ -17,6 +17,7 @@ Model field notes (discovered by reading models.py):
   - SkillTag.name_en, SkillTag.slug, SkillTag.category
   - Program.slug, Program.name_en
 """
+
 from __future__ import annotations
 
 import logging
@@ -37,9 +38,18 @@ logger = logging.getLogger(__name__)
 # Uses word boundaries to avoid false positives (e.g. "fund" matching "fundamental",
 # "program" matching "programming").
 _CATEGORY_PATTERNS = [
-    ("governance", re.compile(r'\b(governance|board|director|trustee|bylaws)\b', re.IGNORECASE)),
-    ("fundraising", re.compile(r'\b(fundraising|fundraiser|donor|donation|campaign|grant)\b', re.IGNORECASE)),
-    ("program_delivery", re.compile(r'\b(program[\s_-]delivery|programme[\s_-]delivery|service[\s_-]delivery|delivery)\b', re.IGNORECASE)),
+    ("governance", re.compile(r"\b(governance|board|director|trustee|bylaws)\b", re.IGNORECASE)),
+    (
+        "fundraising",
+        re.compile(r"\b(fundraising|fundraiser|donor|donation|campaign|grant)\b", re.IGNORECASE),
+    ),
+    (
+        "program_delivery",
+        re.compile(
+            r"\b(program[\s_-]delivery|programme[\s_-]delivery|service[\s_-]delivery|delivery)\b",
+            re.IGNORECASE,
+        ),
+    ),
 ]
 
 
@@ -70,7 +80,10 @@ def _classify_skill_tags(tag_slugs: list[str], tag_names: list[str]) -> str:
 # Function 1: hours_by_program
 # ---------------------------------------------------------------------------
 
-def hours_by_program(year: int, month: int | None = None, program_ids: list | None = None) -> list[dict]:
+
+def hours_by_program(
+    year: int, month: int | None = None, program_ids: list | None = None
+) -> list[dict]:
     """
     Return approved volunteer hours grouped by (program, opportunity).
 
@@ -105,8 +118,7 @@ def hours_by_program(year: int, month: int | None = None, program_ids: list | No
         qs = qs.filter(opportunity__program_id__in=program_ids)
 
     rows = (
-        qs
-        .values(
+        qs.values(
             "opportunity__program__slug",
             "opportunity__program__name_en",
             "opportunity__slug",
@@ -145,6 +157,7 @@ def hours_by_program(year: int, month: int | None = None, program_ids: list | No
 # Function 2: impact_value
 # ---------------------------------------------------------------------------
 
+
 def impact_value(year: int, province: str = "ON", program_ids: list | None = None) -> dict:
     """
     Compute the estimated economic value of volunteer hours for a given year.
@@ -160,7 +173,7 @@ def impact_value(year: int, province: str = "ON", program_ids: list | None = Non
 
     If province is not in VOLUNTEER_MINIMUM_WAGES, defaults to "ON" with a WARNING.
     PIPEDA: no volunteer PII in return value.
-    """
+    """  # noqa: RUF002
     from apps.volunteers.models import HoursLog
 
     wages: dict = getattr(settings, "VOLUNTEER_MINIMUM_WAGES", {"ON": 17.20})
@@ -210,6 +223,7 @@ def impact_value(year: int, province: str = "ON", program_ids: list | None = Non
 # ---------------------------------------------------------------------------
 # Function 3: t3010_volunteer_metrics
 # ---------------------------------------------------------------------------
+
 
 def t3010_volunteer_metrics(year: int, program_ids: list | None = None) -> dict:
     """
@@ -266,8 +280,7 @@ def t3010_volunteer_metrics(year: int, program_ids: list | None = None) -> dict:
     # its required_skills tags. This keeps DB round-trips to two total.
 
     opp_agg = (
-        approved_qs
-        .filter(opportunity__isnull=False)
+        approved_qs.filter(opportunity__isnull=False)
         .values("opportunity__pk")
         .annotate(
             opp_hours=Coalesce(
@@ -290,26 +303,20 @@ def t3010_volunteer_metrics(year: int, program_ids: list | None = None) -> dict:
 
     # Log entries with opportunity__isnull=True (manually logged without an opp)
     # are bucketed into "general" at the end.
-    null_opp_agg = (
-        approved_qs
-        .filter(opportunity__isnull=True)
-        .aggregate(
-            null_hours=Coalesce(
-                Sum("hours"),
-                Value(Decimal("0.00")),
-                output_field=DecimalField(max_digits=12, decimal_places=2),
-            ),
-            null_volunteers=Count("volunteer", distinct=True),
-        )
+    null_opp_agg = approved_qs.filter(opportunity__isnull=True).aggregate(
+        null_hours=Coalesce(
+            Sum("hours"),
+            Value(Decimal("0.00")),
+            output_field=DecimalField(max_digits=12, decimal_places=2),
+        ),
+        null_volunteers=Count("volunteer", distinct=True),
     )
 
     # Fetch skill tags for all relevant opportunities in one query.
     opp_pks = list(opp_data.keys())
     # prefetch_related equivalent via values() on the through table
-    opp_tags = (
-        Opportunity.objects
-        .filter(pk__in=opp_pks)
-        .values("pk", "required_skills__slug", "required_skills__name_en")
+    opp_tags = Opportunity.objects.filter(pk__in=opp_pks).values(
+        "pk", "required_skills__slug", "required_skills__name_en"
     )
 
     # Build opp_pk → {slugs, names} map
@@ -325,9 +332,9 @@ def t3010_volunteer_metrics(year: int, program_ids: list | None = None) -> dict:
 
     # Accumulate by category
     category_totals: dict[str, dict] = {
-        "general":          {"hours": Decimal("0.00"), "volunteers": 0},
-        "governance":       {"hours": Decimal("0.00"), "volunteers": 0},
-        "fundraising":      {"hours": Decimal("0.00"), "volunteers": 0},
+        "general": {"hours": Decimal("0.00"), "volunteers": 0},
+        "governance": {"hours": Decimal("0.00"), "volunteers": 0},
+        "fundraising": {"hours": Decimal("0.00"), "volunteers": 0},
         "program_delivery": {"hours": Decimal("0.00"), "volunteers": 0},
     }
 
@@ -358,8 +365,9 @@ def t3010_volunteer_metrics(year: int, program_ids: list | None = None) -> dict:
 
     # Ensure consistent output order even when some categories are zero
     _cat_order = ["general", "governance", "fundraising", "program_delivery"]
-    categories.sort(key=lambda c: _cat_order.index(c["category"])
-                    if c["category"] in _cat_order else 99)
+    categories.sort(
+        key=lambda c: _cat_order.index(c["category"]) if c["category"] in _cat_order else 99
+    )
 
     return {
         "year": year,

@@ -15,11 +15,11 @@ Conventions:
   - captureOnCommitCallbacks(execute=True) to trigger on_commit paths.
   - PIPEDA invariant: rejection_reason must never appear in signal kwargs.
 """
+
 from __future__ import annotations
 
 import datetime
 from decimal import Decimal
-from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
@@ -60,27 +60,27 @@ def _make_user(email=None, password="testpass!", **kwargs):
 
 def _make_program(**kwargs):
     n = _uid()
-    defaults = dict(
-        name_en=f"Program {n}",
-        name_fr=f"Programme {n}",
-        slug=f"hprog-{n}",
-        cra_category="welfare",
-    )
+    defaults = {
+        "name_en": f"Program {n}",
+        "name_fr": f"Programme {n}",
+        "slug": f"hprog-{n}",
+        "cra_category": "welfare",
+    }
     defaults.update(kwargs)
     return Program.objects.create(**defaults)
 
 
 def _make_opportunity(program, *, slug=None, status="published", **kwargs):
     n = _uid()
-    defaults = dict(
-        title_en=f"Opportunity {n}",
-        title_fr=f"Opportunité {n}",
-        slug=slug or f"hopp-{n}",
-        description_en="Description",
-        description_fr="Description FR",
-        program=program,
-        status=status,
-    )
+    defaults = {
+        "title_en": f"Opportunity {n}",
+        "title_fr": f"Opportunité {n}",
+        "slug": slug or f"hopp-{n}",
+        "description_en": "Description",
+        "description_fr": "Description FR",
+        "program": program,
+        "status": status,
+    }
     defaults.update(kwargs)
     return Opportunity.objects.create(**defaults)
 
@@ -126,6 +126,7 @@ def _grant_perm(user, codename):
 # Shared base setup
 # ---------------------------------------------------------------------------
 
+
 class HoursBaseTestCase(TestCase):
     """
     Shared fixtures for all hours service tests.
@@ -148,9 +149,7 @@ class HoursBaseTestCase(TestCase):
 
         self.program = _make_program(slug="hours-base-prog")
         self.opportunity = _make_opportunity(self.program, slug="hours-base-opp")
-        self.approved_application = _approve_application(
-            self.volunteer_profile, self.opportunity
-        )
+        self.approved_application = _approve_application(self.volunteer_profile, self.opportunity)
 
         self.past_shift = _make_past_shift(self.opportunity, hours_ago_start=4, duration_hours=2)
 
@@ -207,8 +206,8 @@ class HoursBaseTestCase(TestCase):
 # log_hours() tests
 # ===========================================================================
 
-class LogHoursTests(HoursBaseTestCase):
 
+class LogHoursTests(HoursBaseTestCase):
     def test_log_hours_creates_pending_log(self):
         """Happy path: log_hours() creates a HoursLog with STATUS_PENDING."""
         log = log_hours(
@@ -336,6 +335,7 @@ class LogHoursTests(HoursBaseTestCase):
     def test_log_hours_fires_signal_on_commit(self):
         """log_hours() fires hours_logged signal after the DB commit."""
         from apps.volunteers.signals import hours_logged
+
         received = []
 
         def handler(sender, **kwargs):
@@ -363,8 +363,8 @@ class LogHoursTests(HoursBaseTestCase):
 # approve_hours() tests
 # ===========================================================================
 
-class ApproveHoursTests(HoursBaseTestCase):
 
+class ApproveHoursTests(HoursBaseTestCase):
     def test_approve_hours_sets_approved_status(self):
         """Happy path: approve_hours() transitions status to approved."""
         log = self._pending_log()
@@ -430,6 +430,7 @@ class ApproveHoursTests(HoursBaseTestCase):
     def test_approve_hours_fires_signal_on_commit(self):
         """approve_hours() fires hours_approved signal after the DB commit."""
         from apps.volunteers.signals import hours_approved
+
         log = self._pending_log()
         received = []
 
@@ -478,16 +479,19 @@ class ApproveHoursTests(HoursBaseTestCase):
         # Second approval must raise ValidationError with 'status' in message_dict.
         with self.assertRaises(ValidationError) as ctx:
             approve_hours(hours_log=log, actor=self.coordinator)
-        self.assertIn("status", ctx.exception.message_dict,
-                      "approve_hours() must identify 'status' as the invalid field.")
+        self.assertIn(
+            "status",
+            ctx.exception.message_dict,
+            "approve_hours() must identify 'status' as the invalid field.",
+        )
 
 
 # ===========================================================================
 # reject_hours() tests
 # ===========================================================================
 
-class RejectHoursTests(HoursBaseTestCase):
 
+class RejectHoursTests(HoursBaseTestCase):
     def test_reject_hours_sets_rejected_status(self):
         """Happy path: reject_hours() transitions log status to rejected."""
         log = self._pending_log()
@@ -547,6 +551,7 @@ class RejectHoursTests(HoursBaseTestCase):
         the volunteer.
         """
         from apps.volunteers.signals import hours_rejected
+
         log = self._pending_log()
         received_kwargs: dict = {}
 
@@ -572,6 +577,7 @@ class RejectHoursTests(HoursBaseTestCase):
     def test_reject_hours_fires_signal_on_commit(self):
         """reject_hours() fires hours_rejected signal after the DB commit."""
         from apps.volunteers.signals import hours_rejected
+
         log = self._pending_log()
         received = []
 
@@ -600,8 +606,8 @@ class RejectHoursTests(HoursBaseTestCase):
 # Milestone tests
 # ===========================================================================
 
-class MilestoneTests(HoursBaseTestCase):
 
+class MilestoneTests(HoursBaseTestCase):
     def test_milestone_created_at_25h(self):
         """Approving 25 hours of logs creates a RecognitionMilestone at the 25h threshold."""
         self._approve_n_hours(25)
@@ -653,6 +659,7 @@ class MilestoneTests(HoursBaseTestCase):
     def test_milestone_achieved_signal_fired(self):
         """_check_milestones() fires the milestone_achieved signal for each new threshold."""
         from apps.volunteers.signals import milestone_achieved
+
         received = []
 
         def handler(sender, **kwargs):
@@ -702,11 +709,12 @@ class MilestoneTests(HoursBaseTestCase):
             hours_threshold=Decimal("25"),
         )
         self.assertTrue(milestone.notification_sent)
-        # Approving 5 hours × 5 times fires notify_volunteer_on_hours_approved
+        # Approving 5 hours × 5 times fires notify_volunteer_on_hours_approved  # noqa: RUF003
         # each time, plus one milestone notification — check the milestone call
         # landed rather than asserting a fixed total call count.
         milestone_calls = [
-            c for c in mock_send.call_args_list
+            c
+            for c in mock_send.call_args_list
             if c.kwargs.get("subject_key") == "volunteer_milestone_achieved"
         ]
         self.assertEqual(len(milestone_calls), 1, "Expected exactly one milestone email")
@@ -716,8 +724,9 @@ class MilestoneTests(HoursBaseTestCase):
 # Hours race-condition tests  (requires TransactionTestCase / PostgreSQL)
 # ===========================================================================
 
-import unittest as _unittest
-from django.db import connection as _connection
+import unittest as _unittest  # noqa: E402
+
+from django.db import connection as _connection  # noqa: E402
 
 
 @_unittest.skipIf(
@@ -763,5 +772,5 @@ class HoursRaceConditionTests(TransactionTestCase):
         self.assertEqual(result.status, HoursLog.STATUS_APPROVED)
 
         # Second approval must raise (state-machine guard).
-        with self.assertRaises(Exception):
+        with self.assertRaises(Exception):  # noqa: B017
             approve_hours(hours_log=result, actor=self.coordinator)

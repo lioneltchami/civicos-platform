@@ -9,6 +9,7 @@ Covers:
 - request_export() creation, duplicate guard
 - get_citizen_exports() scoping
 """
+
 import threading
 import unittest
 import uuid
@@ -79,9 +80,7 @@ class ConsentServiceGrantTests(TestCase):
     def test_grant_idempotent_does_not_create_duplicate_records(self):
         ConsentService.grant(self.citizen, "marketing")
         ConsentService.grant(self.citizen, "marketing")
-        count = ConsentRecord.objects.filter(
-            citizen=self.citizen, category=self.category
-        ).count()
+        count = ConsentRecord.objects.filter(citizen=self.citizen, category=self.category).count()
         self.assertEqual(count, 1)
 
     def test_grant_idempotent_does_not_create_duplicate_audit_entry(self):
@@ -89,9 +88,7 @@ class ConsentServiceGrantTests(TestCase):
         # PIPEDA audit trail integrity: only real state changes are recorded.
         ConsentService.grant(self.citizen, "marketing")
         ConsentService.grant(self.citizen, "marketing")
-        count = ConsentAuditEntry.objects.filter(
-            citizen=self.citizen, action="granted"
-        ).count()
+        count = ConsentAuditEntry.objects.filter(citizen=self.citizen, action="granted").count()
         self.assertEqual(count, 1)
 
     def test_grant_unknown_slug_raises_value_error(self):
@@ -283,9 +280,12 @@ class HasConsentFixTests(TestCase):
         )
         self.category = ConsentCategory.objects.create(
             slug=f"hc-{uuid.uuid4().hex[:6]}",
-            name_en="Test Cat", name_fr="Cat Test",
-            purpose_en="p", purpose_fr="p",
-            is_required=False, is_active=True,
+            name_en="Test Cat",
+            name_fr="Cat Test",
+            purpose_en="p",
+            purpose_fr="p",
+            is_required=False,
+            is_active=True,
         )
 
     def test_returns_true_when_granted(self):
@@ -304,9 +304,12 @@ class HasConsentFixTests(TestCase):
     def test_returns_true_for_required_category_without_record(self):
         req_cat = ConsentCategory.objects.create(
             slug=f"req-{uuid.uuid4().hex[:6]}",
-            name_en="Req", name_fr="Req",
-            purpose_en="p", purpose_fr="p",
-            is_required=True, is_active=True,
+            name_en="Req",
+            name_fr="Req",
+            purpose_en="p",
+            purpose_fr="p",
+            is_required=True,
+            is_active=True,
         )
         self.assertTrue(ConsentService.has_consent(self.citizen, req_cat.slug))
 
@@ -331,16 +334,18 @@ class ConsentServiceGrantRevisionTests(TestCase):
         # ConsentService.create_data_agreement(), the same service method
         # production code paths use, which creates an initial ConsentRevision
         # alongside the ConsentCategory (services.py:650-670).
-        self.category, self.initial_revision = ConsentService.create_data_agreement({
-            "slug": f"rev-{uuid.uuid4().hex[:6]}",
-            "name_en": "Revision Test Category",
-            "name_fr": "Catégorie de test de révision",
-            "purpose_en": "Test purpose",
-            "purpose_fr": "Objet de test",
-            "lawful_basis": "consent",
-            "is_required": False,
-            "is_active": True,
-        })
+        self.category, self.initial_revision = ConsentService.create_data_agreement(
+            {
+                "slug": f"rev-{uuid.uuid4().hex[:6]}",
+                "name_en": "Revision Test Category",
+                "name_fr": "Catégorie de test de révision",
+                "purpose_en": "Test purpose",
+                "purpose_fr": "Objet de test",
+                "lawful_basis": "consent",
+                "is_required": False,
+                "is_active": True,
+            }
+        )
 
     def test_grant_with_specific_revision_uses_that_revision(self):
         """H-02 fix: when a revision is supplied to grant(), it is used not discarded."""
@@ -407,6 +412,7 @@ class ConsentServiceGetCitizenExportsTests(TestCase):
 # ===========================================================================
 # Fix 4 — concurrent first-grant race (TransactionTestCase)
 # ===========================================================================
+
 
 @unittest.skipIf(
     connection.vendor == "sqlite",
@@ -483,7 +489,8 @@ class ConcurrentFirstGrantTests(TransactionTestCase):
         # race must be fully recovered from inside grant(), never surfaced to
         # the caller.
         self.assertEqual(
-            len(errors), 0,
+            len(errors),
+            0,
             f"grant() must recover from the is_current race internally; got errors: {errors}",
         )
         self.assertEqual(len(results), 2)
@@ -495,7 +502,8 @@ class ConcurrentFirstGrantTests(TransactionTestCase):
             citizen=self.citizen, category=self.category, is_current=True
         ).count()
         self.assertEqual(
-            current_count, 1,
+            current_count,
+            1,
             f"Expected exactly 1 is_current=True ConsentRecord; got {current_count}.",
         )
 
@@ -518,8 +526,8 @@ class ConcurrentFirstGrantTests(TransactionTestCase):
 # separately, by ConcurrentFirstGrantTests, which is left unchanged).
 # ===========================================================================
 
-class GrantIntegrityErrorRecoveryTests(TestCase):
 
+class GrantIntegrityErrorRecoveryTests(TestCase):
     def setUp(self):
         self.citizen = _make_citizen()
         self.category = _make_category(slug="integrity-race-test")
@@ -589,16 +597,19 @@ class GrantIntegrityErrorRecoveryTests(TestCase):
             # Our own INSERT hits the constraint the concurrent winner
             # (injected above, in the archive step) just committed under.
             raise IntegrityError(
-                'duplicate key value violates unique constraint '
+                "duplicate key value violates unique constraint "
                 '"unique_current_consent_record_per_citizen_category"'
             )
 
-        with patch(
-            "apps.consent.models.ConsentRecord.objects.filter",
-            side_effect=_filter_side_effect,
-        ), patch(
-            "apps.consent.models.ConsentRecord.objects.create",
-            side_effect=_create_side_effect,
+        with (
+            patch(
+                "apps.consent.models.ConsentRecord.objects.filter",
+                side_effect=_filter_side_effect,
+            ),
+            patch(
+                "apps.consent.models.ConsentRecord.objects.create",
+                side_effect=_create_side_effect,
+            ),
         ):
             record = ConsentService.grant(self.citizen, "integrity-race-test")
 
@@ -622,10 +633,10 @@ class GrantIntegrityErrorRecoveryTests(TestCase):
         (e.g. a different constraint violation entirely) must propagate to
         the caller rather than being silently treated as "lost the race".
         """
+
         def _create_side_effect(**kwargs):
             raise IntegrityError(
-                'duplicate key value violates unique constraint '
-                '"some_unrelated_constraint_name"'
+                "duplicate key value violates unique constraint " '"some_unrelated_constraint_name"'
             )
 
         with patch(
@@ -644,6 +655,7 @@ class GrantIntegrityErrorRecoveryTests(TestCase):
 # read the same "latest" ConsentRevision predecessor before either commits,
 # forking the tamper-evidence chain's single-latest invariant.
 # ===========================================================================
+
 
 class SignatureLockingTests(TestCase):
     """
@@ -782,7 +794,8 @@ class ConcurrentSignatureUpdateTests(TransactionTestCase):
             successor__isnull=True,
         ).count()
         self.assertEqual(
-            latest_count, 1,
+            latest_count,
+            1,
             f"Expected exactly 1 'latest' ConsentRevision (successor=None) for "
             f"the signature after concurrent updates; got {latest_count} — the "
             f"row lock failed to serialize the two update_signature() calls, "
@@ -795,6 +808,7 @@ class ConcurrentSignatureUpdateTests(TransactionTestCase):
 # PII embedded in ConsentRevision snapshots for every ConsentRecord it deletes,
 # since ConsentRevision itself is append-only/non-deletable by design.
 # ===========================================================================
+
 
 class RightToBeForgottenRevisionRedactionTests(TestCase):
     """
@@ -896,10 +910,14 @@ class RightToBeForgottenRevisionRedactionTests(TestCase):
         """No forgettable records at all — right_to_be_forgotten() must be a no-op
         with respect to revisions (nothing to redact)."""
         record = ConsentService.grant(self.citizen, self.required_category.slug)
-        before = list(self._revisions_for(record.pk).values_list("authorized_by_individual_id", flat=True))
+        before = list(
+            self._revisions_for(record.pk).values_list("authorized_by_individual_id", flat=True)
+        )
 
         ConsentService.right_to_be_forgotten(self.citizen)
 
-        after = list(self._revisions_for(record.pk).values_list("authorized_by_individual_id", flat=True))
+        after = list(
+            self._revisions_for(record.pk).values_list("authorized_by_individual_id", flat=True)
+        )
         self.assertEqual(before, after)
         self.assertTrue(all(pk == self.citizen.pk for pk in after))

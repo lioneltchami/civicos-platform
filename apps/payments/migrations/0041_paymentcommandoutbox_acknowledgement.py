@@ -2,9 +2,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("payments", "0040_paymentcommand_attempt")]
+    dependencies = [("payments", "0040_paymentcommand_attempt")]  # noqa: RUF012
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddField(
             model_name="paymentcommandoutbox",
             name="acknowledged_at",

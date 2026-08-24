@@ -3,13 +3,12 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("consent", "0003_protect_citizen_fk"),
         ("documents", "0007_seed_document_categories"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddField(
             model_name="dataexportrequest",
             name="document",

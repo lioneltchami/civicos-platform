@@ -5,33 +5,85 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('appointments', '0016_govstack_appointment_fields'),
-        ('payments', '0024_alter_bulkpaymentbatch_request_id_and_more'),
+    dependencies = [  # noqa: RUF012
+        ("appointments", "0016_govstack_appointment_fields"),
+        ("payments", "0024_alter_bulkpaymentbatch_request_id_and_more"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterField(
-            model_name='govstacksubscriberprofile',
-            name='alert_preference',
-            field=models.CharField(blank=True, choices=[('push', 'Push (HTTP callback)'), ('poll', 'Poll (status_poll_url)'), ('email', 'Email'), ('sms', 'SMS'), ('none', 'None')], max_length=10, verbose_name='Alert preference'),
+            model_name="govstacksubscriberprofile",
+            name="alert_preference",
+            field=models.CharField(
+                blank=True,
+                choices=[
+                    ("push", "Push (HTTP callback)"),
+                    ("poll", "Poll (status_poll_url)"),
+                    ("email", "Email"),
+                    ("sms", "SMS"),
+                    ("none", "None"),
+                ],
+                max_length=10,
+                verbose_name="Alert preference",
+            ),
         ),
         migrations.CreateModel(
-            name='GovStackBBCredential',
+            name="GovStackBBCredential",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('created_at', models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='Created at')),
-                ('updated_at', models.DateTimeField(auto_now=True, verbose_name='Updated at')),
-                ('token_hash', models.CharField(help_text='Hashed via django.contrib.auth.hashers.make_password. The plaintext secret is never stored.', max_length=255, verbose_name='Hashed request token')),
-                ('token_prefix', models.CharField(blank=True, help_text='First 8 characters of the plaintext token, retained only to help operators tell rotated credentials apart in the admin. Not a secret on its own (32+ bytes of entropy remain unknown).', max_length=8, verbose_name='Token prefix (display only)')),
-                ('last_used_at', models.DateTimeField(blank=True, help_text='Updated on each successful authentication (best-effort, not transactional).', null=True, verbose_name='Last used at')),
-                ('rotated_at', models.DateTimeField(auto_now=True, verbose_name='Last rotated at')),
-                ('bb', models.OneToOneField(help_text='The GovStackRegisteredBB (public bb_id) this credential authenticates.', on_delete=django.db.models.deletion.CASCADE, related_name='scheduler_credential', to='payments.govstackregisteredbb', verbose_name='Registered BB')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
+                ),
+                ("updated_at", models.DateTimeField(auto_now=True, verbose_name="Updated at")),
+                (
+                    "token_hash",
+                    models.CharField(
+                        help_text="Hashed via django.contrib.auth.hashers.make_password. The plaintext secret is never stored.",
+                        max_length=255,
+                        verbose_name="Hashed request token",
+                    ),
+                ),
+                (
+                    "token_prefix",
+                    models.CharField(
+                        blank=True,
+                        help_text="First 8 characters of the plaintext token, retained only to help operators tell rotated credentials apart in the admin. Not a secret on its own (32+ bytes of entropy remain unknown).",
+                        max_length=8,
+                        verbose_name="Token prefix (display only)",
+                    ),
+                ),
+                (
+                    "last_used_at",
+                    models.DateTimeField(
+                        blank=True,
+                        help_text="Updated on each successful authentication (best-effort, not transactional).",
+                        null=True,
+                        verbose_name="Last used at",
+                    ),
+                ),
+                ("rotated_at", models.DateTimeField(auto_now=True, verbose_name="Last rotated at")),
+                (
+                    "bb",
+                    models.OneToOneField(
+                        help_text="The GovStackRegisteredBB (public bb_id) this credential authenticates.",
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="scheduler_credential",
+                        to="payments.govstackregisteredbb",
+                        verbose_name="Registered BB",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'GovStack BB Scheduler Credential',
-                'verbose_name_plural': 'GovStack BB Scheduler Credentials',
+                "verbose_name": "GovStack BB Scheduler Credential",
+                "verbose_name_plural": "GovStack BB Scheduler Credentials",
             },
         ),
     ]

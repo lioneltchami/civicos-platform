@@ -35,7 +35,8 @@ Error response shape for 452–464:
   {"message": "<human-readable explanation>"}
 
 The harness checks that a "message" property is present on all error responses.
-"""
+"""  # noqa: RUF002
+
 from __future__ import annotations
 
 import logging
@@ -54,11 +55,13 @@ logger = logging.getLogger(__name__)
 # Custom exception classes
 # ---------------------------------------------------------------------------
 
+
 class InvalidVoucherAmount(APIException):
     """
     HTTP 452 — Invalid voucher amount.
     Raised when voucher_amount is zero, negative, or not a valid number.
     """
+
     status_code = 452
     default_code = "invalid_voucher_amount"
     default_detail = "Invalid voucher amount. Amount must be a positive number."
@@ -69,6 +72,7 @@ class InvalidVoucherCurrency(APIException):
     HTTP 453 — Invalid voucher currency.
     Raised when voucher_currency is not a valid ISO 4217 3-letter code.
     """
+
     status_code = 453
     default_code = "invalid_voucher_currency"
     default_detail = "Invalid or unsupported voucher currency. Use a 3-letter ISO 4217 code."
@@ -79,6 +83,7 @@ class InvalidVoucherGroup(APIException):
     HTTP 454 — Invalid voucher group.
     Raised when voucher_group is empty, missing, or does not exist.
     """
+
     status_code = 454
     default_code = "invalid_voucher_group"
     default_detail = "Invalid or unrecognised voucher group code."
@@ -89,6 +94,7 @@ class InvalidVoucherSerial(APIException):
     HTTP 456 — Invalid voucher serial number (not found on activation).
     Raised when the provided serial number does not match any PREACTIVATED voucher.
     """
+
     status_code = 456
     default_code = "invalid_voucher_serial"
     default_detail = "Voucher serial number not found."
@@ -104,6 +110,7 @@ class VoucherAlreadyUsed(APIException):
     been redeemed will hit this same error path in production, not just the
     harness's fixture serial.
     """
+
     status_code = 458
     default_code = "voucher_already_used"
     default_detail = "This voucher has already been used."
@@ -121,6 +128,7 @@ class VoucherExpired(APIException):
     (458) takes priority over this exception — "already used" is treated as
     the more definitive terminal state. See get_status() for the ordering.
     """
+
     status_code = 459
     default_code = "voucher_expired"
     default_detail = "This voucher has expired."
@@ -142,6 +150,7 @@ class VoucherGroupExhausted(APIException):
     group capacity limits, raise this from
     GovStackVoucherService.preactivate() when the limit is reached.
     """
+
     status_code = 455
     default_code = "voucher_group_exhausted"
     default_detail = "This voucher group has been exhausted."
@@ -152,6 +161,7 @@ class GovStackBBNotFound(APIException):
     HTTP 460 — Gov_Stack_BB does not exist or is not registered.
     Raised when the Gov_Stack_BB field in the request body is empty or unknown.
     """
+
     status_code = 460
     default_code = "gov_stack_bb_not_found"
     default_detail = "The specified Gov_Stack_BB does not exist or is not registered."
@@ -163,6 +173,7 @@ class InvalidVoucherNumber(APIException):
     Raised when voucher_number is not numeric (the harness sends the literal
     string "notAnumber" to trigger this scenario).
     """
+
     status_code = 461
     default_code = "invalid_voucher_number"
     default_detail = "voucher_number must be numeric."
@@ -182,6 +193,7 @@ class InsufficientFunds(APIException):
     fixtures alone — see GovStackVoucherService._classify_redemption_decline()
     for the full source citation.
     """
+
     status_code = 462
     default_code = "insufficient_funds"
     default_detail = "Insufficient funds to complete this redemption."
@@ -208,6 +220,7 @@ class CannotCreditMerchant(APIException):
     comments) — see GovStackVoucherService._classify_redemption_decline()
     for the full source citation.
     """
+
     status_code = 463
     default_code = "cannot_credit_merchant"
     default_detail = "Unable to credit the merchant for this redemption."
@@ -219,6 +232,7 @@ class InvalidCancellationSerial(APIException):
     Raised when the serial number in the PATCH /voucherstatuscheck/{serial}
     path does not match any voucher in the system.
     """
+
     status_code = 463
     default_code = "invalid_cancellation_serial"
     default_detail = "Invalid voucher serial number for cancellation."
@@ -230,6 +244,7 @@ class VoucherAlreadyCancelled(APIException):
     Raised when the client attempts to cancel a voucher that is already in
     CANCELLED status.
     """
+
     status_code = 464
     default_code = "voucher_already_cancelled"
     default_detail = "This voucher has already been cancelled."
@@ -241,6 +256,7 @@ class BillNotFound(APIException):
     Raised when the bill_id in the URL does not match any GovStackBill record.
     The govstack_exception_handler remaps DRF's 'detail' key → 'message'.
     """
+
     status_code = 404
     default_code = "bill_not_found"
     default_detail = "Bill not found."
@@ -252,6 +268,7 @@ class BillPaymentNotFound(APIException):
     Raised when the transfer_request_id in the URL does not match any
     GovStackBillPayment record.
     """
+
     status_code = 404
     default_code = "bill_payment_not_found"
     default_detail = "Transfer request not found."
@@ -340,6 +357,7 @@ class DuplicateValidationRequestError(Exception):
 # Exception handler
 # ---------------------------------------------------------------------------
 
+
 def govstack_exception_handler(exc: Exception, context: dict) -> Response | None:
     """
     Custom DRF exception handler for GovStack Payments endpoints.
@@ -402,6 +420,7 @@ def govstack_exception_handler(exc: Exception, context: dict) -> Response | None
 # G2P exception handler
 # ---------------------------------------------------------------------------
 
+
 def govstack_g2p_exception_handler(exc: Exception, context: dict) -> Response | None:
     """
     Custom DRF exception handler for G2P (Government-to-Person) endpoints.
@@ -422,7 +441,7 @@ def govstack_g2p_exception_handler(exc: Exception, context: dict) -> Response | 
     violated.
 
     Registered on GovStackG2PView via get_exception_handler().
-    """
+    """  # noqa: RUF002
     response = _drf_exception_handler(exc, context)
 
     if response is not None:
@@ -434,7 +453,7 @@ def govstack_g2p_exception_handler(exc: Exception, context: dict) -> Response | 
                 data = request.data
                 if isinstance(data, dict):
                     request_id = str(data.get("RequestID", ""))
-            except Exception:
+            except Exception:  # noqa: S110
                 pass  # malformed body — RequestID not available
 
         # Build a human-readable description from the DRF error data.

@@ -4,40 +4,61 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('payments', '0022_govstackregisteredbb_role'),
+    dependencies = [  # noqa: RUF012
+        ("payments", "0022_govstackregisteredbb_role"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterField(
-            model_name='govstackbill',
-            name='created_at',
-            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='Created at'),
+            model_name="govstackbill",
+            name="created_at",
+            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at"),
         ),
         migrations.AlterField(
-            model_name='govstackbill',
-            name='updated_at',
-            field=models.DateTimeField(auto_now=True, verbose_name='Updated at'),
+            model_name="govstackbill",
+            name="updated_at",
+            field=models.DateTimeField(auto_now=True, verbose_name="Updated at"),
         ),
         migrations.AlterField(
-            model_name='govstackbillpayment',
-            name='created_at',
-            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='Created at'),
+            model_name="govstackbillpayment",
+            name="created_at",
+            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at"),
         ),
         migrations.AlterField(
-            model_name='govstackbillpayment',
-            name='updated_at',
-            field=models.DateTimeField(auto_now=True, verbose_name='Updated at'),
+            model_name="govstackbillpayment",
+            name="updated_at",
+            field=models.DateTimeField(auto_now=True, verbose_name="Updated at"),
         ),
         migrations.AlterField(
-            model_name='govstackpaymentauditentry',
-            name='action',
-            field=models.CharField(choices=[('beneficiary_registered', 'Beneficiary Registered'), ('beneficiary_updated', 'Beneficiary Updated'), ('batch_received', 'Batch Received'), ('batch_completed', 'Batch Completed'), ('batch_partial', 'Batch Partially Completed'), ('batch_failed', 'Batch Failed'), ('instruction_completed', 'Instruction Completed'), ('instruction_failed', 'Instruction Failed'), ('validation_requested', 'Validation Requested'), ('validation_completed', 'Validation Completed'), ('voucher_preactivated', 'Voucher Preactivated'), ('voucher_activated', 'Voucher Activated'), ('voucher_redeemed', 'Voucher Redeemed'), ('voucher_cancelled', 'Voucher Cancelled'), ('bill_payment_requested', 'Bill Payment Requested'), ('bill_paid', 'Bill Paid')], db_index=True, max_length=50, verbose_name='Action'),
+            model_name="govstackpaymentauditentry",
+            name="action",
+            field=models.CharField(
+                choices=[
+                    ("beneficiary_registered", "Beneficiary Registered"),
+                    ("beneficiary_updated", "Beneficiary Updated"),
+                    ("batch_received", "Batch Received"),
+                    ("batch_completed", "Batch Completed"),
+                    ("batch_partial", "Batch Partially Completed"),
+                    ("batch_failed", "Batch Failed"),
+                    ("instruction_completed", "Instruction Completed"),
+                    ("instruction_failed", "Instruction Failed"),
+                    ("validation_requested", "Validation Requested"),
+                    ("validation_completed", "Validation Completed"),
+                    ("voucher_preactivated", "Voucher Preactivated"),
+                    ("voucher_activated", "Voucher Activated"),
+                    ("voucher_redeemed", "Voucher Redeemed"),
+                    ("voucher_cancelled", "Voucher Cancelled"),
+                    ("bill_payment_requested", "Bill Payment Requested"),
+                    ("bill_paid", "Bill Paid"),
+                ],
+                db_index=True,
+                max_length=50,
+                verbose_name="Action",
+            ),
         ),
         migrations.AlterField(
-            model_name='govstackregisteredbb',
-            name='created_at',
-            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='Created at'),
+            model_name="govstackregisteredbb",
+            name="created_at",
+            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at"),
         ),
     ]

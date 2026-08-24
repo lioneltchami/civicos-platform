@@ -7,10 +7,10 @@ All gateway adapters raise these — callers never catch stripe.error.* directly
 class GatewayError(Exception):
     """Base class for all gateway errors."""
 
-    def __init__(self, message, gateway_code=None, decline_code=None):
+    def __init__(self, message, gateway_code=None, decline_code=None) -> None:  # noqa: ANN001
         super().__init__(message)
-        self.gateway_code = gateway_code      # e.g. "card_declined"
-        self.decline_code = decline_code      # e.g. "insufficient_funds"
+        self.gateway_code = gateway_code  # e.g. "card_declined"
+        self.decline_code = decline_code  # e.g. "insufficient_funds"
 
 
 class GatewayAuthError(GatewayError):

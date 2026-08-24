@@ -57,6 +57,7 @@ Test approach:
   apps/payments/tests/test_govstack_auth.py's direct
   IsTrustedSourceBB.has_permission() calls.
 """
+
 from __future__ import annotations
 
 import json
@@ -84,7 +85,9 @@ RESOURCE_AVAILABILITY_URL = "/govstack/scheduler/resource/availability"
 _BB_ID = "test-registered-bb"
 
 
-def _make_bb_with_credential(bb_id: str = _BB_ID, role: str = "admin") -> tuple[GovStackRegisteredBB, str]:
+def _make_bb_with_credential(
+    bb_id: str = _BB_ID, role: str = "admin"
+) -> tuple[GovStackRegisteredBB, str]:
     """
     Create a GovStackRegisteredBB row AND a real GovStackBBCredential for it.
 
@@ -129,7 +132,7 @@ def _make_citizen(is_staff: bool = False):
     """Factory: create an active User, optionally staff, for JWT tests."""
     import uuid
 
-    User = get_user_model()
+    User = get_user_model()  # noqa: N806
     email = f"gs-auth-{uuid.uuid4().hex[:10]}@example.com"
     user = User.objects.create(email=email, is_staff=is_staff, is_active=True)
     user.set_unusable_password()
@@ -156,6 +159,7 @@ def _make_drf_request(query: dict, auth_header: str | None = None) -> DRFRequest
 # GA-1: harness mode (GOVSTACK_SCHEDULER_REQUIRE_TOKEN=False, the default)
 # ---------------------------------------------------------------------------
 
+
 class SchedulerRoleHarnessModeTest(TestCase):
     """
     GA-1: GOVSTACK_SCHEDULER_REQUIRE_TOKEN=False (default) — regression guard.
@@ -180,6 +184,7 @@ class SchedulerRoleHarnessModeTest(TestCase):
 # GA-2..GA-4: production mode (GOVSTACK_SCHEDULER_REQUIRE_TOKEN=True)
 # ---------------------------------------------------------------------------
 
+
 @override_settings(GOVSTACK_SCHEDULER_REQUIRE_TOKEN=True)
 class SchedulerRoleEnforcementTest(TestCase):
     """
@@ -198,11 +203,13 @@ class SchedulerRoleEnforcementTest(TestCase):
     def test_ga3_resource_role_bb_passes_auth_on_resource_tier_endpoint(self):
         """GA-3: the SAME role='resource' BB passes auth on a resource-tier endpoint."""
         _bb, token = _make_bb_with_credential(role="resource")
-        resp = self.client.get(RESOURCE_AVAILABILITY_URL + _qs_with(_BB_ID, token, qry=json.dumps({})))
+        resp = self.client.get(
+            RESOURCE_AVAILABILITY_URL + _qs_with(_BB_ID, token, qry=json.dumps({}))
+        )
         self.assertEqual(resp.status_code, 200)
 
     def test_ga4_admin_role_bb_succeeds_on_admin_tier_endpoint(self):
-        """GA-4: a role='admin' BB succeeds (200; Bug 2 fix — was 201) on the admin-tier endpoint."""
+        """GA-4: a role='admin' BB succeeds (200; Bug 2 fix — was 201) on the admin-tier endpoint."""  # noqa: E501
         _bb, token = _make_bb_with_credential(role="admin")
         resp = self.client.post(ENTITY_NEW_URL + _qs_with(_BB_ID, token, qry=_entity_new_qry()))
         self.assertEqual(resp.status_code, 200)
@@ -215,7 +222,9 @@ class SchedulerRoleEnforcementTest(TestCase):
 
     def test_ga4c_unregistered_bb_id_denied_before_role_check(self):
         """No matching GovStackRegisteredBB row at all → 401 (identity lookup runs first)."""
-        resp = self.client.post(ENTITY_NEW_URL + _qs_with("no-such-bb", "irrelevant-token", qry=_entity_new_qry()))
+        resp = self.client.post(
+            ENTITY_NEW_URL + _qs_with("no-such-bb", "irrelevant-token", qry=_entity_new_qry())
+        )
         self.assertEqual(resp.status_code, 401)
 
     # -----------------------------------------------------------------------
@@ -232,7 +241,8 @@ class SchedulerRoleEnforcementTest(TestCase):
         """
         _make_bb_with_credential(role="admin")  # real credential exists but is never used
         resp = self.client.post(
-            ENTITY_NEW_URL + _qs_with(_BB_ID, _BB_ID, qry=_entity_new_qry())  # request_token = bb_id itself
+            ENTITY_NEW_URL
+            + _qs_with(_BB_ID, _BB_ID, qry=_entity_new_qry())  # request_token = bb_id itself
         )
         self.assertEqual(resp.status_code, 401)
 
@@ -253,12 +263,10 @@ class SchedulerRoleEnforcementTest(TestCase):
         self.assertEqual(resp.status_code, 401)
 
     def test_ga4g_correct_plaintext_secret_authenticates_successfully(self):
-        """GA-4g: the real provisioned secret (not bb_id) authenticates correctly (200; Bug 2 fix — was 201)."""
+        """GA-4g: the real provisioned secret (not bb_id) authenticates correctly (200; Bug 2 fix — was 201)."""  # noqa: E501
         _bb, token = _make_bb_with_credential(role="admin")
         self.assertNotEqual(token, _BB_ID)  # sanity: the secret is not the identifier
-        resp = self.client.post(
-            ENTITY_NEW_URL + _qs_with(_BB_ID, token, qry=_entity_new_qry())
-        )
+        resp = self.client.post(ENTITY_NEW_URL + _qs_with(_BB_ID, token, qry=_entity_new_qry()))
         self.assertEqual(resp.status_code, 200)
 
 
@@ -267,6 +275,7 @@ class SchedulerRoleEnforcementTest(TestCase):
 # GOVSTACK_REQUIRE_REGISTERED_BB safe-default regression guards
 # (MASTER_BB_CERTIFIABILITY_REPORT.md "Appointments/Scheduler BB")
 # ---------------------------------------------------------------------------
+
 
 class GovStackSchedulerAuthSafeDefaultsTest(TestCase):
     """
@@ -331,11 +340,12 @@ class GovStackSchedulerAuthSafeDefaultsTest(TestCase):
 # GA-5..GA-9: GovStackCitizenAuth unit tests
 # ---------------------------------------------------------------------------
 
+
 class GovStackCitizenAuthTest(TestCase):
     """Unit tests for GovStackCitizenAuth.authenticate()."""
 
     def test_ga5_valid_citizen_jwt_resolves_subscriber_identity(self):
-        """GA-5: BB creds + a valid non-staff citizen JWT resolves (user, 'govstack_scheduler_subscriber')."""
+        """GA-5: BB creds + a valid non-staff citizen JWT resolves (user, 'govstack_scheduler_subscriber')."""  # noqa: E501
         citizen = _make_citizen(is_staff=False)
         token = _jwt_for(citizen)
         request = _make_drf_request(_auth_params(), auth_header=f"Bearer {token}")
@@ -349,7 +359,7 @@ class GovStackCitizenAuthTest(TestCase):
         self.assertEqual(request.META["_gs_resolved_role"], "subscriber")
 
     def test_ga6_no_authorization_header_falls_back_to_bb_only_trust(self):
-        """GA-6: BB creds present, no Authorization header → identical outcome to GovStackSchedulerAuth."""
+        """GA-6: BB creds present, no Authorization header → identical outcome to GovStackSchedulerAuth."""  # noqa: E501
         request = _make_drf_request(_auth_params(), auth_header=None)
 
         result = GovStackCitizenAuth().authenticate(request)
@@ -390,6 +400,7 @@ class GovStackCitizenAuthTest(TestCase):
 # creation/rotation via govstack_generate_bb_credential
 # ---------------------------------------------------------------------------
 
+
 class GovStackGenerateBBCredentialAuditTest(TestCase):
     """
     FIX 4: the govstack_generate_bb_credential management command must write
@@ -408,9 +419,13 @@ class GovStackGenerateBBCredentialAuditTest(TestCase):
 
         call_command("govstack_generate_bb_credential", "--bb-id", bb.bb_id)
 
-        event = BookingAuditLog.objects.filter(
-            action=BookingAuditLog.ACTION_ADMIN_CREDENTIAL_MUTATED,
-        ).order_by("-timestamp").first()
+        event = (
+            BookingAuditLog.objects.filter(
+                action=BookingAuditLog.ACTION_ADMIN_CREDENTIAL_MUTATED,
+            )
+            .order_by("-timestamp")
+            .first()
+        )
         self.assertIsNotNone(event)
         self.assertIsNone(event.booking)
         self.assertEqual(event.detail["operation"], "create")

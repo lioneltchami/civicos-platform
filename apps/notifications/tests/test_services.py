@@ -1,4 +1,5 @@
 """Tests for the notifications service layer."""
+
 import uuid
 from unittest.mock import patch
 
@@ -43,6 +44,7 @@ class SendEmailNotificationSuccessTest(TestCase):
 
     def _call(self, user, **kwargs):
         from apps.notifications.services import send_email_notification
+
         return send_email_notification(
             recipient=user,
             subject_key=kwargs.get("subject_key", "status_update"),
@@ -94,7 +96,9 @@ class SendEmailNotificationSuccessTest(TestCase):
         user = make_user(email="citizen@example.com")
         self._call(user)
         args, kwargs = self.mock_send.call_args
-        self.assertIn("citizen@example.com", kwargs.get("recipient_list", args[3] if len(args) > 3 else []))
+        self.assertIn(
+            "citizen@example.com", kwargs.get("recipient_list", args[3] if len(args) > 3 else [])
+        )
 
     def test_template_render_called_for_subject_key(self):
         user = make_user()
@@ -108,6 +112,7 @@ class SendEmailNotificationSuccessTest(TestCase):
 
     def test_custom_from_email_passed_to_send_mail(self):
         from apps.notifications.services import send_email_notification
+
         user = make_user()
         send_email_notification(
             recipient=user,
@@ -127,8 +132,9 @@ class SendEmailNotificationFailureTest(TestCase):
     def test_raises_on_smtp_error(self, mock_send, mock_render):
         """Service raises on SMTP failure so Celery autoretry_for=(Exception,) fires."""
         from apps.notifications.services import send_email_notification
+
         user = make_user()
-        with self.assertRaises(Exception):
+        with self.assertRaises(Exception):  # noqa: B017
             send_email_notification(
                 recipient=user,
                 subject_key="status_update",
@@ -140,8 +146,9 @@ class SendEmailNotificationFailureTest(TestCase):
     def test_notification_marked_failed_on_smtp_error(self, mock_send, mock_render):
         """Notification record is persisted as FAILED before the exception propagates."""
         from apps.notifications.services import send_email_notification
+
         user = make_user()
-        with self.assertRaises(Exception):
+        with self.assertRaises(Exception):  # noqa: B017
             send_email_notification(
                 recipient=user,
                 subject_key="status_update",
@@ -155,8 +162,9 @@ class SendEmailNotificationFailureTest(TestCase):
     def test_notification_record_exists_even_after_smtp_error(self, mock_send, mock_render):
         """Record is created before sending, so it survives a send failure."""
         from apps.notifications.services import send_email_notification
+
         user = make_user()
-        with self.assertRaises(Exception):
+        with self.assertRaises(Exception):  # noqa: B017
             send_email_notification(
                 recipient=user,
                 subject_key="status_update",
@@ -164,9 +172,12 @@ class SendEmailNotificationFailureTest(TestCase):
             )
         self.assertEqual(Notification.objects.filter(recipient=user).count(), 1)
 
-    @patch(RENDER, side_effect=TemplateDoesNotExist("notifications/email/nonexistent_key_subject.txt"))
+    @patch(
+        RENDER, side_effect=TemplateDoesNotExist("notifications/email/nonexistent_key_subject.txt")
+    )
     def test_returns_false_when_template_missing(self, mock_render):
         from apps.notifications.services import send_email_notification
+
         user = make_user()
         result = send_email_notification(
             recipient=user,
@@ -175,10 +186,13 @@ class SendEmailNotificationFailureTest(TestCase):
         )
         self.assertFalse(result)
 
-    @patch(RENDER, side_effect=TemplateDoesNotExist("notifications/email/nonexistent_key_subject.txt"))
+    @patch(
+        RENDER, side_effect=TemplateDoesNotExist("notifications/email/nonexistent_key_subject.txt")
+    )
     def test_no_notification_record_when_template_missing(self, mock_render):
         """If render fails, we should NOT create a notification record."""
         from apps.notifications.services import send_email_notification
+
         user = make_user()
         send_email_notification(
             recipient=user,
@@ -187,9 +201,12 @@ class SendEmailNotificationFailureTest(TestCase):
         )
         self.assertEqual(Notification.objects.filter(recipient=user).count(), 0)
 
-    @patch(RENDER, side_effect=TemplateDoesNotExist("notifications/email/nonexistent_key_subject.txt"))
+    @patch(
+        RENDER, side_effect=TemplateDoesNotExist("notifications/email/nonexistent_key_subject.txt")
+    )
     def test_send_mail_not_called_when_template_missing(self, mock_render):
         from apps.notifications.services import send_email_notification
+
         with patch(SEND_MAIL) as mock_send:
             user = make_user()
             send_email_notification(
@@ -207,6 +224,7 @@ class SendEmailNotificationLanguageTest(TestCase):
     @patch(SEND_MAIL, return_value=1)
     def test_french_user_gets_french_notification(self, mock_send, mock_render):
         from apps.notifications.services import send_email_notification
+
         user = make_user(preferred_language="fr")
         send_email_notification(
             recipient=user,
@@ -220,6 +238,7 @@ class SendEmailNotificationLanguageTest(TestCase):
     @patch(SEND_MAIL, return_value=1)
     def test_english_user_gets_english_notification(self, mock_send, mock_render):
         from apps.notifications.services import send_email_notification
+
         user = make_user(preferred_language="en")
         send_email_notification(
             recipient=user,

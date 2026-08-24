@@ -24,6 +24,7 @@ Field mapping (actual model vs spec):
                     (spec called this `completed_by`)
   verified_at     — timestamp when coordinator recorded the verification
 """
+
 from __future__ import annotations
 
 import datetime
@@ -45,9 +46,8 @@ def _get_known_check_types() -> frozenset[str]:
     global _KNOWN_CHECK_TYPES
     if _KNOWN_CHECK_TYPES is None:
         from apps.volunteers.models import ScreeningRecord
-        _KNOWN_CHECK_TYPES = frozenset(
-            value for value, _ in ScreeningRecord.CHECK_TYPE_CHOICES
-        )
+
+        _KNOWN_CHECK_TYPES = frozenset(value for value, _ in ScreeningRecord.CHECK_TYPE_CHOICES)
     return _KNOWN_CHECK_TYPES
 
 
@@ -55,16 +55,17 @@ def _get_known_check_types() -> frozenset[str]:
 # record_check()
 # ---------------------------------------------------------------------------
 
+
 def record_check(
     *,
-    volunteer_profile,
+    volunteer_profile,  # noqa: ANN001
     check_type: str,
-    opportunity=None,
-    requested_by,
+    opportunity=None,  # noqa: ANN001
+    requested_by,  # noqa: ANN001
     notes: str = "",
     expiry_date: datetime.date | None = None,
     completed_date: datetime.date | None = None,
-) -> "ScreeningRecord":
+) -> ScreeningRecord:  # noqa: F821
     """
     Initiate a new screening record for a volunteer.
 
@@ -115,14 +116,12 @@ def record_check(
         )
 
     from apps.volunteers.models import ScreeningRecord
-    from django.core.exceptions import ValidationError
 
     # --- Validate check_type against known constants ---
     known = _get_known_check_types()
     if check_type not in known:
         raise ValueError(
-            f"Unknown check_type '{check_type}'. "
-            f"Valid values: {', '.join(sorted(known))}."
+            f"Unknown check_type '{check_type}'. " f"Valid values: {', '.join(sorted(known))}."
         )
 
     # completed_date is required on the model (no null=True). Default to today.
@@ -168,13 +167,14 @@ def record_check(
 # complete_check()
 # ---------------------------------------------------------------------------
 
+
 def complete_check(
     *,
-    screening_record,
+    screening_record,  # noqa: ANN001
     verified_clear: bool,
-    completed_by,
+    completed_by,  # noqa: ANN001
     notes: str = "",
-) -> "ScreeningRecord":
+) -> ScreeningRecord:  # noqa: F821
     """
     Record the outcome of a background check.
 
@@ -211,19 +211,16 @@ def complete_check(
             "(requires 'volunteers.change_screeningrecord')."
         )
 
-    from apps.volunteers.models import ScreeningRecord
     from django.core.exceptions import ValidationError
+
+    from apps.volunteers.models import ScreeningRecord
 
     # H1 fix: wrap status-check + mutation + save in atomic() and re-fetch the
     # record with select_for_update() to prevent two concurrent coordinators from
     # both reading verified_clear=None and silently overwriting each other.
     with transaction.atomic():
         # Re-fetch with a row-level lock to serialise concurrent completions.
-        screening_record = (
-            ScreeningRecord.objects
-            .select_for_update()
-            .get(pk=screening_record.pk)
-        )
+        screening_record = ScreeningRecord.objects.select_for_update().get(pk=screening_record.pk)
 
         # Guard against double-verification — the second writer sees the
         # already-set value and raises rather than overwriting.
@@ -263,10 +260,11 @@ def complete_check(
 # check_expiring_soon()
 # ---------------------------------------------------------------------------
 
+
 def check_expiring_soon(
     *,
     days_ahead: int = 30,
-) -> "QuerySet[ScreeningRecord]":
+) -> QuerySet[ScreeningRecord]:  # noqa: F821
     """
     Return ScreeningRecords that will expire within ``days_ahead`` days.
 
@@ -292,8 +290,8 @@ def check_expiring_soon(
     return (
         ScreeningRecord.objects.filter(
             verified_clear=True,
-            expires_date__gte=today,    # not already expired
-            expires_date__lte=cutoff,   # expires within the window
+            expires_date__gte=today,  # not already expired
+            expires_date__lte=cutoff,  # expires within the window
         )
         .select_related("volunteer", "volunteer__user", "opportunity", "opportunity__program")
         .order_by("expires_date")

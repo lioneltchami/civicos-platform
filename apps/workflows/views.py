@@ -26,7 +26,13 @@ from django.utils.translation import gettext_lazy as _
 from django.views.generic import DetailView, ListView, View
 
 from apps.workflows.forms import AdvanceStatusForm, AssignForm, CommentForm, EscalateForm
-from apps.workflows.models import TERMINAL_STATUSES, WorkItem, WorkItemComment, WorkItemHistory, WorkItemStatus
+from apps.workflows.models import (
+    TERMINAL_STATUSES,
+    WorkItem,
+    WorkItemComment,
+    WorkItemHistory,
+    WorkItemStatus,
+)
 from apps.workflows.services import (
     add_comment,
     assign_work_item,
@@ -43,6 +49,7 @@ logger = logging.getLogger(__name__)
 # Access control mixin
 # ---------------------------------------------------------------------------
 
+
 class StaffRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
     """Restricts all workflow views to is_staff users only."""
 
@@ -51,7 +58,7 @@ class StaffRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
     def test_func(self) -> bool:
         return self.request.user.is_authenticated and self.request.user.is_staff
 
-    def handle_no_permission(self):
+    def handle_no_permission(self):  # noqa: ANN201
         if not self.request.user.is_authenticated:
             # redirect_to_login() uses urlunparse internally and only passes
             # the path portion as `next` — no open-redirect risk.
@@ -62,6 +69,7 @@ class StaffRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
 # ---------------------------------------------------------------------------
 # Queue view
 # ---------------------------------------------------------------------------
+
 
 class WorkItemQueueView(StaffRequiredMixin, ListView):
     """
@@ -78,7 +86,7 @@ class WorkItemQueueView(StaffRequiredMixin, ListView):
     context_object_name = "work_items"
     paginate_by = 25
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         params = self.request.GET
         status_filter = params.get("status")
         assigned_to_me = bool(params.get("mine"))
@@ -94,7 +102,7 @@ class WorkItemQueueView(StaffRequiredMixin, ListView):
             priority_filter=priority_filter,
         )
 
-    def get_context_data(self, **kwargs) -> dict:
+    def get_context_data(self, **kwargs) -> dict:  # noqa: ANN003
         ctx = super().get_context_data(**kwargs)
         params = self.request.GET
         ctx["current_status"] = params.get("status", "")
@@ -103,15 +111,14 @@ class WorkItemQueueView(StaffRequiredMixin, ListView):
         ctx["current_priority"] = params.get("priority", "")
         ctx["status_choices"] = WorkItemStatus.choices
         ctx["total_open"] = get_staff_queue(self.request.user).count()
-        ctx["my_items_count"] = get_staff_queue(
-            self.request.user, assigned_to_me=True
-        ).count()
+        ctx["my_items_count"] = get_staff_queue(self.request.user, assigned_to_me=True).count()
         return ctx
 
 
 # ---------------------------------------------------------------------------
 # Detail view
 # ---------------------------------------------------------------------------
+
 
 class WorkItemDetailView(StaffRequiredMixin, DetailView):
     """Full work item with history timeline, comments, and action forms."""
@@ -120,13 +127,11 @@ class WorkItemDetailView(StaffRequiredMixin, DetailView):
     model = WorkItem
     context_object_name = "work_item"
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         # Use Prefetch with ordered querysets so that the cached results are
         # in the right order — calling .order_by() on a prefetched manager
         # bypasses the cache and triggers extra queries.
-        return WorkItem.objects.select_related(
-            "assigned_to", "content_type"
-        ).prefetch_related(
+        return WorkItem.objects.select_related("assigned_to", "content_type").prefetch_related(
             Prefetch(
                 "history",
                 queryset=WorkItemHistory.objects.select_related("actor").order_by("created_at"),
@@ -137,7 +142,7 @@ class WorkItemDetailView(StaffRequiredMixin, DetailView):
             ),
         )
 
-    def get_context_data(self, **kwargs) -> dict:
+    def get_context_data(self, **kwargs) -> dict:  # noqa: ANN003
         ctx = super().get_context_data(**kwargs)
         ctx["advance_form"] = AdvanceStatusForm()
         ctx["assign_form"] = AssignForm()
@@ -154,10 +159,11 @@ class WorkItemDetailView(StaffRequiredMixin, DetailView):
 # Action views (all POST-only)
 # ---------------------------------------------------------------------------
 
+
 class _WorkItemActionView(StaffRequiredMixin, View):
     """Base for single-action POST views on a WorkItem."""
 
-    http_method_names = ["post"]
+    http_method_names = ["post"]  # noqa: RUF012
 
     def get_work_item(self, pk: str) -> WorkItem:
         return get_object_or_404(WorkItem, pk=pk)
@@ -181,7 +187,9 @@ class ClaimWorkItemView(_WorkItemActionView):
             messages.error(request, str(exc))
         except Exception:
             logger.exception("Unexpected error claiming work_item_id=%s", pk)
-            messages.error(request, _("An unexpected error occurred. / Une erreur inattendue s'est produite."))
+            messages.error(
+                request, _("An unexpected error occurred. / Une erreur inattendue s'est produite.")
+            )
         return self.redirect_to_detail(pk)
 
 
@@ -202,7 +210,10 @@ class AssignWorkItemView(_WorkItemActionView):
                 messages.error(request, str(exc))
             except Exception:
                 logger.exception("Unexpected error assigning work_item_id=%s", pk)
-                messages.error(request, _("An unexpected error occurred. / Une erreur inattendue s'est produite."))
+                messages.error(
+                    request,
+                    _("An unexpected error occurred. / Une erreur inattendue s'est produite."),
+                )
         else:
             messages.error(request, _("Invalid assignment. Please select a staff user."))
         return self.redirect_to_detail(pk)
@@ -230,7 +241,10 @@ class AdvanceStatusView(_WorkItemActionView):
                 messages.error(request, str(exc))
             except Exception:
                 logger.exception("Unexpected error advancing status for work_item_id=%s", pk)
-                messages.error(request, _("An unexpected error occurred. / Une erreur inattendue s'est produite."))
+                messages.error(
+                    request,
+                    _("An unexpected error occurred. / Une erreur inattendue s'est produite."),
+                )
         else:
             messages.error(request, _("Invalid status change."))
         return self.redirect_to_detail(pk)
@@ -245,7 +259,8 @@ class EscalateWorkItemView(_WorkItemActionView):
         if form.is_valid():
             try:
                 escalate_work_item(
-                    work_item, request.user,
+                    work_item,
+                    request.user,
                     reason=form.cleaned_data.get("reason", ""),
                 )
                 messages.success(
@@ -256,7 +271,10 @@ class EscalateWorkItemView(_WorkItemActionView):
                 messages.error(request, str(exc))
             except Exception:
                 logger.exception("Unexpected error escalating work_item_id=%s", pk)
-                messages.error(request, _("An unexpected error occurred. / Une erreur inattendue s'est produite."))
+                messages.error(
+                    request,
+                    _("An unexpected error occurred. / Une erreur inattendue s'est produite."),
+                )
         else:
             messages.error(request, _("Invalid escalation."))
         return self.redirect_to_detail(pk)
@@ -279,7 +297,10 @@ class AddCommentView(_WorkItemActionView):
                 messages.error(request, str(exc))
             except Exception:
                 logger.exception("Unexpected error adding comment to work_item_id=%s", pk)
-                messages.error(request, _("An unexpected error occurred. / Une erreur inattendue s'est produite."))
+                messages.error(
+                    request,
+                    _("An unexpected error occurred. / Une erreur inattendue s'est produite."),
+                )
         else:
             messages.error(request, _("Comment cannot be empty."))
         return self.redirect_to_detail(pk)

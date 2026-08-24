@@ -5,6 +5,7 @@ This tool does not access secret stores, the network, staging, or external APIs.
 It scans added lines in a Git range and permits a match only when its path, line,
 and SHA-256 exactly match one approved review record.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -25,7 +26,7 @@ DEFAULT_REPORT = ROOT / "docs" / "evidence" / "civicos-ship-secret-scan-20260823
 SECRET_PATTERNS = [
     re.compile(r"BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY"),
     re.compile(r"AKIA[0-9A-Z]{16}"),
-    re.compile(r"aws_secret_access_key\s*=" , re.IGNORECASE),
+    re.compile(r"aws_secret_access_key\s*=", re.IGNORECASE),
     re.compile(r"OPENAI_API_KEY\s*="),
     re.compile(r"STRIPE_(?:SECRET|API)_KEY\s*="),
     re.compile(r"ghp_[A-Za-z0-9]{36}"),
@@ -54,9 +55,7 @@ class Finding:
 
 
 def run_git(*args: str) -> str:
-    result = subprocess.run(
-        ["git", *args], cwd=ROOT, capture_output=True, text=True, check=False
-    )
+    result = subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, check=False)  # noqa: S603, S607
     if result.returncode != 0:
         raise ScanError(result.stderr.strip() or f"git {' '.join(args)} failed")
     return result.stdout
@@ -110,7 +109,9 @@ def current_line_digest(record: AllowRecord) -> str:
 
 
 def scan_added_lines(base: str, head: str) -> list[Finding]:
-    diff = run_git("-c", "color.ui=false", "diff", "--no-ext-diff", "--unified=0", f"{base}..{head}", "--")
+    diff = run_git(
+        "-c", "color.ui=false", "diff", "--no-ext-diff", "--unified=0", f"{base}..{head}", "--"
+    )
     findings: list[Finding] = []
     current_path: str | None = None
     new_line: int | None = None
@@ -150,7 +151,16 @@ def scan_added_lines(base: str, head: str) -> list[Finding]:
     return findings
 
 
-def write_report(path: Path, *, base: str, head: str, records: list[AllowRecord], findings: list[Finding], status: str, error: str | None = None) -> None:
+def write_report(
+    path: Path,
+    *,
+    base: str,
+    head: str,
+    records: list[AllowRecord],
+    findings: list[Finding],
+    status: str,
+    error: str | None = None,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     by_key = {(record.path, record.line, record.sha256): record for record in records}
     lines = [
@@ -163,9 +173,13 @@ def write_report(path: Path, *, base: str, head: str, records: list[AllowRecord]
     for finding in findings:
         record = by_key.get((finding.path, finding.line, finding.sha256))
         if record:
-            lines.append(f"ALLOWLIST_MATCH={record.triage_id}|{finding.path}|{finding.line}|{finding.sha256}")
+            lines.append(
+                f"ALLOWLIST_MATCH={record.triage_id}|{finding.path}|{finding.line}|{finding.sha256}"
+            )
         else:
-            lines.append(f"UNREVIEWED_MATCH={finding.path}|{finding.line}|{finding.sha256}|pattern-{finding.pattern_index}")
+            lines.append(
+                f"UNREVIEWED_MATCH={finding.path}|{finding.line}|{finding.sha256}|pattern-{finding.pattern_index}"
+            )
     if error:
         lines.append(f"ERROR={error}")
     lines.append("NO_SECRET_VALUES_RECORDED=TRUE")
@@ -186,7 +200,14 @@ def main() -> int:
             if current_line_digest(record) != record.sha256:
                 raise ScanError(f"approved line digest changed: {record.path}:{record.line}")
         if args.validate_only:
-            write_report(args.report, base=args.base, head=args.head, records=records, findings=[], status="VALIDATE_ONLY_PASS")
+            write_report(
+                args.report,
+                base=args.base,
+                head=args.head,
+                records=records,
+                findings=[],
+                status="VALIDATE_ONLY_PASS",
+            )
             return 0
         # Verify both endpoints before scanning so a missing or invalid baseline fails closed.
         run_git("rev-parse", "--verify", args.base)
@@ -195,14 +216,38 @@ def main() -> int:
         allowed = {(record.path, record.line, record.sha256) for record in records}
         actual = {(finding.path, finding.line, finding.sha256) for finding in findings}
         if actual != allowed:
-            write_report(args.report, base=args.base, head=args.head, records=records, findings=findings, status="FAIL")
-            raise ScanError("full-range findings do not exactly equal the three reviewed allowlist records")
-        write_report(args.report, base=args.base, head=args.head, records=records, findings=findings, status="PASS")
+            write_report(
+                args.report,
+                base=args.base,
+                head=args.head,
+                records=records,
+                findings=findings,
+                status="FAIL",
+            )
+            raise ScanError(
+                "full-range findings do not exactly equal the three reviewed allowlist records"
+            )
+        write_report(
+            args.report,
+            base=args.base,
+            head=args.head,
+            records=records,
+            findings=findings,
+            status="PASS",
+        )
         return 0
     except ScanError as exc:
         try:
             if "records" in locals():
-                write_report(args.report, base=args.base, head=args.head, records=records, findings=locals().get("findings", []), status="FAIL", error=str(exc))
+                write_report(
+                    args.report,
+                    base=args.base,
+                    head=args.head,
+                    records=records,
+                    findings=locals().get("findings", []),
+                    status="FAIL",
+                    error=str(exc),
+                )
         except OSError:
             pass
         print(f"FAIL: {exc}", file=sys.stderr)

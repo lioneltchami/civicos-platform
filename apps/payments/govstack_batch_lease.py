@@ -4,6 +4,7 @@ The service is intentionally narrow.  It owns the existing ``BatchLease`` row
 and provides only compare-and-set lease operations; it does not make payment
 finality, policy, or batch-decision choices.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -14,11 +15,10 @@ from django.utils import timezone
 
 from apps.payments.govstack_models import BatchLease, BulkPaymentBatch
 
-
 DEFAULT_BATCH_LEASE_TTL = timedelta(minutes=5)
 
 
-class BatchLeaseOwnershipLost(RuntimeError):
+class BatchLeaseOwnershipLost(RuntimeError):  # noqa: N818
     """Raised when a caller no longer owns the current unexpired lease."""
 
 
@@ -87,9 +87,7 @@ class BatchLeaseService:
                 lease.owner_token = owner_token
                 lease.generation += 1
                 lease.expires_at = current_time + ttl
-                lease.save(
-                    update_fields=["owner_token", "generation", "expires_at", "updated_at"]
-                )
+                lease.save(update_fields=["owner_token", "generation", "expires_at", "updated_at"])
                 return BatchLeaseHandle(
                     batch_id=str(locked_batch.pk),
                     owner_token=owner_token,

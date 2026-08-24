@@ -7,7 +7,11 @@ from unittest import mock
 from django.db import OperationalError, close_old_connections
 from django.test import TransactionTestCase
 
-from apps.appointments.models import GovStackAlertSchedule, SchedulerOutbox, SchedulerRecipientDelivery
+from apps.appointments.models import (
+    GovStackAlertSchedule,
+    SchedulerOutbox,
+    SchedulerRecipientDelivery,
+)
 from apps.appointments.services import scheduler_runtime
 from apps.appointments.services.govstack_alert_schedule import alert_schedule_create
 from apps.appointments.tasks import dispatch_alert_schedule
@@ -44,8 +48,12 @@ class SchedulerAdmissionTransactionTests(TransactionTestCase):
 
         self.assertEqual(result["outcome"], GovStackAlertSchedule.ADMISSION_CREATED)
         self.assertEqual(result["created"], 2)
-        self.assertEqual(SchedulerRecipientDelivery.objects.filter(schedule=self.schedule).count(), 2)
-        self.assertEqual(SchedulerOutbox.objects.filter(delivery__schedule=self.schedule).count(), 2)
+        self.assertEqual(
+            SchedulerRecipientDelivery.objects.filter(schedule=self.schedule).count(), 2
+        )
+        self.assertEqual(
+            SchedulerOutbox.objects.filter(delivery__schedule=self.schedule).count(), 2
+        )
         self.schedule.refresh_from_db()
         self.assertEqual(self.schedule.admitted_generation, self.schedule.delivery_generation)
         self.assertEqual(self.schedule.admission_outcome, GovStackAlertSchedule.ADMISSION_CREATED)
@@ -56,8 +64,12 @@ class SchedulerAdmissionTransactionTests(TransactionTestCase):
 
         self.assertEqual(first["outcome"], GovStackAlertSchedule.ADMISSION_CREATED)
         self.assertEqual(duplicate["outcome"], GovStackAlertSchedule.ADMISSION_DUPLICATE)
-        self.assertEqual(SchedulerRecipientDelivery.objects.filter(schedule=self.schedule).count(), 1)
-        self.assertEqual(SchedulerOutbox.objects.filter(delivery__schedule=self.schedule).count(), 1)
+        self.assertEqual(
+            SchedulerRecipientDelivery.objects.filter(schedule=self.schedule).count(), 1
+        )
+        self.assertEqual(
+            SchedulerOutbox.objects.filter(delivery__schedule=self.schedule).count(), 1
+        )
         self.schedule.refresh_from_db()
         self.assertEqual(self.schedule.delivery_generation, 1)
 
@@ -102,15 +114,23 @@ class SchedulerAdmissionTransactionTests(TransactionTestCase):
             outcomes,
             [GovStackAlertSchedule.ADMISSION_CREATED, GovStackAlertSchedule.ADMISSION_DUPLICATE],
         )
-        self.assertEqual(SchedulerRecipientDelivery.objects.filter(schedule=self.schedule).count(), 1)
-        self.assertEqual(SchedulerOutbox.objects.filter(delivery__schedule=self.schedule).count(), 1)
+        self.assertEqual(
+            SchedulerRecipientDelivery.objects.filter(schedule=self.schedule).count(), 1
+        )
+        self.assertEqual(
+            SchedulerOutbox.objects.filter(delivery__schedule=self.schedule).count(), 1
+        )
 
     def test_stale_generation_cannot_materialize_current_work(self):
         result = self._admit(generation=self.schedule.delivery_generation + 1)
 
         self.assertEqual(result["outcome"], GovStackAlertSchedule.ADMISSION_STALE_GENERATION)
-        self.assertEqual(SchedulerRecipientDelivery.objects.filter(schedule=self.schedule).count(), 0)
-        self.assertEqual(SchedulerOutbox.objects.filter(delivery__schedule=self.schedule).count(), 0)
+        self.assertEqual(
+            SchedulerRecipientDelivery.objects.filter(schedule=self.schedule).count(), 0
+        )
+        self.assertEqual(
+            SchedulerOutbox.objects.filter(delivery__schedule=self.schedule).count(), 0
+        )
         self.schedule.refresh_from_db()
         self.assertIsNone(self.schedule.admitted_generation)
         self.assertEqual(self.schedule.admission_outcome, "")
@@ -122,12 +142,18 @@ class SchedulerAdmissionTransactionTests(TransactionTestCase):
             real_materialize(**kwargs)
             raise RuntimeError("injected-admission-failure")
 
-        with mock.patch.object(scheduler_runtime, "_materialize_locked", side_effect=fail_after_first_materialization):
+        with mock.patch.object(
+            scheduler_runtime, "_materialize_locked", side_effect=fail_after_first_materialization
+        ):
             with self.assertRaisesRegex(RuntimeError, "injected-admission-failure"):
                 self._admit()
 
-        self.assertEqual(SchedulerRecipientDelivery.objects.filter(schedule=self.schedule).count(), 0)
-        self.assertEqual(SchedulerOutbox.objects.filter(delivery__schedule=self.schedule).count(), 0)
+        self.assertEqual(
+            SchedulerRecipientDelivery.objects.filter(schedule=self.schedule).count(), 0
+        )
+        self.assertEqual(
+            SchedulerOutbox.objects.filter(delivery__schedule=self.schedule).count(), 0
+        )
         self.schedule.refresh_from_db()
         self.assertIsNone(self.schedule.admitted_generation)
         self.assertEqual(self.schedule.admission_outcome, "")
@@ -139,12 +165,17 @@ class SchedulerAdmissionTransactionTests(TransactionTestCase):
 
         self.assertEqual(first["outcome"], GovStackAlertSchedule.ADMISSION_ZERO_RECIPIENTS)
         self.assertEqual(second["outcome"], GovStackAlertSchedule.ADMISSION_DUPLICATE)
-        self.assertEqual(SchedulerRecipientDelivery.objects.filter(schedule=self.schedule).count(), 0)
-        self.assertEqual(SchedulerOutbox.objects.filter(delivery__schedule=self.schedule).count(), 0)
+        self.assertEqual(
+            SchedulerRecipientDelivery.objects.filter(schedule=self.schedule).count(), 0
+        )
+        self.assertEqual(
+            SchedulerOutbox.objects.filter(delivery__schedule=self.schedule).count(), 0
+        )
         self.schedule.refresh_from_db()
         self.assertEqual(self.schedule.admitted_generation, self.schedule.delivery_generation)
-        self.assertEqual(self.schedule.admission_outcome, GovStackAlertSchedule.ADMISSION_ZERO_RECIPIENTS)
-
+        self.assertEqual(
+            self.schedule.admission_outcome, GovStackAlertSchedule.ADMISSION_ZERO_RECIPIENTS
+        )
 
     @mock.patch("apps.appointments.scheduler_tasks.publish_scheduler_outbox.delay")
     def test_legacy_dispatched_and_celery_state_never_authorize_admission(self, publish_delay):
@@ -155,8 +186,12 @@ class SchedulerAdmissionTransactionTests(TransactionTestCase):
         first = dispatch_alert_schedule.run(str(self.schedule.pk))
         self.assertEqual(first["outcome"], GovStackAlertSchedule.ADMISSION_CREATED)
         self.assertEqual(first["materialized"], 1)
-        self.assertEqual(SchedulerRecipientDelivery.objects.filter(schedule=self.schedule).count(), 1)
-        self.assertEqual(SchedulerOutbox.objects.filter(delivery__schedule=self.schedule).count(), 1)
+        self.assertEqual(
+            SchedulerRecipientDelivery.objects.filter(schedule=self.schedule).count(), 1
+        )
+        self.assertEqual(
+            SchedulerOutbox.objects.filter(delivery__schedule=self.schedule).count(), 1
+        )
         publish_delay.assert_called_once()
 
         self.schedule.dispatched = False
@@ -165,14 +200,20 @@ class SchedulerAdmissionTransactionTests(TransactionTestCase):
         duplicate = dispatch_alert_schedule.run(str(self.schedule.pk))
         self.assertEqual(duplicate["outcome"], GovStackAlertSchedule.ADMISSION_DUPLICATE)
         self.assertEqual(duplicate["materialized"], 0)
-        self.assertEqual(SchedulerRecipientDelivery.objects.filter(schedule=self.schedule).count(), 1)
-        self.assertEqual(SchedulerOutbox.objects.filter(delivery__schedule=self.schedule).count(), 1)
+        self.assertEqual(
+            SchedulerRecipientDelivery.objects.filter(schedule=self.schedule).count(), 1
+        )
+        self.assertEqual(
+            SchedulerOutbox.objects.filter(delivery__schedule=self.schedule).count(), 1
+        )
         publish_delay.assert_called_once()
 
     @mock.patch("apps.appointments.tasks._attempt_alert_delivery")
     @mock.patch("apps.appointments.tasks.requests.post")
     @mock.patch("apps.appointments.scheduler_tasks.publish_scheduler_outbox.delay")
-    def test_no_transport_io_before_admission_commit(self, publish_delay, requests_post, attempt_delivery):
+    def test_no_transport_io_before_admission_commit(
+        self, publish_delay, requests_post, attempt_delivery
+    ):
         from django.db import connection
 
         observed = []
@@ -196,7 +237,9 @@ class SchedulerAdmissionTransactionTests(TransactionTestCase):
     @mock.patch("apps.appointments.tasks._attempt_alert_delivery")
     @mock.patch("apps.appointments.tasks.requests.post")
     @mock.patch("apps.appointments.scheduler_tasks.publish_scheduler_outbox.delay")
-    def test_rolled_back_admission_does_not_publish_or_schedule_transport(self, publish_delay, requests_post, attempt_delivery):
+    def test_rolled_back_admission_does_not_publish_or_schedule_transport(
+        self, publish_delay, requests_post, attempt_delivery
+    ):
         real_materialize = scheduler_runtime._materialize_locked
 
         def fail_after_materialization(**kwargs):
@@ -211,8 +254,12 @@ class SchedulerAdmissionTransactionTests(TransactionTestCase):
             with self.assertRaisesRegex(RuntimeError, "injected-live-task-admission-failure"):
                 dispatch_alert_schedule.run(str(self.schedule.pk))
 
-        self.assertEqual(SchedulerRecipientDelivery.objects.filter(schedule=self.schedule).count(), 0)
-        self.assertEqual(SchedulerOutbox.objects.filter(delivery__schedule=self.schedule).count(), 0)
+        self.assertEqual(
+            SchedulerRecipientDelivery.objects.filter(schedule=self.schedule).count(), 0
+        )
+        self.assertEqual(
+            SchedulerOutbox.objects.filter(delivery__schedule=self.schedule).count(), 0
+        )
         self.schedule.refresh_from_db()
         self.assertIsNone(self.schedule.admitted_generation)
         self.assertEqual(self.schedule.admission_outcome, "")
@@ -232,6 +279,10 @@ class SchedulerAdmissionTransactionTests(TransactionTestCase):
         self.schedule.refresh_from_db()
         self.assertEqual(self.schedule.admitted_generation, self.schedule.delivery_generation)
         self.assertEqual(self.schedule.admission_outcome, GovStackAlertSchedule.ADMISSION_CREATED)
-        self.assertEqual(SchedulerRecipientDelivery.objects.filter(schedule=self.schedule).count(), 1)
-        self.assertEqual(SchedulerOutbox.objects.filter(delivery__schedule=self.schedule).count(), 1)
+        self.assertEqual(
+            SchedulerRecipientDelivery.objects.filter(schedule=self.schedule).count(), 1
+        )
+        self.assertEqual(
+            SchedulerOutbox.objects.filter(delivery__schedule=self.schedule).count(), 1
+        )
         publish_delay.assert_called_once()

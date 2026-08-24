@@ -56,6 +56,7 @@ Harness identifiers used (from bb-payments test suite):
   PayeeFunctionalID: "2ba5ed20-0f42-4eff-8" (20 chars, lowercase hex + hyphens)
   RequestID:         "abc123456789"    (12 chars, echoed in all responses)
 """
+
 from __future__ import annotations
 
 import json
@@ -79,7 +80,7 @@ from apps.payments.govstack_views import GovStackG2PView
 # ── Harness constants ────────────────────────────────────────────────────────
 VALID_SOURCE_BB_ID = "11668d2a-a8f"
 VALID_PAYEE_ID = "2ba5ed20-0f42-4eff-8"
-INVALID_ID = "invalid"   # contains i, n, v, l — not hex chars
+INVALID_ID = "invalid"  # contains i, n, v, l — not hex chars
 REQUEST_ID = "abc123456789"  # exactly 12 chars, as harness sends
 
 REGISTER_URL = "/govstack/payments/register-beneficiary"
@@ -120,12 +121,13 @@ _NO_THROTTLE = override_settings(
 # A.  View-level harness scenarios
 # ============================================================================
 
+
 @_NO_THROTTLE
 class RegisterBeneficiaryHarnessTest(TestCase):
     """
     A1–A6: POST /govstack/payments/register-beneficiary
     Mirrors the exact scenarios from g2p_register_beneficiary.feature.
-    """
+    """  # noqa: RUF002
 
     def setUp(self):
         self.client = APIClient()
@@ -289,7 +291,7 @@ class UpdateBeneficiaryHarnessTest(TestCase):
     """
     A7–A12: POST /govstack/payments/update-beneficiary-details
     Mirrors the exact scenarios from g2p_update_beneficiary_details.feature.
-    """
+    """  # noqa: RUF002
 
     def setUp(self):
         self.client = APIClient()
@@ -418,6 +420,7 @@ class UpdateBeneficiaryHarnessTest(TestCase):
 # B.  G2P response envelope invariants
 # ============================================================================
 
+
 @_NO_THROTTLE
 class G2PEnvelopeInvariantsTest(TestCase):
     """
@@ -437,7 +440,9 @@ class G2PEnvelopeInvariantsTest(TestCase):
         self.assertIn("RequestID", body, "RequestID missing from body")
         self.assertIn("ResponseDescription", body, "ResponseDescription missing from body")
         # ResponseCode must be exactly "00" or "01"
-        self.assertIn(body["ResponseCode"], ("00", "01"), f"Invalid ResponseCode: {body['ResponseCode']}")
+        self.assertIn(
+            body["ResponseCode"], ("00", "01"), f"Invalid ResponseCode: {body['ResponseCode']}"
+        )
         self.assertEqual(body["ResponseCode"], expected_code)
         # ResponseDescription must be a non-empty string ≤200 chars
         self.assertIsInstance(body["ResponseDescription"], str)
@@ -461,14 +466,20 @@ class G2PEnvelopeInvariantsTest(TestCase):
         self._assert_g2p_envelope(resp.json(), "00")
 
     def test_error_envelope_register_missing_sourcebb(self):
-        payload = {"RequestID": REQUEST_ID, "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}]}
+        payload = {
+            "RequestID": REQUEST_ID,
+            "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
+        }
         resp = self.client.post(REGISTER_URL, payload, format="json")
         self.assertEqual(resp.status_code, 400)
         self._assert_g2p_envelope(resp.json(), "01")
 
     def test_error_envelope_update_invalid_payee(self):
-        payload = {"RequestID": REQUEST_ID, "SourceBBID": VALID_SOURCE_BB_ID,
-                   "Beneficiaries": [{"PayeeFunctionalID": INVALID_ID}]}
+        payload = {
+            "RequestID": REQUEST_ID,
+            "SourceBBID": VALID_SOURCE_BB_ID,
+            "Beneficiaries": [{"PayeeFunctionalID": INVALID_ID}],
+        }
         resp = self.client.post(UPDATE_URL, payload, format="json")
         self.assertEqual(resp.status_code, 400)
         self._assert_g2p_envelope(resp.json(), "01")
@@ -480,8 +491,11 @@ class G2PEnvelopeInvariantsTest(TestCase):
 
     def test_request_id_echo_on_error(self):
         """RequestID must also be echoed verbatim in error responses."""
-        payload = {"RequestID": REQUEST_ID, "SourceBBID": INVALID_ID,
-                   "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}]}
+        payload = {
+            "RequestID": REQUEST_ID,
+            "SourceBBID": INVALID_ID,
+            "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
+        }
         resp = self.client.post(REGISTER_URL, payload, format="json")
         self.assertEqual(resp.json()["RequestID"], REQUEST_ID)
 
@@ -493,8 +507,11 @@ class G2PEnvelopeInvariantsTest(TestCase):
 
     def test_no_extra_keys_in_error_response(self):
         """Error response must also contain only the 3 G2P envelope keys."""
-        payload = {"RequestID": REQUEST_ID, "SourceBBID": INVALID_ID,
-                   "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}]}
+        payload = {
+            "RequestID": REQUEST_ID,
+            "SourceBBID": INVALID_ID,
+            "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
+        }
         resp = self.client.post(REGISTER_URL, payload, format="json")
         body = resp.json()
         self.assertEqual(set(body.keys()), {"ResponseCode", "RequestID", "ResponseDescription"})
@@ -514,6 +531,7 @@ class G2PEnvelopeInvariantsTest(TestCase):
 # C.  GovStackBeneficiaryService — service layer
 # ============================================================================
 
+
 class BeneficiaryServiceTest(TestCase):
     """
     Tests for GovStackBeneficiaryService.register() and .update().
@@ -525,9 +543,13 @@ class BeneficiaryServiceTest(TestCase):
         return GovStackBeneficiaryService.register(
             request_id=kwargs.get("request_id", REQUEST_ID),
             source_bb_id=source_bb_id or VALID_SOURCE_BB_ID,
-            beneficiaries=[{"PayeeFunctionalID": payee_id or VALID_PAYEE_ID,
-                             "PaymentModality": kwargs.get("modality", ""),
-                             "FinancialAddress": kwargs.get("address", "")}],
+            beneficiaries=[
+                {
+                    "PayeeFunctionalID": payee_id or VALID_PAYEE_ID,
+                    "PaymentModality": kwargs.get("modality", ""),
+                    "FinancialAddress": kwargs.get("address", ""),
+                }
+            ],
             registering_institution_id=kwargs.get("institution_id", ""),
         )
 
@@ -536,9 +558,13 @@ class BeneficiaryServiceTest(TestCase):
         return GovStackBeneficiaryService.update(
             request_id=kwargs.get("request_id", REQUEST_ID),
             source_bb_id=source_bb_id or VALID_SOURCE_BB_ID,
-            beneficiaries=[{"PayeeFunctionalID": payee_id or VALID_PAYEE_ID,
-                             "PaymentModality": kwargs.get("modality", ""),
-                             "FinancialAddress": kwargs.get("address", "")}],
+            beneficiaries=[
+                {
+                    "PayeeFunctionalID": payee_id or VALID_PAYEE_ID,
+                    "PaymentModality": kwargs.get("modality", ""),
+                    "FinancialAddress": kwargs.get("address", ""),
+                }
+            ],
             registering_institution_id=kwargs.get("institution_id", ""),
         )
 
@@ -651,6 +677,7 @@ class BeneficiaryServiceTest(TestCase):
 # D.  GovStackPaymentAuditEntry — append-only model
 # ============================================================================
 
+
 class AuditEntryAppendOnlyTest(TestCase):
     """
     Verifies the append-only invariant on GovStackPaymentAuditEntry.
@@ -706,6 +733,7 @@ class AuditEntryAppendOnlyTest(TestCase):
 # E.  GovStackG2PView helpers
 # ============================================================================
 
+
 class FlattenErrorsTest(TestCase):
     """
     Unit tests for GovStackG2PView._flatten_errors().
@@ -729,7 +757,11 @@ class FlattenErrorsTest(TestCase):
         self.assertIn("Beneficiaries", result)
 
     def test_e3_nested_item_error(self):
-        errors = {"Beneficiaries": [{"PayeeFunctionalID": ["PayeeFunctionalID must be 1–20 lowercase hex characters"]}]}
+        errors = {
+            "Beneficiaries": [
+                {"PayeeFunctionalID": ["PayeeFunctionalID must be 1–20 lowercase hex characters"]}  # noqa: RUF001
+            ]
+        }
         result = self.view._flatten_errors(errors)
         self.assertIn("PayeeFunctionalID", result)
 
@@ -782,6 +814,7 @@ class FlattenErrorsTest(TestCase):
 # F.  govstack_g2p_exception_handler
 # ============================================================================
 
+
 class G2PExceptionHandlerTest(TestCase):
     """
     Tests for the standalone govstack_g2p_exception_handler function.
@@ -791,6 +824,7 @@ class G2PExceptionHandlerTest(TestCase):
     def _make_context(self, body: dict | None = None):
         """Build a minimal context dict with a fake request."""
         from unittest.mock import MagicMock
+
         request = MagicMock()
         if body is not None:
             request.data = body
@@ -800,6 +834,7 @@ class G2PExceptionHandlerTest(TestCase):
 
     def test_f1_wraps_validation_error_in_g2p_envelope(self):
         from rest_framework.exceptions import ValidationError
+
         exc = ValidationError({"SourceBBID": ["This field is required."]})
         context = self._make_context({"RequestID": REQUEST_ID})
         response = govstack_g2p_exception_handler(exc, context)
@@ -811,6 +846,7 @@ class G2PExceptionHandlerTest(TestCase):
 
     def test_f2_wraps_not_authenticated_error(self):
         from rest_framework.exceptions import NotAuthenticated
+
         exc = NotAuthenticated()
         context = self._make_context({"RequestID": REQUEST_ID})
         response = govstack_g2p_exception_handler(exc, context)
@@ -820,6 +856,7 @@ class G2PExceptionHandlerTest(TestCase):
 
     def test_f3_echoes_request_id_even_on_auth_error(self):
         from rest_framework.exceptions import PermissionDenied
+
         exc = PermissionDenied()
         context = self._make_context({"RequestID": "xyz987654321"})
         response = govstack_g2p_exception_handler(exc, context)
@@ -827,6 +864,7 @@ class G2PExceptionHandlerTest(TestCase):
 
     def test_f4_request_id_empty_when_body_missing(self):
         from rest_framework.exceptions import ParseError
+
         exc = ParseError()
         context = self._make_context({})  # body has no RequestID key
         response = govstack_g2p_exception_handler(exc, context)
@@ -841,6 +879,7 @@ class G2PExceptionHandlerTest(TestCase):
 
     def test_f6_description_truncated_at_200_chars(self):
         from rest_framework.exceptions import ValidationError
+
         long_msg = "E" * 300
         exc = ValidationError(detail=long_msg)
         context = self._make_context({})
@@ -852,6 +891,7 @@ class G2PExceptionHandlerTest(TestCase):
 # G.  Serializer validation
 # ============================================================================
 
+
 class BeneficiarySerializerTest(TestCase):
     """
     Unit tests for BeneficiaryItemSerializer and RegisterBeneficiaryRequestSerializer.
@@ -859,20 +899,24 @@ class BeneficiarySerializerTest(TestCase):
 
     # G1 — valid harness SourceBBID is accepted
     def test_g1_valid_source_bb_id_accepted(self):
-        ser = RegisterBeneficiaryRequestSerializer(data={
-            "RequestID": REQUEST_ID,
-            "SourceBBID": VALID_SOURCE_BB_ID,
-            "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
-        })
+        ser = RegisterBeneficiaryRequestSerializer(
+            data={
+                "RequestID": REQUEST_ID,
+                "SourceBBID": VALID_SOURCE_BB_ID,
+                "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
+            }
+        )
         self.assertTrue(ser.is_valid(), ser.errors)
 
     # G2 — invalid SourceBBID "invalid" is rejected
     def test_g2_invalid_source_bb_id_rejected(self):
-        ser = RegisterBeneficiaryRequestSerializer(data={
-            "RequestID": REQUEST_ID,
-            "SourceBBID": INVALID_ID,
-            "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
-        })
+        ser = RegisterBeneficiaryRequestSerializer(
+            data={
+                "RequestID": REQUEST_ID,
+                "SourceBBID": INVALID_ID,
+                "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
+            }
+        )
         self.assertFalse(ser.is_valid())
         self.assertIn("SourceBBID", ser.errors)
 
@@ -889,29 +933,35 @@ class BeneficiarySerializerTest(TestCase):
 
     # G5 — empty Beneficiaries[] triggers min_length error
     def test_g5_empty_beneficiaries_triggers_min_length(self):
-        ser = RegisterBeneficiaryRequestSerializer(data={
-            "RequestID": REQUEST_ID,
-            "SourceBBID": VALID_SOURCE_BB_ID,
-            "Beneficiaries": [],
-        })
+        ser = RegisterBeneficiaryRequestSerializer(
+            data={
+                "RequestID": REQUEST_ID,
+                "SourceBBID": VALID_SOURCE_BB_ID,
+                "Beneficiaries": [],
+            }
+        )
         self.assertFalse(ser.is_valid())
         self.assertIn("Beneficiaries", ser.errors)
 
     # G6 — missing SourceBBID is required
     def test_g6_missing_source_bb_id_required(self):
-        ser = RegisterBeneficiaryRequestSerializer(data={
-            "RequestID": REQUEST_ID,
-            "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
-        })
+        ser = RegisterBeneficiaryRequestSerializer(
+            data={
+                "RequestID": REQUEST_ID,
+                "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
+            }
+        )
         self.assertFalse(ser.is_valid())
         self.assertIn("SourceBBID", ser.errors)
 
     # G7 — missing Beneficiaries is required
     def test_g7_missing_beneficiaries_required(self):
-        ser = RegisterBeneficiaryRequestSerializer(data={
-            "RequestID": REQUEST_ID,
-            "SourceBBID": VALID_SOURCE_BB_ID,
-        })
+        ser = RegisterBeneficiaryRequestSerializer(
+            data={
+                "RequestID": REQUEST_ID,
+                "SourceBBID": VALID_SOURCE_BB_ID,
+            }
+        )
         self.assertFalse(ser.is_valid())
         self.assertIn("Beneficiaries", ser.errors)
 
@@ -923,10 +973,12 @@ class BeneficiarySerializerTest(TestCase):
     # like _validate_request_id, when a required=False field falls back to its
     # default), not an accurate claim about what the harness sends.
     def test_g8_request_id_optional(self):
-        ser = RegisterBeneficiaryRequestSerializer(data={
-            "SourceBBID": VALID_SOURCE_BB_ID,
-            "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
-        })
+        ser = RegisterBeneficiaryRequestSerializer(
+            data={
+                "SourceBBID": VALID_SOURCE_BB_ID,
+                "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
+            }
+        )
         self.assertTrue(ser.is_valid(), ser.errors)
         self.assertEqual(ser.validated_data["RequestID"], "")
 
@@ -939,18 +991,22 @@ class BeneficiarySerializerTest(TestCase):
 
     # G10 — FinancialAddress up to 512 chars is accepted (IBAN max 34, but field is generous)
     def test_g10_financial_address_max_length_512(self):
-        item_ser = BeneficiaryItemSerializer(data={
-            "PayeeFunctionalID": VALID_PAYEE_ID,
-            "FinancialAddress": "X" * 512,
-        })
+        item_ser = BeneficiaryItemSerializer(
+            data={
+                "PayeeFunctionalID": VALID_PAYEE_ID,
+                "FinancialAddress": "X" * 512,
+            }
+        )
         self.assertTrue(item_ser.is_valid(), item_ser.errors)
 
     # G11 — harness shortest valid SourceBBID (1 hex char) is accepted
     def test_g11_shortest_valid_source_bb_id(self):
-        ser = RegisterBeneficiaryRequestSerializer(data={
-            "SourceBBID": "a",
-            "Beneficiaries": [{"PayeeFunctionalID": "a"}],
-        })
+        ser = RegisterBeneficiaryRequestSerializer(
+            data={
+                "SourceBBID": "a",
+                "Beneficiaries": [{"PayeeFunctionalID": "a"}],
+            }
+        )
         self.assertTrue(ser.is_valid(), ser.errors)
 
     # G12 — G2P ID with only hyphens is rejected (empty value after strip)
@@ -958,67 +1014,81 @@ class BeneficiarySerializerTest(TestCase):
         # "---" is technically valid per regex (hyphens are allowed)
         # but it contains no hex content — however regex allows it.
         # This test simply verifies the regex boundary is consistent.
-        ser = RegisterBeneficiaryRequestSerializer(data={
-            "SourceBBID": "---",
-            "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
-        })
+        ser = RegisterBeneficiaryRequestSerializer(
+            data={
+                "SourceBBID": "---",
+                "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
+            }
+        )
         # "---" matches ^[0-9a-f\-]{1,20}$ so it is accepted
         self.assertTrue(ser.is_valid(), ser.errors)
 
     # G13 — UpdateBeneficiaryRequestSerializer is an alias (same schema as register)
     def test_g13_update_serializer_alias_is_functional(self):
         """UpdateBeneficiaryRequestSerializer must validate identically to register."""
-        ser = UpdateBeneficiaryRequestSerializer(data={
-            "RequestID": REQUEST_ID,
-            "SourceBBID": VALID_SOURCE_BB_ID,
-            "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
-        })
+        ser = UpdateBeneficiaryRequestSerializer(
+            data={
+                "RequestID": REQUEST_ID,
+                "SourceBBID": VALID_SOURCE_BB_ID,
+                "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
+            }
+        )
         self.assertTrue(ser.is_valid(), ser.errors)
         # Invalid SourceBBID must also be rejected
-        ser_bad = UpdateBeneficiaryRequestSerializer(data={
-            "SourceBBID": INVALID_ID,
-            "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
-        })
+        ser_bad = UpdateBeneficiaryRequestSerializer(
+            data={
+                "SourceBBID": INVALID_ID,
+                "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
+            }
+        )
         self.assertFalse(ser_bad.is_valid())
         self.assertIn("SourceBBID", ser_bad.errors)
 
     # G14 (was G13) — uppercase hex chars are NOT accepted (G2P requires lowercase)
     def test_g14_uppercase_hex_rejected(self):
-        ser = RegisterBeneficiaryRequestSerializer(data={
-            "SourceBBID": "AABBCCDD-1234",  # uppercase — should fail G2P hex check
-            "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
-        })
+        ser = RegisterBeneficiaryRequestSerializer(
+            data={
+                "SourceBBID": "AABBCCDD-1234",  # uppercase — should fail G2P hex check
+                "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
+            }
+        )
         self.assertFalse(ser.is_valid())
         self.assertIn("SourceBBID", ser.errors)
 
     # G15 — exactly-12-char RequestID is accepted (live spec: g2pResponseSchema
     # RequestID is {minLength: 12, maxLength: 12}).
     def test_g15_exactly_12_char_request_id_accepted(self):
-        ser = RegisterBeneficiaryRequestSerializer(data={
-            "RequestID": "abc123456789",  # exactly 12 chars
-            "SourceBBID": VALID_SOURCE_BB_ID,
-            "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
-        })
+        ser = RegisterBeneficiaryRequestSerializer(
+            data={
+                "RequestID": "abc123456789",  # exactly 12 chars
+                "SourceBBID": VALID_SOURCE_BB_ID,
+                "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
+            }
+        )
         self.assertTrue(ser.is_valid(), ser.errors)
         self.assertEqual(ser.validated_data["RequestID"], "abc123456789")
 
     # G16 — an 11-char RequestID is rejected (too short per live spec)
     def test_g16_eleven_char_request_id_rejected(self):
-        ser = RegisterBeneficiaryRequestSerializer(data={
-            "RequestID": "abc12345678",  # 11 chars
-            "SourceBBID": VALID_SOURCE_BB_ID,
-            "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
-        })
+        ser = RegisterBeneficiaryRequestSerializer(
+            data={
+                "RequestID": "abc12345678",  # 11 chars
+                "SourceBBID": VALID_SOURCE_BB_ID,
+                "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
+            }
+        )
         self.assertFalse(ser.is_valid())
         self.assertIn("RequestID", ser.errors)
 
     # G17 — a 13-char RequestID is rejected (too long per live spec)
     def test_g17_thirteen_char_request_id_rejected(self):
-        ser = RegisterBeneficiaryRequestSerializer(data={
-            "RequestID": "abc1234567890",  # 13 chars
-            "SourceBBID": VALID_SOURCE_BB_ID,
-            "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
-        })
+        ser = RegisterBeneficiaryRequestSerializer(
+            data={
+                "RequestID": "abc1234567890",  # 13 chars
+                "SourceBBID": VALID_SOURCE_BB_ID,
+                "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
+            }
+        )
         self.assertFalse(ser.is_valid())
         self.assertIn("RequestID", ser.errors)
 
@@ -1042,6 +1112,7 @@ class BeneficiarySerializerTest(TestCase):
 # ============================================================================
 # H.  Integration: database state after view calls
 # ============================================================================
+
 
 @_NO_THROTTLE
 class DatabaseStateIntegrationTest(TestCase):
@@ -1092,8 +1163,10 @@ class DatabaseStateIntegrationTest(TestCase):
 
     def test_h6_failed_request_does_not_create_records(self):
         """Invalid request (missing SourceBBID) must not create any DB records."""
-        payload = {"RequestID": REQUEST_ID,
-                   "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}]}
+        payload = {
+            "RequestID": REQUEST_ID,
+            "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
+        }
         resp = self.client.post(REGISTER_URL, payload, format="json")
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(GovStackBeneficiary.objects.count(), 0)
@@ -1125,6 +1198,7 @@ class DatabaseStateIntegrationTest(TestCase):
 # I.  GovStackBeneficiary model-level validation
 # ============================================================================
 
+
 class GovStackBeneficiaryModelValidationTest(TestCase):
     """
     Verifies that the _G2P_UUID_VALIDATOR applied to payee_functional_id
@@ -1151,18 +1225,18 @@ class GovStackBeneficiaryModelValidationTest(TestCase):
     def test_i1_valid_hex_id_passes_full_clean(self):
         """A lowercase hex+hyphen PayeeFunctionalID must pass full_clean()."""
         from django.core.exceptions import ValidationError
+
         ben = self._make_beneficiary(VALID_PAYEE_ID)
         try:
             ben.full_clean()
         except ValidationError as exc:
-            self.fail(
-                f"full_clean() raised ValidationError for valid ID {VALID_PAYEE_ID!r}: {exc}"
-            )
+            self.fail(f"full_clean() raised ValidationError for valid ID {VALID_PAYEE_ID!r}: {exc}")
 
     # I2 — uppercase ID is rejected by full_clean()
     def test_i2_uppercase_id_fails_full_clean(self):
         """An uppercase PayeeFunctionalID must be rejected by full_clean()."""
         from django.core.exceptions import ValidationError
+
         ben = self._make_beneficiary("UPPERCASE-ABCD")
         with self.assertRaises(ValidationError) as cm:
             ben.full_clean()
@@ -1173,6 +1247,7 @@ class GovStackBeneficiaryModelValidationTest(TestCase):
     def test_i3_harness_invalid_string_fails_full_clean(self):
         """The literal string 'invalid' must be rejected at the model level too."""
         from django.core.exceptions import ValidationError
+
         ben = self._make_beneficiary(INVALID_ID)  # "invalid" contains i, n, v, l
         with self.assertRaises(ValidationError) as cm:
             ben.full_clean()
@@ -1182,6 +1257,7 @@ class GovStackBeneficiaryModelValidationTest(TestCase):
     def test_i4_single_hex_char_accepted(self):
         """A single lowercase hex char ('a') is the minimum valid value."""
         from django.core.exceptions import ValidationError
+
         ben = self._make_beneficiary("a")
         try:
             ben.full_clean()
@@ -1192,6 +1268,7 @@ class GovStackBeneficiaryModelValidationTest(TestCase):
     def test_i5_error_message_is_human_readable(self):
         """ValidationError message must be a helpful string, not a raw regex pattern."""
         from django.core.exceptions import ValidationError
+
         ben = self._make_beneficiary("UPPERCASE")
         with self.assertRaises(ValidationError) as cm:
             ben.full_clean()

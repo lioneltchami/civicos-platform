@@ -16,7 +16,6 @@ Design notes:
 """
 
 from django.contrib.auth import get_user_model
-
 from rest_framework import serializers
 
 from apps.workflows.models import WorkItem, WorkItemComment, WorkItemHistory, WorkItemStatus
@@ -33,7 +32,7 @@ class WorkItemHistorySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = WorkItemHistory
-        fields = [
+        fields = [  # noqa: RUF012
             "id",
             "action",
             "old_status",
@@ -59,7 +58,7 @@ class WorkItemCommentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = WorkItemComment
-        fields = [
+        fields = [  # noqa: RUF012
             "id",
             "body",
             "author_display",
@@ -104,7 +103,7 @@ class WorkItemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = WorkItem
-        fields = [
+        fields = [  # noqa: RUF012
             "id",
             "title",
             "status",
@@ -149,12 +148,13 @@ class WorkItemDetailSerializer(WorkItemSerializer):
     comments = WorkItemCommentSerializer(many=True, read_only=True)
 
     class Meta(WorkItemSerializer.Meta):
-        fields = WorkItemSerializer.Meta.fields + ["description", "history", "comments"]
+        fields = [*WorkItemSerializer.Meta.fields, "description", "history", "comments"]  # noqa: RUF012
 
 
 # ---------------------------------------------------------------------------
 # Action serializers (input validation only — no model fields)
 # ---------------------------------------------------------------------------
+
 
 class ClaimWorkItemSerializer(serializers.Serializer):
     """

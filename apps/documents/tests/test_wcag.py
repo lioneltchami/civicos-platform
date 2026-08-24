@@ -20,7 +20,6 @@ Verifies:
 """
 
 import uuid
-from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -96,7 +95,7 @@ class MainLandmarkTests(TestCase):
         self.doc = _make_document(self.user, self.cat)
         self.client.force_login(self.user)
 
-    def _assertHasMain(self, response):
+    def _assertHasMain(self, response):  # noqa: N802
         content = response.content.decode()
         self.assertIn("<main", content, "Missing <main> landmark")
 
@@ -128,6 +127,7 @@ class HeadingTests(TestCase):
     def _count_h1(self, response):
         content = response.content.decode()
         import re
+
         return len(re.findall(r"<h1[\s>]", content, re.IGNORECASE))
 
     def test_document_list_has_one_h1(self):
@@ -180,12 +180,15 @@ class FormAriaDescribedByTests(TestCase):
         # Make a category first
         _make_category()
         # Post with missing category (just whitespace)
-        response = self.client.post(reverse("documents:upload-init"), {
-            "category_slug": "",
-            "original_filename": "test.pdf",
-            "mime_type": "application/pdf",
-            "size_bytes": "1024",
-        })
+        response = self.client.post(
+            reverse("documents:upload-init"),
+            {
+                "category_slug": "",
+                "original_filename": "test.pdf",
+                "mime_type": "application/pdf",
+                "size_bytes": "1024",
+            },
+        )
         content = response.content.decode()
         # After form error, category error container should have role="alert"
         if "category-error" in content:
@@ -255,7 +258,7 @@ class XSSEscapingTests(TestCase):
     def test_xss_in_description_is_escaped(self):
         """XSS payload in document description must be escaped."""
         doc = _make_document(self.user, self.cat)
-        doc.description = '<script>document.cookie</script>'
+        doc.description = "<script>document.cookie</script>"
         doc.save(update_fields=["description"])
 
         response = self.client.get(reverse("documents:detail", args=[doc.pk]))
@@ -334,7 +337,7 @@ class ErrorRoleAlertTests(TestCase):
         response = self.client.post(
             reverse("documents:upload-init"),
             {
-                "category_slug": "",          # required — intentionally blank
+                "category_slug": "",  # required — intentionally blank
                 "original_filename": "",
                 "mime_type": "",
                 "size_bytes": "",
@@ -366,7 +369,7 @@ class SkipNavigationTests(TestCase):
         self.doc = _make_document(self.user, self.cat)
         self.client.force_login(self.user)
 
-    def _assertHasSkipNav(self, response):
+    def _assertHasSkipNav(self, response):  # noqa: N802
         content = response.content.decode()
         has_skip = "#main-content" in content or "skip" in content.lower()
         self.assertTrue(has_skip, "Missing skip navigation link (WCAG 2.4.1)")
@@ -483,11 +486,11 @@ class TableCaptionTests(TestCase):
         if "<table" in content:
             # Table must have either caption or aria-label
             has_caption = "<caption" in content
-            has_aria_label = 'aria-label' in content
-            has_aria_labelledby = 'aria-labelledby' in content
+            has_aria_label = "aria-label" in content
+            has_aria_labelledby = "aria-labelledby" in content
             self.assertTrue(
                 has_caption or has_aria_label or has_aria_labelledby,
-                "Table missing caption/aria-label — WCAG 1.3.1"
+                "Table missing caption/aria-label — WCAG 1.3.1",
             )
 
 

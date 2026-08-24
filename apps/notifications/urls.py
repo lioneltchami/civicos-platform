@@ -1,5 +1,7 @@
 """URL patterns for the notifications building block."""
+
 from django.urls import path
+
 from . import views
 
 app_name = "notifications"

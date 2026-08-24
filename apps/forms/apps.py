@@ -7,6 +7,6 @@ class FormsConfig(AppConfig):
     verbose_name = _("Form Builder")
     default_auto_field = "django.db.models.BigAutoField"
 
-    def ready(self):
+    def ready(self) -> None:
         # Signal handlers would be imported here
         pass

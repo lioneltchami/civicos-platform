@@ -41,7 +41,7 @@ REQUIRED_FIELDS = {
 
 
 class GovStackEvidenceArtifactTests(unittest.TestCase):
-    def test_authority_manifest_has_the_pinned_explicit_building_blocks(self):
+    def test_authority_manifest_has_the_pinned_explicit_building_blocks(self) -> None:
         manifest = json.loads((GOVSTACK_DOCS / "authority-manifest.json").read_text())
         self.assertEqual(manifest["schema_version"], 1)
         self.assertFalse(manifest["network_access"])
@@ -56,8 +56,8 @@ class GovStackEvidenceArtifactTests(unittest.TestCase):
             for artifact in entry["artifacts"]:
                 self.assertEqual(len(artifact["sha256"]), 64)
 
-    def test_authority_manifest_tool_validates_the_committed_structure(self):
-        completed = subprocess.run(
+    def test_authority_manifest_tool_validates_the_committed_structure(self) -> None:
+        completed = subprocess.run(  # noqa: S603
             [sys.executable, str(MANIFEST_TOOL), "--validate"],
             cwd=ROOT,
             capture_output=True,
@@ -67,7 +67,7 @@ class GovStackEvidenceArtifactTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("authority manifest structure valid", completed.stdout)
 
-    def test_traceability_rows_are_explicit_about_unverified_contracts(self):
+    def test_traceability_rows_are_explicit_about_unverified_contracts(self) -> None:
         manifest = json.loads((GOVSTACK_DOCS / "authority-manifest.json").read_text())
         data = json.loads((GOVSTACK_DOCS / "traceability.json").read_text())
         allowed_statuses = set(data["status_vocabulary"])
@@ -102,8 +102,8 @@ class GovStackEvidenceArtifactTests(unittest.TestCase):
         )
         self.assertIn("identity", data["non_claimed_scope"]["not_done_yet"])
 
-    def test_traceability_tool_validates_the_committed_operation_inventory(self):
-        completed = subprocess.run(
+    def test_traceability_tool_validates_the_committed_operation_inventory(self) -> None:
+        completed = subprocess.run(  # noqa: S603
             [sys.executable, str(TRACEABILITY_TOOL), "--validate"],
             cwd=ROOT,
             capture_output=True,
@@ -113,10 +113,10 @@ class GovStackEvidenceArtifactTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("traceability structure valid", completed.stdout)
 
-    def test_archival_tool_refuses_to_run_without_explicit_reviewed_execution(self):
+    def test_archival_tool_refuses_to_run_without_explicit_reviewed_execution(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "run.json"
-            completed = subprocess.run(
+            completed = subprocess.run(  # noqa: S603
                 [
                     sys.executable,
                     str(ARCHIVE_TOOL),
@@ -135,12 +135,12 @@ class GovStackEvidenceArtifactTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 2)
         self.assertIn("refusing to execute", completed.stderr)
 
-    def test_archival_tool_records_adapter_configuration_and_dependencies(self):
+    def test_archival_tool_records_adapter_configuration_and_dependencies(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "reviewed-adapter.json"
             output = Path(directory) / "run.json"
             config.write_text('{"target":"non-production"}\n')
-            completed = subprocess.run(
+            completed = subprocess.run(  # noqa: S603
                 [
                     sys.executable,
                     str(ARCHIVE_TOOL),
@@ -170,7 +170,7 @@ class GovStackEvidenceArtifactTests(unittest.TestCase):
         self.assertEqual(record["dependencies"], ["python==local"])
         self.assertEqual(len(record["adapter_config_sha256"]), 64)
 
-    def test_scope_document_does_not_make_a_certification_claim(self):
+    def test_scope_document_does_not_make_a_certification_claim(self) -> None:
         scope = (GOVSTACK_DOCS / "SCOPE.md").read_text()
         overview = (ROOT / "docs" / "PROJECT_OVERVIEW_AND_STATUS.md").read_text()
         self.assertIn("not current GovStack Building Block claims", scope)
@@ -178,7 +178,7 @@ class GovStackEvidenceArtifactTests(unittest.TestCase):
         self.assertIn("single-government", scope)
         self.assertIn("not** a GovStack Building Block conformance", overview)
 
-    def test_scheduler_rejects_an_unsupported_multi_government_scope(self):
+    def test_scheduler_rejects_an_unsupported_multi_government_scope(self) -> None:
         from django.test import override_settings
         from rest_framework.exceptions import AuthenticationFailed
         from rest_framework.request import Request

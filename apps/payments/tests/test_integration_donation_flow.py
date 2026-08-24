@@ -22,6 +22,7 @@ Test strategy:
 - Patch generate_and_send_receipt.delay to prevent actual Celery dispatch
 - CharitySettings must exist for the receipt receiver to fire
 """
+
 import uuid
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
@@ -30,13 +31,13 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from apps.payments.models import (
+    DONATION_STATUS_COMPLETED,
+    GATEWAY_STRIPE,
     CharitySettings,
     Donation,
     OfficialDonationReceipt,
     Payment,
     PaymentIntent,
-    DONATION_STATUS_COMPLETED,
-    GATEWAY_STRIPE,
 )
 from apps.payments.tasks import process_stripe_webhook
 from apps.payments.tests.factories import make_fake_save
@@ -47,6 +48,7 @@ User = get_user_model()
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_user(email=None):
     email = email or f"user_{uuid.uuid4().hex[:6]}@example.com"
@@ -92,6 +94,7 @@ def _make_donation_payment_intent(user, **kwargs):
 
 def _make_webhook_event(gateway_intent_id, event_type="payment_intent.succeeded"):
     from apps.payments.models import WebhookEvent
+
     gateway_event_id = f"evt_{uuid.uuid4().hex[:8]}"
     return WebhookEvent.objects.create(
         gateway=GATEWAY_STRIPE,
@@ -132,6 +135,7 @@ _fake_save = make_fake_save(_serial_counter, year=2026)
 # Full flow integration test
 # ---------------------------------------------------------------------------
 
+
 class DonationFlowIntegrationTests(TestCase):
     """
     Exercises the complete donation chain from webhook event to
@@ -153,9 +157,11 @@ class DonationFlowIntegrationTests(TestCase):
         """
         from apps.payments.tasks_receipts import generate_and_send_receipt
 
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch.object(OfficialDonationReceipt, "save", _fake_save), \
-             patch.object(generate_and_send_receipt, "delay", return_value=None) as mock_delay:
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch.object(OfficialDonationReceipt, "save", _fake_save),
+            patch.object(generate_and_send_receipt, "delay", return_value=None) as mock_delay,
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = self.mock_parse_return
             mock_get_gw.return_value = mock_gw
@@ -309,6 +315,7 @@ class DonationFlowIntegrationTests(TestCase):
         No Donation row should be created.
         """
         from apps.payments.tasks_receipts import generate_and_send_receipt
+
         fee_pi = PaymentIntent.objects.create(
             payer=self.user,
             amount=Decimal("50.00"),
@@ -321,9 +328,11 @@ class DonationFlowIntegrationTests(TestCase):
         fee_event = _make_webhook_event(fee_pi.gateway_intent_id)
         mock_parse_return = _succeeded_event_data(fee_pi.gateway_intent_id)
 
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch.object(OfficialDonationReceipt, "save", _fake_save), \
-             patch.object(generate_and_send_receipt, "delay", return_value=None):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch.object(OfficialDonationReceipt, "save", _fake_save),
+            patch.object(generate_and_send_receipt, "delay", return_value=None),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = mock_parse_return
             mock_get_gw.return_value = mock_gw
@@ -340,9 +349,11 @@ class DonationFlowIntegrationTests(TestCase):
         """
         from apps.payments.tasks_receipts import generate_and_send_receipt
 
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch.object(OfficialDonationReceipt, "save", _fake_save), \
-             patch.object(generate_and_send_receipt, "delay", return_value=None):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch.object(OfficialDonationReceipt, "save", _fake_save),
+            patch.object(generate_and_send_receipt, "delay", return_value=None),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = self.mock_parse_return
             mock_get_gw.return_value = mock_gw
@@ -377,9 +388,11 @@ class DonationFlowIntegrationTests(TestCase):
         }
         self.pi.save(update_fields=["metadata"])
 
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch.object(OfficialDonationReceipt, "save", _fake_save), \
-             patch.object(generate_and_send_receipt, "delay", return_value=None) as mock_delay:
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch.object(OfficialDonationReceipt, "save", _fake_save),
+            patch.object(generate_and_send_receipt, "delay", return_value=None) as mock_delay,
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = self.mock_parse_return
             mock_get_gw.return_value = mock_gw

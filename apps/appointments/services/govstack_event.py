@@ -30,6 +30,7 @@ Not-stored fields:
 PIPEDA note:
   No PII is logged at any log level. Log statements use slot/type PKs only.
 """
+
 from __future__ import annotations
 
 import logging
@@ -64,7 +65,7 @@ _GOVSTACK_SYSTEM_LOCATION_SLUG = "govstack-system-location"
 # organisation (analogous to _GOVSTACK_SYSTEM_LOCATION_SLUG's global sharing),
 # never mutated in place (see event_modify's is_shared_placeholder check).
 _GOVSTACK_ORG_LOCATION_SLUG_PREFIX = "govstack-event-loc-org-"
-_MAX_SLUG_RETRIES = 9   # suffix counters 2..9 (8 retries beyond first attempt)
+_MAX_SLUG_RETRIES = 9  # suffix counters 2..9 (8 retries beyond first attempt)
 _MAX_CAPACITY = 100
 _MIN_CAPACITY = 1
 _MIN_DURATION = 5
@@ -83,8 +84,15 @@ _TERMS_PREFIX = "[Terms: "
 # Valid ServiceType.category DB choices (see apps.appointments.models.ServiceType).
 _CATEGORY_CHOICES: frozenset[str] = frozenset(
     {
-        "government", "health", "legal", "employment", "housing",
-        "settlement", "food", "mental_health", "other",
+        "government",
+        "health",
+        "legal",
+        "employment",
+        "housing",
+        "settlement",
+        "food",
+        "mental_health",
+        "other",
     }
 )
 
@@ -181,7 +189,7 @@ def _get_or_create_govstack_staff() -> StaffProfile:
     PIPEDA note: the email address is an internal system identifier, never
     returned in any API response.
     """
-    User = get_user_model()
+    User = get_user_model()  # noqa: N806
     user, created = User.objects.get_or_create(
         email=_GOVSTACK_SYSTEM_EMAIL,
         defaults={
@@ -269,13 +277,11 @@ def _clamp_capacity(raw: str) -> int:
     try:
         value = int(raw)
     except (ValueError, TypeError) as exc:
-        raise ValueError(
-            f"subscriber_limit must be an integer, got {raw!r}."
-        ) from exc
+        raise ValueError(f"subscriber_limit must be an integer, got {raw!r}.") from exc
     return max(_MIN_CAPACITY, min(_MAX_CAPACITY, value))
 
 
-def _compute_duration(start, end) -> int:
+def _compute_duration(start, end) -> int:  # noqa: ANN001
     """
     Compute appointment duration in minutes from two aware datetimes.
 
@@ -298,7 +304,7 @@ def _make_appt_type_slug(name: str) -> str:
     - Otherwise: ``"gs-event-{uuid4().hex[:8]}"``
     """
     if name and name.strip():
-        return ("gs-" + slugify(name)[:77])
+        return "gs-" + slugify(name)[:77]
     return f"gs-event-{uuid4().hex[:8]}"
 
 
@@ -371,7 +377,7 @@ def _split_description_terms(description_en: str) -> tuple[str, str]:
     idx = description_en.rfind(_TERMS_PREFIX)
     if idx == -1 or not description_en.endswith("]"):
         return description_en, ""
-    terms_blob = description_en[idx + len(_TERMS_PREFIX):-1]
+    terms_blob = description_en[idx + len(_TERMS_PREFIX) : -1]
     clean = description_en[:idx]
     # Strip the "\n\n" separator that precedes the marker when both a
     # description and terms were present at write time.
@@ -413,9 +419,7 @@ def _resolve_location(venue: dict | None, appt_type_slug: str, host_entity_id: s
     this function again on modify would have no effect on an already-existing
     row's fields since get_or_create()'s defaults only apply on first creation.
     """
-    has_venue = venue and any(
-        isinstance(v, str) and v.strip() for v in venue.values()
-    )
+    has_venue = venue and any(isinstance(v, str) and v.strip() for v in venue.values())
 
     # Determine owning organization — consulted regardless of has_venue so a
     # valid host_entity_id is never silently discarded on the no-venue path.
@@ -450,9 +454,7 @@ def _resolve_location(venue: dict | None, appt_type_slug: str, host_entity_id: s
 
     # Build a human-readable name from available venue fields.
     loc_name = (
-        (venue or {}).get("city")
-        or (venue or {}).get("building")
-        or "GovStack Event Location"
+        (venue or {}).get("city") or (venue or {}).get("building") or "GovStack Event Location"
     )
 
     location, _ = Location.objects.get_or_create(
@@ -748,9 +750,7 @@ def event_create(
                 "Each slot entry must supply 'from' and 'to' ISO 8601 datetime strings."
             )
         if end_dt <= start_dt:
-            raise ValueError(
-                f"Slot 'to' ({to_str!r}) must be after 'from' ({from_str!r})."
-            )
+            raise ValueError(f"Slot 'to' ({to_str!r}) must be after 'from' ({from_str!r}).")
         parsed_entries.append((start_dt, end_dt))
 
     # --- Seed system records (shared taxonomy/staff, not owned per-event) ---
@@ -853,9 +853,11 @@ def event_modify(
     """
     # Let UUID parsing fail naturally for invalid format.
     with transaction.atomic():
-        slot = Slot.objects.select_for_update().select_related(
-            "appointment_type", "location"
-        ).get(pk=event_id)
+        slot = (
+            Slot.objects.select_for_update()
+            .select_related("appointment_type", "location")
+            .get(pk=event_id)
+        )
 
         appt_type = slot.appointment_type
         slot_update_fields: list[str] = []
@@ -890,9 +892,7 @@ def event_modify(
         # this AppointmentType is exclusively owned by this event_id, so
         # mutating it here is always safe — it can never affect a sibling.
         if (resolved_from or resolved_to) and slot.end_datetime > slot.start_datetime:
-            appt_type.duration_minutes = _compute_duration(
-                slot.start_datetime, slot.end_datetime
-            )
+            appt_type.duration_minutes = _compute_duration(slot.start_datetime, slot.end_datetime)
             if "duration_minutes" not in appt_update_fields:
                 appt_update_fields.append("duration_minutes")
 
@@ -1095,14 +1095,11 @@ def event_list(
     event_filter = event_filter or {}
     event_details_required = event_details_required or {}
 
-    qs = (
-        Slot.objects.filter(appointment_type__is_govstack_managed=True)
-        .select_related(
-            "appointment_type",
-            "appointment_type__service_type",
-            "location",
-            "location__organization",
-        )
+    qs = Slot.objects.filter(appointment_type__is_govstack_managed=True).select_related(
+        "appointment_type",
+        "appointment_type__service_type",
+        "location",
+        "location__organization",
     )
 
     # -- Filters --
@@ -1119,9 +1116,7 @@ def event_list(
         qs = qs.filter(appointment_type__name_en__icontains=event_filter["name"])
 
     if event_filter.get("category"):
-        qs = qs.filter(
-            appointment_type__service_type__category__icontains=event_filter["category"]
-        )
+        qs = qs.filter(appointment_type__service_type__category__icontains=event_filter["category"])
 
     if event_filter.get("host_entity_id"):
         try:

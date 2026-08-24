@@ -4,30 +4,29 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('payments', '0032_item02_platform_persistence'),
+    dependencies = [  # noqa: RUF012
+        ("payments", "0032_item02_platform_persistence"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterField(
-            model_name='batchlease',
-            name='created_at',
-            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='Created at'),
+            model_name="batchlease",
+            name="created_at",
+            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at"),
         ),
         migrations.AlterField(
-            model_name='batchlease',
-            name='updated_at',
-            field=models.DateTimeField(auto_now=True, verbose_name='Updated at'),
+            model_name="batchlease",
+            name="updated_at",
+            field=models.DateTimeField(auto_now=True, verbose_name="Updated at"),
         ),
         migrations.AlterField(
-            model_name='idempotencyledger',
-            name='created_at',
-            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='Created at'),
+            model_name="idempotencyledger",
+            name="created_at",
+            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at"),
         ),
         migrations.AlterField(
-            model_name='idempotencyledger',
-            name='updated_at',
-            field=models.DateTimeField(auto_now=True, verbose_name='Updated at'),
+            model_name="idempotencyledger",
+            name="updated_at",
+            field=models.DateTimeField(auto_now=True, verbose_name="Updated at"),
         ),
     ]

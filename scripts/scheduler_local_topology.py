@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Deterministic loopback-only Scheduler harness fake and evidence runner."""
+
 from __future__ import annotations
 
 import argparse
@@ -68,9 +69,19 @@ class Handler(BaseHTTPRequestHandler):
             self._reply(201, {"id": ident, "status": "created"})
         elif self.path == "/dispatch":
             self.state.attempts += 1
-            self._reply(202, {"status": "accepted", "attempt": self.state.attempts, "delivery_id": "delivery-1"})
+            self._reply(
+                202,
+                {"status": "accepted", "attempt": self.state.attempts, "delivery_id": "delivery-1"},
+            )
         elif self.path in {"/payments/authorize", "/consent/check"}:
-            self._reply(200, {"authority": self.path.split("/")[1], "status": "approved", "correlation_id": payload.get("correlation_id")})
+            self._reply(
+                200,
+                {
+                    "authority": self.path.split("/")[1],
+                    "status": "approved",
+                    "correlation_id": payload.get("correlation_id"),
+                },
+            )
         else:
             self._reply(404, {"error": "not_found"})
 
@@ -82,11 +93,18 @@ class Handler(BaseHTTPRequestHandler):
             self._reply(404, {"error": "not_found"})
 
 
-def request(base: str, method: str, path: str, body: dict[str, object] | None = None, key: str = "") -> tuple[int, dict[str, object]]:
+def request(
+    base: str, method: str, path: str, body: dict[str, object] | None = None, key: str = ""
+) -> tuple[int, dict[str, object]]:
     data = json.dumps(body or {}).encode()
-    req = Request(base + path.lstrip("/"), data=data if method != "GET" else None, method=method, headers={"Content-Type": "application/json", "Idempotency-Key": key})
+    req = Request(  # noqa: S310
+        base + path.lstrip("/"),
+        data=data if method != "GET" else None,
+        method=method,
+        headers={"Content-Type": "application/json", "Idempotency-Key": key},
+    )
     try:
-        with urlopen(req, timeout=2) as response:  # nosec B310 - base is validated loopback-only below
+        with urlopen(req, timeout=2) as response:  # nosec B310 - base is validated loopback-only below  # noqa: S310
             return response.status, json.loads(response.read() or b"{}")
     except HTTPError as exc:
         return exc.code, json.loads(exc.read() or b"{}")
@@ -100,29 +118,71 @@ def run(output: Path, port: int) -> int:
     scenarios = [
         ("health", "GET", "/health", None, ""),
         ("entity-create", "POST", "/entities", {"id": "entity-1", "owner": "local"}, "entity-key"),
-        ("entity-duplicate", "POST", "/entities", {"id": "entity-1", "owner": "local"}, "entity-key"),
-        ("resource-owner-reject", "POST", "/resources", {"id": "resource-1", "owner": "other"}, "resource-key"),
-        ("subscriber-create", "POST", "/subscribers", {"id": "subscriber-1", "owner": "local"}, "subscriber-key"),
+        (
+            "entity-duplicate",
+            "POST",
+            "/entities",
+            {"id": "entity-1", "owner": "local"},
+            "entity-key",
+        ),
+        (
+            "resource-owner-reject",
+            "POST",
+            "/resources",
+            {"id": "resource-1", "owner": "other"},
+            "resource-key",
+        ),
+        (
+            "subscriber-create",
+            "POST",
+            "/subscribers",
+            {"id": "subscriber-1", "owner": "local"},
+            "subscriber-key",
+        ),
         ("dispatch", "POST", "/dispatch", {"correlation_id": "corr-1"}, "dispatch-key"),
-        ("payments-authority", "POST", "/payments/authorize", {"correlation_id": "corr-1"}, "payment-key"),
-        ("consent-authority", "POST", "/consent/check", {"correlation_id": "corr-1"}, "consent-key"),
+        (
+            "payments-authority",
+            "POST",
+            "/payments/authorize",
+            {"correlation_id": "corr-1"},
+            "payment-key",
+        ),
+        (
+            "consent-authority",
+            "POST",
+            "/consent/check",
+            {"correlation_id": "corr-1"},
+            "consent-key",
+        ),
         ("subscriber-cleanup", "DELETE", "/subscribers/subscriber-1", None, "cleanup-key"),
     ]
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("w", encoding="utf-8") as stream:
         for name, method, path, body, key in scenarios:
             status, response = request(base, method, path, body, key)
-            row = {"scenario": name, "method": method, "path": path, "status": status, "response": response}
+            row = {
+                "scenario": name,
+                "method": method,
+                "path": path,
+                "status": status,
+                "response": response,
+            }
             stream.write(json.dumps(row, sort_keys=True) + "\n")
     server.shutdown()
     digest = hashlib.sha256(output.read_bytes()).hexdigest()
-    output.with_suffix(output.suffix + ".sha256").write_text(f"{digest}  {output.name}\n", encoding="utf-8")
+    output.with_suffix(output.suffix + ".sha256").write_text(
+        f"{digest}  {output.name}\n", encoding="utf-8"
+    )
     return 0
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output", type=Path, default=Path("examples/civicos-scheduler/result/local-topology.jsonl"))
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("examples/civicos-scheduler/result/local-topology.jsonl"),
+    )
     parser.add_argument("--port", type=int, default=3333)
     args = parser.parse_args()
     raise SystemExit(run(args.output, args.port))

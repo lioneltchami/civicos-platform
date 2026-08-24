@@ -4,15 +4,19 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('payments', '0018_tighten_govstackbeneficiary_source_bb_id_validator'),
+    dependencies = [  # noqa: RUF012
+        ("payments", "0018_tighten_govstackbeneficiary_source_bb_id_validator"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterField(
-            model_name='bulkpaymentbatch',
-            name='correlation_id',
-            field=models.CharField(blank=True, help_text='X-CorrelationID header. Max 100 chars (accommodates UUIDs and longer IDs).', max_length=100, verbose_name='Correlation ID'),
+            model_name="bulkpaymentbatch",
+            name="correlation_id",
+            field=models.CharField(
+                blank=True,
+                help_text="X-CorrelationID header. Max 100 chars (accommodates UUIDs and longer IDs).",
+                max_length=100,
+                verbose_name="Correlation ID",
+            ),
         ),
     ]

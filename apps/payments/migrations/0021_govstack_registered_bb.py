@@ -9,17 +9,15 @@
 # It is safe to run against live databases — it only adds a new table.
 
 import django.core.validators
-
 from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("payments", "0020_govstack_p2g_models"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.CreateModel(
             name="GovStackRegisteredBB",
             fields=[
@@ -51,14 +49,14 @@ class Migration(migrations.Migration):
                     models.CharField(
                         help_text=(
                             "Must match the X-Registering-Institution-ID header value "
-                            "sent by the BB. 1–20 alphanumeric or hyphen characters. "
+                            "sent by the BB. 1–20 alphanumeric or hyphen characters. "  # noqa: RUF001
                             "Case-sensitive."
                         ),
                         max_length=20,
                         unique=True,
                         validators=[
                             django.core.validators.RegexValidator(
-                                message="BB ID must be 1–20 alphanumeric or hyphen characters.",
+                                message="BB ID must be 1–20 alphanumeric or hyphen characters.",  # noqa: RUF001
                                 regex="^[a-zA-Z0-9\\-]{1,20}$",
                             )
                         ],

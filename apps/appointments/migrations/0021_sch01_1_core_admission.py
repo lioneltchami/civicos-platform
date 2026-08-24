@@ -2,9 +2,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("appointments", "0020_scheduler_outbox_publisher_claim")]
+    dependencies = [("appointments", "0020_scheduler_outbox_publisher_claim")]  # noqa: RUF012
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddField(
             model_name="govstackalertschedule",
             name="admitted_generation",

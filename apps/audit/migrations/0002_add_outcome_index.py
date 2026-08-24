@@ -4,15 +4,20 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('audit', '0001_initial'),
+    dependencies = [  # noqa: RUF012
+        ("audit", "0001_initial"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterField(
-            model_name='auditlogentry',
-            name='outcome',
-            field=models.CharField(choices=[('success', 'Success'), ('failure', 'Failure')], db_index=True, default='success', max_length=16, verbose_name='Outcome'),
+            model_name="auditlogentry",
+            name="outcome",
+            field=models.CharField(
+                choices=[("success", "Success"), ("failure", "Failure")],
+                db_index=True,
+                default="success",
+                max_length=16,
+                verbose_name="Outcome",
+            ),
         ),
     ]

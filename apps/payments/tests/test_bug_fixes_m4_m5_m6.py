@@ -14,11 +14,12 @@ M6 — models.py advantage_amount <= eligible_amount DB constraint
     Verifies that the new CheckConstraint prevents rows where
     advantage_amount > eligible_amount from being committed to the DB.
 """
+
 import hashlib
 import uuid
 from datetime import date
 from decimal import Decimal
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
@@ -27,12 +28,11 @@ from django.db import IntegrityError
 from django.test import RequestFactory, TestCase
 
 from apps.payments.models import (
-    CharitySettings,
+    DONATION_STATUS_COMPLETED,
     Donation,
     DonationCampaign,
     OfficialDonationReceipt,
     PaymentIntent,
-    DONATION_STATUS_COMPLETED,
 )
 from apps.payments.services.receipt_pdf import save_receipt_pdf
 from apps.payments.views.donation import _check_donation_rate_limit, _get_client_ip
@@ -43,6 +43,7 @@ User = get_user_model()
 # ---------------------------------------------------------------------------
 # Fixture helpers (minimal — no factory_boy dependency)
 # ---------------------------------------------------------------------------
+
 
 def _make_user(email=None):
     email = email or f"user_{uuid.uuid4().hex[:6]}@example.com"
@@ -72,8 +73,9 @@ def _make_intent(payer):
     )
 
 
-def _make_donation(donor, intent, *, eligible_amount=Decimal("100.00"),
-                   advantage_amount=Decimal("0.00")):
+def _make_donation(
+    donor, intent, *, eligible_amount=Decimal("100.00"), advantage_amount=Decimal("0.00")
+):
     return Donation.objects.create(
         payment_intent=intent,
         donor=donor,
@@ -88,8 +90,7 @@ def _make_donation(donor, intent, *, eligible_amount=Decimal("100.00"),
     )
 
 
-def _make_receipt(donation, *, eligible_amount=Decimal("100.00"),
-                  advantage_amount=Decimal("0.00")):
+def _make_receipt(donation, *, eligible_amount=Decimal("100.00"), advantage_amount=Decimal("0.00")):
     serial = f"2024-{str(uuid.uuid4().int % 1_000_000).zfill(6)}"
     receipt = OfficialDonationReceipt(
         donation=donation,
@@ -120,6 +121,7 @@ def _make_receipt(donation, *, eligible_amount=Decimal("100.00"),
 # ---------------------------------------------------------------------------
 # M4 — proxy IP trust in _get_client_ip and _check_donation_rate_limit
 # ---------------------------------------------------------------------------
+
 
 class GetClientIpTest(TestCase):
     """_get_client_ip() must prefer ipware over raw REMOTE_ADDR."""
@@ -189,7 +191,7 @@ class RateLimitUsesRealClientIpTest(TestCase):
         """REMOTE_ADDR is proxy IP; real IP must come from ipware (X-Forwarded-For)."""
         factory = RequestFactory()
         req = factory.post("/fake/")
-        req.META["REMOTE_ADDR"] = "10.0.0.1"          # load-balancer IP
+        req.META["REMOTE_ADDR"] = "10.0.0.1"  # load-balancer IP
         req.META["HTTP_X_FORWARDED_FOR"] = "203.0.113.42"  # real client IP
         req.user = AnonymousUser()
 
@@ -212,7 +214,7 @@ class RateLimitUsesRealClientIpTest(TestCase):
             (c.args[0] if c.args else c.kwargs.get("key", ""))
             for c in mock_cache.add.call_args_list
         ]
-        proxy_hash = hashlib.sha256("10.0.0.1".encode()).hexdigest()[:16]
+        proxy_hash = hashlib.sha256(b"10.0.0.1").hexdigest()[:16]
 
         for key in add_keys:
             self.assertNotIn("10.0.0.1", key, "Proxy REMOTE_ADDR must not appear in cache key")
@@ -230,7 +232,7 @@ class RateLimitUsesRealClientIpTest(TestCase):
 
         def _req(real_ip):
             req = factory.post("/fake/")
-            req.META["REMOTE_ADDR"] = "10.0.0.1"   # same proxy for both
+            req.META["REMOTE_ADDR"] = "10.0.0.1"  # same proxy for both
             req.user = AnonymousUser()
             return req, real_ip
 
@@ -260,12 +262,15 @@ class RateLimitUsesRealClientIpTest(TestCase):
                 _check_donation_rate_limit(req2)
 
         self.assertEqual(len(keys_seen), 2, "Expected one cache key per donor")
-        self.assertNotEqual(keys_seen[0], keys_seen[1], "Two donors must not share a rate-limit bucket")
+        self.assertNotEqual(
+            keys_seen[0], keys_seen[1], "Two donors must not share a rate-limit bucket"
+        )
 
 
 # ---------------------------------------------------------------------------
 # M5 — corrupt file reuse in save_receipt_pdf
 # ---------------------------------------------------------------------------
+
 
 class CorruptExistingPdfRegenerationTest(TestCase):
     """save_receipt_pdf must delete and regenerate files with a corrupt header."""
@@ -299,8 +304,10 @@ class CorruptExistingPdfRegenerationTest(TestCase):
         mock_fh.__exit__ = MagicMock(return_value=False)
         mock_fh.read.return_value = b"\x00\x00\x00\x00"  # not a PDF
 
-        with patch("django.core.files.storage.default_storage") as mock_storage, \
-             patch("apps.documents.services.retention.schedule_expiry"):
+        with (
+            patch("django.core.files.storage.default_storage") as mock_storage,
+            patch("apps.documents.services.retention.schedule_expiry"),
+        ):
             mock_storage.exists.side_effect = [True, False]  # exists→True (corrupt), then unused
             mock_storage.open.return_value = mock_fh
             mock_storage.save.return_value = expected_key
@@ -322,8 +329,10 @@ class CorruptExistingPdfRegenerationTest(TestCase):
         mock_fh.__exit__ = MagicMock(return_value=False)
         mock_fh.read.return_value = b""  # empty file
 
-        with patch("django.core.files.storage.default_storage") as mock_storage, \
-             patch("apps.documents.services.retention.schedule_expiry"):
+        with (
+            patch("django.core.files.storage.default_storage") as mock_storage,
+            patch("apps.documents.services.retention.schedule_expiry"),
+        ):
             mock_storage.exists.side_effect = [True, False]
             mock_storage.open.return_value = mock_fh
             mock_storage.save.return_value = expected_key
@@ -346,8 +355,10 @@ class CorruptExistingPdfRegenerationTest(TestCase):
         mock_fh.__exit__ = MagicMock(return_value=False)
         mock_fh.read.return_value = b"%PDF"  # valid header
 
-        with patch("django.core.files.storage.default_storage") as mock_storage, \
-             patch("apps.documents.services.retention.schedule_expiry"):
+        with (
+            patch("django.core.files.storage.default_storage") as mock_storage,
+            patch("apps.documents.services.retention.schedule_expiry"),
+        ):
             mock_storage.exists.return_value = True
             mock_storage.open.return_value = mock_fh
 
@@ -362,8 +373,10 @@ class CorruptExistingPdfRegenerationTest(TestCase):
         # Wave 6: new storage key format
         expected_key = f"documents/active/receipts/{self.receipt.serial_number}/receipt.bin"
 
-        with patch("django.core.files.storage.default_storage") as mock_storage, \
-             patch("apps.documents.services.retention.schedule_expiry"):
+        with (
+            patch("django.core.files.storage.default_storage") as mock_storage,
+            patch("apps.documents.services.retention.schedule_expiry"),
+        ):
             mock_storage.exists.side_effect = [True, False]
             mock_storage.open.side_effect = OSError("permission denied")
             mock_storage.save.return_value = expected_key
@@ -389,8 +402,10 @@ class CorruptExistingPdfRegenerationTest(TestCase):
         mock_fh.__exit__ = MagicMock(return_value=False)
         mock_fh.read.return_value = b"\xff\xfe\x00\x00"  # not PDF
 
-        with patch("django.core.files.storage.default_storage") as mock_storage, \
-             patch("apps.documents.services.retention.schedule_expiry"):
+        with (
+            patch("django.core.files.storage.default_storage") as mock_storage,
+            patch("apps.documents.services.retention.schedule_expiry"),
+        ):
             mock_storage.exists.side_effect = [True, False]
             mock_storage.open.return_value = mock_fh
             mock_storage.save.return_value = expected_key
@@ -406,6 +421,7 @@ class CorruptExistingPdfRegenerationTest(TestCase):
 # M6 — advantage_amount <= eligible_amount DB constraint
 # ---------------------------------------------------------------------------
 
+
 class ReceiptAmountConstraintTest(TestCase):
     """DB-level CheckConstraint must reject advantage_amount > eligible_amount."""
 
@@ -416,28 +432,28 @@ class ReceiptAmountConstraintTest(TestCase):
 
     def _make_base_receipt_kwargs(self, *, eligible_amount, advantage_amount):
         serial = f"2024-{str(uuid.uuid4().int % 1_000_000).zfill(6)}"
-        return dict(
-            donation=self.donation,
-            status=OfficialDonationReceipt.RECEIPT_STATUS_ISSUED,
-            serial_number=serial,
-            donor_legal_name="Test Donor",
-            donor_address_line1="123 Main St",
-            donor_city="Ottawa",
-            donor_province="ON",
-            donor_postal_code="K1A 0A6",
-            donation_date=date(2024, 6, 1),
-            receipt_date=date(2024, 6, 15),
-            eligible_amount=eligible_amount,
-            advantage_amount=advantage_amount,
-            advantage_description="",
-            charity_legal_name="Test Charity Inc.",
-            charity_registration_number="123456789 RR 0001",
-            charity_address="100 Charity Ave, Ottawa, ON K2A 1B2",
-            place_of_issue="Ottawa",
-            authorized_signatory_name="Jane Smith",
-            authorized_signatory_title="Executive Director",
-            is_annual_consolidated=False,
-        )
+        return {
+            "donation": self.donation,
+            "status": OfficialDonationReceipt.RECEIPT_STATUS_ISSUED,
+            "serial_number": serial,
+            "donor_legal_name": "Test Donor",
+            "donor_address_line1": "123 Main St",
+            "donor_city": "Ottawa",
+            "donor_province": "ON",
+            "donor_postal_code": "K1A 0A6",
+            "donation_date": date(2024, 6, 1),
+            "receipt_date": date(2024, 6, 15),
+            "eligible_amount": eligible_amount,
+            "advantage_amount": advantage_amount,
+            "advantage_description": "",
+            "charity_legal_name": "Test Charity Inc.",
+            "charity_registration_number": "123456789 RR 0001",
+            "charity_address": "100 Charity Ave, Ottawa, ON K2A 1B2",
+            "place_of_issue": "Ottawa",
+            "authorized_signatory_name": "Jane Smith",
+            "authorized_signatory_title": "Executive Director",
+            "is_annual_consolidated": False,
+        }
 
     def test_advantage_exceeds_eligible_raises_integrity_error(self):
         """advantage_amount > eligible_amount must be rejected by the DB constraint."""
@@ -487,9 +503,7 @@ class ReceiptAmountConstraintTest(TestCase):
 
     def test_constraint_name_is_registered_in_meta(self):
         """The new constraint must be declared in OfficialDonationReceipt.Meta.constraints."""
-        constraint_names = {
-            c.name for c in OfficialDonationReceipt._meta.constraints
-        }
+        constraint_names = {c.name for c in OfficialDonationReceipt._meta.constraints}
         self.assertIn(
             "payments_receipt_advantage_lte_eligible",
             constraint_names,

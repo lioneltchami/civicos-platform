@@ -25,6 +25,7 @@ later. All payloads below use the correct single-nested shape, e.g.
 {"affiliation_details": {...}} rather than {"qry": {"affiliation_details":
 {...}}}.
 """
+
 from __future__ import annotations
 
 import json
@@ -55,6 +56,7 @@ _AUTH = {"requestor_id": "test-bb", "request_token": "test-token"}
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _qs(**extra):
     params = {**_AUTH, **extra}
     return "?" + urlencode(params)
@@ -73,7 +75,9 @@ def _create_resource(name="Test Resource", category="room"):
     return resource_create(name=name, category=category)
 
 
-def _create_affiliation(resource=None, entity=None, resource_category="nurse", work_days_hours=None):
+def _create_affiliation(
+    resource=None, entity=None, resource_category="nurse", work_days_hours=None
+):
     resource = resource or _create_resource()
     entity = entity or _create_entity()
     return affiliation_create(
@@ -87,6 +91,7 @@ def _create_affiliation(resource=None, entity=None, resource_category="nurse", w
 # ===========================================================================
 # Base test case
 # ===========================================================================
+
 
 class AffiliationBaseTestCase(TestCase):
     """Shared HTTP helpers for all affiliation endpoint tests."""
@@ -112,6 +117,7 @@ class AffiliationBaseTestCase(TestCase):
 # AFF1-AFF9: POST /affiliation/new
 # ===========================================================================
 
+
 class AffiliationNewTests(AffiliationBaseTestCase):
     """AFF1-AFF9: POST /affiliation/new"""
 
@@ -121,12 +127,14 @@ class AffiliationNewTests(AffiliationBaseTestCase):
         value of the `qry` query PARAMETER itself), must succeed."""
         resource = _create_resource()
         entity = _create_entity()
-        qry = {"affiliation_details": {
-            "resource_id": str(resource.pk),
-            "entity_id": str(entity.pk),
-            "resource_category": "nurse",
-            "work_days_hours": {"monday": {"from": "09:00", "to": "17:00"}},
-        }}
+        qry = {
+            "affiliation_details": {
+                "resource_id": str(resource.pk),
+                "entity_id": str(entity.pk),
+                "resource_category": "nurse",
+                "work_days_hours": {"monday": {"from": "09:00", "to": "17:00"}},
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
@@ -146,10 +154,12 @@ class AffiliationNewTests(AffiliationBaseTestCase):
 
         resource = _create_resource()
         entity = _create_entity()
-        qry = {"affiliation_details": {
-            "resource_id": str(resource.pk),
-            "entity_id": str(entity.pk),
-        }}
+        qry = {
+            "affiliation_details": {
+                "resource_id": str(resource.pk),
+                "entity_id": str(entity.pk),
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 200)
         affiliation_id = resp.json()["affiliation_id"]
@@ -206,7 +216,9 @@ class AffiliationNewTests(AffiliationBaseTestCase):
         resource = _create_resource()
         entity = _create_entity()
         _create_affiliation(resource=resource, entity=entity)
-        qry = {"affiliation_details": {"resource_id": str(resource.pk), "entity_id": str(entity.pk)}}
+        qry = {
+            "affiliation_details": {"resource_id": str(resource.pk), "entity_id": str(entity.pk)}
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 409)
         self.assertEqual(resp.json()["code"], "DUPLICATE_AFFILIATION")
@@ -218,9 +230,14 @@ class AffiliationNewTests(AffiliationBaseTestCase):
     def test_aff9_missing_auth_params_returns_401_or_403(self):
         resource = _create_resource()
         entity = _create_entity()
-        qry = json.dumps({"affiliation_details": {
-            "resource_id": str(resource.pk), "entity_id": str(entity.pk),
-        }})
+        qry = json.dumps(
+            {
+                "affiliation_details": {
+                    "resource_id": str(resource.pk),
+                    "entity_id": str(entity.pk),
+                }
+            }
+        )
         resp = self.client.post(NEW_URL + f"?qry={qry}")
         self.assertIn(resp.status_code, (401, 403))
 
@@ -237,9 +254,12 @@ class AffiliationNewTests(AffiliationBaseTestCase):
         """
         resource = _create_resource()
         entity = _create_entity()
-        qry = {"affiliation_details": {
-            "resource_id": f"R-{resource.pk}", "entity_id": str(entity.pk),
-        }}
+        qry = {
+            "affiliation_details": {
+                "resource_id": f"R-{resource.pk}",
+                "entity_id": str(entity.pk),
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
@@ -298,9 +318,12 @@ class AffiliationNewTests(AffiliationBaseTestCase):
         resource = _create_resource()
         entity = _create_entity()
         _create_affiliation(resource=resource, entity=entity)
-        qry = {"affiliation_details": {
-            "resource_id": f"R-{resource.pk}", "entity_id": str(entity.pk),
-        }}
+        qry = {
+            "affiliation_details": {
+                "resource_id": f"R-{resource.pk}",
+                "entity_id": str(entity.pk),
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 409)
         self.assertEqual(resp.json()["code"], "DUPLICATE_AFFILIATION")
@@ -314,9 +337,12 @@ class AffiliationNewTests(AffiliationBaseTestCase):
         """
         resource = _create_resource()
         entity = _create_entity()
-        qry = {"affiliation_details": {
-            "resource_id": str(resource.pk), "entity_id": str(entity.pk),
-        }}
+        qry = {
+            "affiliation_details": {
+                "resource_id": str(resource.pk),
+                "entity_id": str(entity.pk),
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 200)
 
@@ -324,6 +350,7 @@ class AffiliationNewTests(AffiliationBaseTestCase):
 # ===========================================================================
 # AFF10-AFF15: PUT /affiliation/modifications
 # ===========================================================================
+
 
 class AffiliationModificationsTests(AffiliationBaseTestCase):
     """AFF10-AFF15: PUT /affiliation/modifications (real spec key "details" — unchanged by FIX 1)"""
@@ -360,10 +387,12 @@ class AffiliationModificationsTests(AffiliationBaseTestCase):
 
     def test_aff15_missing_auth_params_returns_401_or_403(self):
         aff = _create_affiliation()
-        params = urlencode({
-            "affiliation_id": aff.pk,
-            "qry": json.dumps({"details": {"resource_category": "x"}}),
-        })
+        params = urlencode(
+            {
+                "affiliation_id": aff.pk,
+                "qry": json.dumps({"details": {"resource_category": "x"}}),
+            }
+        )
         resp = self.client.put(MODIFICATIONS_URL + "?" + params)
         self.assertIn(resp.status_code, (401, 403))
 
@@ -371,6 +400,7 @@ class AffiliationModificationsTests(AffiliationBaseTestCase):
 # ===========================================================================
 # AFF16-AFF19: DELETE /affiliation
 # ===========================================================================
+
 
 class AffiliationDeleteTests(AffiliationBaseTestCase):
     """AFF16-AFF19: DELETE /affiliation"""
@@ -401,6 +431,7 @@ class AffiliationDeleteTests(AffiliationBaseTestCase):
 # ===========================================================================
 # AFF20-AFF29: GET /affiliation/list_details (incl. FIX 2 proof)
 # ===========================================================================
+
 
 class AffiliationListDetailsTests(AffiliationBaseTestCase):
     """AFF20-AFF29: GET /affiliation/list_details"""
@@ -433,9 +464,14 @@ class AffiliationListDetailsTests(AffiliationBaseTestCase):
         GovStackAffiliation.objects.filter(pk=out_of_range.pk).update(
             created_at=parse_datetime("2020-01-01T00:00:00Z")
         )
-        resp = self._get({"affiliation_filter": {
-            "from": "2025-01-01T00:00:00Z", "to": "2099-12-31T00:00:00Z",
-        }})
+        resp = self._get(
+            {
+                "affiliation_filter": {
+                    "from": "2025-01-01T00:00:00Z",
+                    "to": "2099-12-31T00:00:00Z",
+                }
+            }
+        )
         self.assertEqual(resp.status_code, 200)
         ids = [item["affiliation_id"] for item in resp.json()]
         self.assertIn(str(in_range.pk), ids)
@@ -446,10 +482,12 @@ class AffiliationListDetailsTests(AffiliationBaseTestCase):
         "resource_category" by FIX 2) still gates the response's
         "resource_category" field."""
         aff = _create_affiliation(resource_category="flag-test")
-        resp = self._get({
-            "affiliation_filter": {"affiliation_id": str(aff.pk)},
-            "affiliation_details_required": {"category": False},
-        })
+        resp = self._get(
+            {
+                "affiliation_filter": {"affiliation_id": str(aff.pk)},
+                "affiliation_details_required": {"category": False},
+            }
+        )
         item = resp.json()[0]
         self.assertNotIn("resource_category", item)
 
@@ -486,9 +524,7 @@ class AffiliationListDetailsTests(AffiliationBaseTestCase):
         aff1 = _create_affiliation()
         aff2 = _create_affiliation()
         _create_affiliation()  # not matched
-        resp = self._get({
-            "affiliation_filter": {"affiliation_id": [str(aff1.pk), str(aff2.pk)]}
-        })
+        resp = self._get({"affiliation_filter": {"affiliation_id": [str(aff1.pk), str(aff2.pk)]}})
         self.assertEqual(resp.status_code, 200)
         returned_ids = {item["affiliation_id"] for item in resp.json()}
         self.assertEqual(returned_ids, {str(aff1.pk), str(aff2.pk)})
@@ -511,9 +547,7 @@ class AffiliationListDetailsTests(AffiliationBaseTestCase):
         view's generic exception handler maps it to a 400.
         """
         aff = _create_affiliation()
-        resp = self._get({
-            "affiliation_filter": {"affiliation_id": [str(aff.pk), "not-a-number"]}
-        })
+        resp = self._get({"affiliation_filter": {"affiliation_id": [str(aff.pk), "not-a-number"]}})
         self.assertEqual(resp.status_code, 400)
 
     def test_aff24e_filter_by_affiliation_id_absent_returns_everything(self):
@@ -580,6 +614,7 @@ class AffiliationListDetailsTests(AffiliationBaseTestCase):
 # AFF30-AFF37: Auth / role enforcement
 # ===========================================================================
 
+
 @override_settings(GOVSTACK_SCHEDULER_REQUIRE_TOKEN=True)
 class AffiliationRoleEnforcementTests(AffiliationBaseTestCase):
     """
@@ -597,7 +632,9 @@ class AffiliationRoleEnforcementTests(AffiliationBaseTestCase):
         correct plaintext secret. Finding #1 fix: request_token must never equal
         bb_id — it must verify against a separate hashed secret.
         """
-        bb = GovStackRegisteredBB.objects.create(bb_id=_AUTH["requestor_id"], is_active=True, role=role)
+        bb = GovStackRegisteredBB.objects.create(
+            bb_id=_AUTH["requestor_id"], is_active=True, role=role
+        )
         token = GovStackBBCredential.generate_plaintext_token()
         credential = GovStackBBCredential(bb=bb)
         credential.set_token(token)
@@ -610,9 +647,12 @@ class AffiliationRoleEnforcementTests(AffiliationBaseTestCase):
         self._make_role_bb("organizer")
         resource = _create_resource()
         entity = _create_entity()
-        qry = {"affiliation_details": {
-            "resource_id": str(resource.pk), "entity_id": str(entity.pk),
-        }}
+        qry = {
+            "affiliation_details": {
+                "resource_id": str(resource.pk),
+                "entity_id": str(entity.pk),
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 403)
 
@@ -620,9 +660,12 @@ class AffiliationRoleEnforcementTests(AffiliationBaseTestCase):
         self._make_role_bb("admin")
         resource = _create_resource()
         entity = _create_entity()
-        qry = {"affiliation_details": {
-            "resource_id": str(resource.pk), "entity_id": str(entity.pk),
-        }}
+        qry = {
+            "affiliation_details": {
+                "resource_id": str(resource.pk),
+                "entity_id": str(entity.pk),
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 200)
 

@@ -43,6 +43,7 @@ CivicOS uses auth_extension.User with email as the unique identifier.
 All creation uses ``User.objects.create_user(email=..., password=...)``.
 Authentication uses ``self.client.force_login(user)`` to bypass MFA.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -57,8 +58,8 @@ from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from apps.documents.models import Document, DocumentCategory
 from apps.documents.forms import LegalHoldForm
+from apps.documents.models import Document, DocumentCategory
 
 User = get_user_model()
 
@@ -96,32 +97,32 @@ def make_user(**kwargs) -> User:
 
 def make_category(**kwargs) -> DocumentCategory:
     """Create a DocumentCategory with sane defaults."""
-    defaults = dict(
-        name_en="Test Category",
-        name_fr="Catégorie test",
-        slug=_slug(),
-        allowed_mime_types=["application/pdf"],
-        max_size_bytes=0,
-        min_retention_days=730,
-        max_retention_days=2555,
-        staff_only=False,
-        is_transitory=False,
-    )
+    defaults = {
+        "name_en": "Test Category",
+        "name_fr": "Catégorie test",
+        "slug": _slug(),
+        "allowed_mime_types": ["application/pdf"],
+        "max_size_bytes": 0,
+        "min_retention_days": 730,
+        "max_retention_days": 2555,
+        "staff_only": False,
+        "is_transitory": False,
+    }
     defaults.update(kwargs)
     return DocumentCategory.objects.create(**defaults)
 
 
 def make_document(user: User, category: DocumentCategory, **kwargs) -> Document:
     """Create a Document with minimal required fields."""
-    defaults = dict(
-        category=category,
-        uploaded_by=user,
-        original_filename="test.pdf",
-        _storage_key=f"quarantine/documents/{uuid.uuid4()}.bin",
-        mime_type="application/pdf",
-        size_bytes=1024,
-        scan_status=Document.ScanStatus.ACTIVE,
-    )
+    defaults = {
+        "category": category,
+        "uploaded_by": user,
+        "original_filename": "test.pdf",
+        "_storage_key": f"quarantine/documents/{uuid.uuid4()}.bin",
+        "mime_type": "application/pdf",
+        "size_bytes": 1024,
+        "scan_status": Document.ScanStatus.ACTIVE,
+    }
     defaults.update(kwargs)
     return Document.objects.create(**defaults)
 
@@ -177,16 +178,12 @@ class StaffListFilterTests(TestCase):
 
     def test_filter_by_scan_status_quarantined(self) -> None:
         """scan_status=QUARANTINED shows only quarantined docs."""
-        active_doc = make_document(
-            self.user, self.category, scan_status=Document.ScanStatus.ACTIVE
-        )
+        active_doc = make_document(self.user, self.category, scan_status=Document.ScanStatus.ACTIVE)
         quarantined_doc = make_document(
             self.user, self.category, scan_status=Document.ScanStatus.QUARANTINED
         )
 
-        response = self.client.get(
-            self.url, {"scan_status": Document.ScanStatus.QUARANTINED.value}
-        )
+        response = self.client.get(self.url, {"scan_status": Document.ScanStatus.QUARANTINED.value})
         self.assertEqual(response.status_code, 200)
         pks = [str(d.pk) for d in response.context["documents"]]
         self.assertIn(str(quarantined_doc.pk), pks)
@@ -326,9 +323,7 @@ class StaffListFilterTests(TestCase):
         # Create only ACTIVE documents — no QUARANTINED ones.
         make_document(self.user, self.category, scan_status=Document.ScanStatus.ACTIVE)
 
-        response = self.client.get(
-            self.url, {"scan_status": Document.ScanStatus.QUARANTINED.value}
-        )
+        response = self.client.get(self.url, {"scan_status": Document.ScanStatus.QUARANTINED.value})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(list(response.context["documents"]), [])
         self.assertEqual(response.context["total_count"], 0)
@@ -410,14 +405,10 @@ class StaffDetailViewTests(TestCase):
         StaffDocumentDetailView has no deleted_at filter — staff can review
         soft-deleted documents.  Citizens receive 404 for the same doc.
         """
-        soft_deleted = make_document(
-            self.owner, self.category, deleted_at=timezone.now()
-        )
+        soft_deleted = make_document(self.owner, self.category, deleted_at=timezone.now())
         response = self.client.get(self._url(pk=soft_deleted.pk))
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            str(response.context["document"].pk), str(soft_deleted.pk)
-        )
+        self.assertEqual(str(response.context["document"].pk), str(soft_deleted.pk))
 
 
 # ===========================================================================
@@ -486,9 +477,7 @@ class LegalHoldViewEdgeCaseTests(TestCase):
 
         with patch("apps.documents.views.staff.release_legal_hold") as mock_release:
             mock_release.return_value = self.doc
-            response = self.client.post(
-                self._url(), data=self._valid_post(action="release")
-            )
+            response = self.client.post(self._url(), data=self._valid_post(action="release"))
 
         mock_release.assert_called_once()
         self.assertRedirects(
@@ -507,12 +496,8 @@ class LegalHoldViewEdgeCaseTests(TestCase):
         permission check fails), the view returns HTTP 403.
         """
         with patch("apps.documents.views.staff.apply_legal_hold") as mock_apply:
-            mock_apply.side_effect = PermissionDenied(
-                "Secondary permission check failed."
-            )
-            response = self.client.post(
-                self._url(), data=self._valid_post(action="apply")
-            )
+            mock_apply.side_effect = PermissionDenied("Secondary permission check failed.")
+            response = self.client.post(self._url(), data=self._valid_post(action="apply"))
 
         self.assertEqual(response.status_code, 403)
 
@@ -526,12 +511,8 @@ class LegalHoldViewEdgeCaseTests(TestCase):
         the view re-renders the form with HTTP 422.
         """
         with patch("apps.documents.views.staff.apply_legal_hold") as mock_apply:
-            mock_apply.side_effect = ValidationError(
-                "Document is already on legal hold."
-            )
-            response = self.client.post(
-                self._url(), data=self._valid_post(action="apply")
-            )
+            mock_apply.side_effect = ValidationError("Document is already on legal hold.")
+            response = self.client.post(self._url(), data=self._valid_post(action="apply"))
 
         self.assertEqual(response.status_code, 422)
 
@@ -546,9 +527,7 @@ class LegalHoldViewEdgeCaseTests(TestCase):
         """
         with patch("apps.documents.views.staff.apply_legal_hold") as mock_apply:
             mock_apply.side_effect = RuntimeError("Unexpected database error")
-            response = self.client.post(
-                self._url(), data=self._valid_post(action="apply")
-            )
+            response = self.client.post(self._url(), data=self._valid_post(action="apply"))
 
         self.assertEqual(response.status_code, 500)
 

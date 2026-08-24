@@ -105,9 +105,7 @@ class SQLiteGuardTest(TestCase):
         cat = _make_category()
         doc = _make_document(user, cat)
 
-        with patch(
-            "apps.documents.services.versioning.connection"
-        ) as mock_conn:
+        with patch("apps.documents.services.versioning.connection") as mock_conn:
             mock_conn.vendor = "sqlite"
             with self.assertRaises(ImproperlyConfigured) as cm:
                 create_new_version(
@@ -130,9 +128,7 @@ class SQLiteGuardTest(TestCase):
         cat = _make_category()
         doc = _make_document(_make_user(), cat)  # owned by someone else
 
-        with patch(
-            "apps.documents.services.versioning.connection"
-        ) as mock_conn:
+        with patch("apps.documents.services.versioning.connection") as mock_conn:
             mock_conn.vendor = "sqlite"
             with self.assertRaises(ImproperlyConfigured):
                 create_new_version(
@@ -435,12 +431,15 @@ class CreateNewVersionReturnContractTest(TestCase):
 
         # Lazy imports inside create_new_version() must be patched at their
         # source modules, not at apps.documents.services.versioning.
-        with patch("apps.documents.services.versioning.connection") as mc, \
-             patch("apps.documents.services.upload._generate_presigned_post",
-                   return_value=fake_presigned), \
-             patch("apps.documents.services.retention.schedule_expiry"), \
-             patch("apps.audit.services.record_event"):
-
+        with (
+            patch("apps.documents.services.versioning.connection") as mc,
+            patch(
+                "apps.documents.services.upload._generate_presigned_post",
+                return_value=fake_presigned,
+            ),
+            patch("apps.documents.services.retention.schedule_expiry"),
+            patch("apps.audit.services.record_event"),
+        ):
             mc.vendor = "postgresql"
 
             with self.captureOnCommitCallbacks(execute=True):
@@ -469,7 +468,9 @@ class CreateNewVersionReturnContractTest(TestCase):
         This guards against accidental future addition of storage_key to the return.
         """
         import inspect
+
         import apps.documents.services.versioning as ver_module
+
         source = inspect.getsource(ver_module.create_new_version)
         # The return dict should have doc_id, upload_url, upload_fields, expires_at
         self.assertIn('"doc_id"', source)
@@ -486,7 +487,9 @@ class CreateNewVersionReturnContractTest(TestCase):
         must not include original_filename.
         """
         import inspect
+
         import apps.documents.services.versioning as ver_module
+
         source = inspect.getsource(ver_module.create_new_version)
         # The comment should explicitly say original_filename is excluded
         self.assertIn("original_filename deliberately excluded", source)

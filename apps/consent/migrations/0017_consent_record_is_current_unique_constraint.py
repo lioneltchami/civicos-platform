@@ -20,15 +20,18 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('consent', '0016_consentwebhook_payload_replay'),
+    dependencies = [  # noqa: RUF012
+        ("consent", "0016_consentwebhook_payload_replay"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddConstraint(
-            model_name='consentrecord',
-            constraint=models.UniqueConstraint(condition=models.Q(('is_current', True)), fields=('citizen', 'category'), name='unique_current_consent_record_per_citizen_category'),
+            model_name="consentrecord",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(("is_current", True)),
+                fields=("citizen", "category"),
+                name="unique_current_consent_record_per_citizen_category",
+            ),
         ),
     ]

@@ -28,18 +28,17 @@ Django test conventions used throughout:
   - self.client.post() for write operations.
   - reverse() for all URL lookups (no hard-coded paths).
 """
+
 from __future__ import annotations
 
+import datetime as dt
+from decimal import Decimal
 from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.test import Client, TestCase
 from django.urls import NoReverseMatch, reverse
-
-import datetime as dt
-from decimal import Decimal
-
 from django.utils import timezone as tz
 
 from apps.volunteers.models import (
@@ -60,6 +59,7 @@ User = get_user_model()
 # Every test that calls _url() will skip if the URL hasn't been wired yet,
 # keeping the suite green during progressive view implementation.
 # ---------------------------------------------------------------------------
+
 
 def _url(name, **kwargs):
     """
@@ -97,15 +97,15 @@ def _make_program(slug=None):
 
 def _make_opportunity(program, *, slug=None, status="published", **kwargs):
     _counter[0] += 1
-    defaults = dict(
-        title_en="Event Setup Volunteer",
-        title_fr="Bénévole pour installation",
-        slug=slug or f"opp-{_counter[0]}",
-        description_en="Help set up community events.",
-        description_fr="Aidez à installer les événements.",
-        program=program,
-        status=status,
-    )
+    defaults = {
+        "title_en": "Event Setup Volunteer",
+        "title_fr": "Bénévole pour installation",
+        "slug": slug or f"opp-{_counter[0]}",
+        "description_en": "Help set up community events.",
+        "description_fr": "Aidez à installer les événements.",
+        "program": program,
+        "status": status,
+    }
     defaults.update(kwargs)
     return Opportunity.objects.create(**defaults)
 
@@ -131,6 +131,7 @@ def _grant_coordinator_permission(user):
 # ---------------------------------------------------------------------------
 # Base test case
 # ---------------------------------------------------------------------------
+
 
 class BaseViewTestCase(TestCase):
     """
@@ -189,8 +190,8 @@ class BaseViewTestCase(TestCase):
 # OpportunityListView
 # ===========================================================================
 
-class OpportunityListViewTests(BaseViewTestCase):
 
+class OpportunityListViewTests(BaseViewTestCase):
     def _url(self):
         return _url("opportunity_list")
 
@@ -277,8 +278,8 @@ class OpportunityListViewTests(BaseViewTestCase):
 # OpportunityDetailView
 # ===========================================================================
 
-class OpportunityDetailViewTests(BaseViewTestCase):
 
+class OpportunityDetailViewTests(BaseViewTestCase):
     def _url(self, pk=None):
         return _url("opportunity_detail", pk=pk or self.opportunity.pk)
 
@@ -365,8 +366,8 @@ class OpportunityDetailViewTests(BaseViewTestCase):
 # ApplicationFormView
 # ===========================================================================
 
-class ApplicationFormViewTests(BaseViewTestCase):
 
+class ApplicationFormViewTests(BaseViewTestCase):
     def _apply_url(self, opportunity_pk=None):
         return _url("apply", pk=opportunity_pk or self.opportunity.pk)
 
@@ -498,8 +499,8 @@ class ApplicationFormViewTests(BaseViewTestCase):
 # MyApplicationsView
 # ===========================================================================
 
-class MyApplicationsViewTests(BaseViewTestCase):
 
+class MyApplicationsViewTests(BaseViewTestCase):
     def _url(self):
         return _url("my_applications")
 
@@ -650,8 +651,8 @@ class MyApplicationsViewTests(BaseViewTestCase):
 # WithdrawApplicationView
 # ===========================================================================
 
-class WithdrawApplicationViewTests(BaseViewTestCase):
 
+class WithdrawApplicationViewTests(BaseViewTestCase):
     def _pending_application(self):
         return VolunteerApplication.objects.create(
             volunteer=self.profile,
@@ -688,7 +689,7 @@ class WithdrawApplicationViewTests(BaseViewTestCase):
         self._skip_if_url_missing(url, "withdraw")
         self.login()
 
-        response = self.client.get(url)
+        self.client.get(url)
 
         # Acceptable responses: 405 Method Not Allowed, 200 (confirmation page), or 302.
         # The application must NOT be withdrawn by a GET.
@@ -749,8 +750,8 @@ class WithdrawApplicationViewTests(BaseViewTestCase):
 # CoordinatorDashboardView
 # ===========================================================================
 
-class CoordinatorDashboardViewTests(BaseViewTestCase):
 
+class CoordinatorDashboardViewTests(BaseViewTestCase):
     def _url(self):
         return _url("coordinator_dashboard")
 
@@ -841,7 +842,7 @@ class CoordinatorDashboardViewTests(BaseViewTestCase):
         self.login_as_coordinator()
 
         # Create 3 pending applications for different volunteers.
-        for i in range(3):
+        for _i in range(3):
             u = _make_user()
             p = _make_profile(u)
             opp = _make_opportunity(self.program, status="published")
@@ -865,8 +866,8 @@ class CoordinatorDashboardViewTests(BaseViewTestCase):
 # ApplicationReviewView
 # ===========================================================================
 
-class ApplicationReviewViewTests(BaseViewTestCase):
 
+class ApplicationReviewViewTests(BaseViewTestCase):
     def _pending_application(self):
         return VolunteerApplication.objects.create(
             volunteer=self.profile,
@@ -1041,6 +1042,7 @@ class ApplicationReviewViewTests(BaseViewTestCase):
 # Cross-view security invariants
 # ===========================================================================
 
+
 class SecurityInvariantsTests(BaseViewTestCase):
     """
     Security tests that span multiple views.  These tests assert broad
@@ -1161,6 +1163,7 @@ class SecurityInvariantsTests(BaseViewTestCase):
 # CoordinatorApplicationListView  (H-7: zero coverage before this class)
 # ===========================================================================
 
+
 def _make_coordinator_user(email):
     """
     Create a new user with the ``change_volunteerapplication`` coordinator
@@ -1175,11 +1178,11 @@ def _make_application(profile, opportunity, status=None):
     Create a VolunteerApplication for *profile* against *opportunity*.
     Defaults to STATUS_PENDING.
     """
-    kwargs = dict(
-        volunteer=profile,
-        opportunity=opportunity,
-        status=status or VolunteerApplication.STATUS_PENDING,
-    )
+    kwargs = {
+        "volunteer": profile,
+        "opportunity": opportunity,
+        "status": status or VolunteerApplication.STATUS_PENDING,
+    }
     return VolunteerApplication.objects.create(**kwargs)
 
 
@@ -1284,6 +1287,7 @@ class CoordinatorApplicationListViewTests(BaseViewTestCase):
 # CoordinatorScopeIsolationTests  (H-8: regression guard, cross-coordinator)
 # ===========================================================================
 
+
 class CoordinatorScopeIsolationTests(BaseViewTestCase):
     """
     H-8: Regression guard — coordinator X cannot access coordinator Y's data.
@@ -1344,17 +1348,18 @@ class CoordinatorScopeIsolationTests(BaseViewTestCase):
 # Wave 3 Portal — shared Wave 3 helpers
 # ===========================================================================
 
+
 def _make_shift_p(opportunity, *, minutes_from_now=60, **kwargs):
     """Create a future Shift under opportunity."""
     _counter[0] += 1
     start = tz.now() + dt.timedelta(minutes=minutes_from_now)
     end = start + dt.timedelta(hours=2)
-    defaults = dict(
-        opportunity=opportunity,
-        start_datetime=start,
-        end_datetime=end,
-        capacity=10,
-    )
+    defaults = {
+        "opportunity": opportunity,
+        "start_datetime": start,
+        "end_datetime": end,
+        "capacity": 10,
+    }
     defaults.update(kwargs)
     return Shift.objects.create(**defaults)
 
@@ -1362,13 +1367,13 @@ def _make_shift_p(opportunity, *, minutes_from_now=60, **kwargs):
 def _make_hours_log_p(volunteer_profile, opportunity, *, hours=Decimal("3"), status=None, **kwargs):
     """Create a HoursLog for volunteer_profile against opportunity."""
     _counter[0] += 1
-    defaults = dict(
-        volunteer=volunteer_profile,
-        opportunity=opportunity,
-        hours=hours,
-        date=dt.date.today(),
-        status=status or HoursLog.STATUS_PENDING,
-    )
+    defaults = {
+        "volunteer": volunteer_profile,
+        "opportunity": opportunity,
+        "hours": hours,
+        "date": dt.date.today(),
+        "status": status or HoursLog.STATUS_PENDING,
+    }
     defaults.update(kwargs)
     return HoursLog.objects.create(**defaults)
 
@@ -1376,6 +1381,7 @@ def _make_hours_log_p(volunteer_profile, opportunity, *, hours=Decimal("3"), sta
 # ===========================================================================
 # Wave 3 Portal — MyShiftsViewTests
 # ===========================================================================
+
 
 class MyShiftsViewTests(TestCase):
     """
@@ -1486,6 +1492,7 @@ class MyShiftsViewTests(TestCase):
 # ===========================================================================
 # Wave 3 Portal — MyHoursViewTests
 # ===========================================================================
+
 
 class MyHoursViewTests(TestCase):
     """
@@ -1601,6 +1608,7 @@ class MyHoursViewTests(TestCase):
 # Wave 3 Portal — LogHoursViewTests
 # ===========================================================================
 
+
 class LogHoursViewTests(TestCase):
     """
     Tests for LogHoursView — GET/POST volunteers:log_hours <pk>.
@@ -1645,11 +1653,14 @@ class LogHoursViewTests(TestCase):
         url = self._url()
         if url is None:
             self.skipTest("log_hours URL not registered")
-        response = self.client.post(url, {
-            "date": dt.date.today().isoformat(),
-            "hours": "3.5",
-            "description": "Setup and cleanup",
-        })
+        response = self.client.post(
+            url,
+            {
+                "date": dt.date.today().isoformat(),
+                "hours": "3.5",
+                "description": "Setup and cleanup",
+            },
+        )
         self.assertRedirects(
             response,
             reverse("volunteers:my_hours"),
@@ -1679,10 +1690,13 @@ class LogHoursViewTests(TestCase):
         url = self._url()
         if url is None:
             self.skipTest("log_hours URL not registered")
-        response = self.client.post(url, {
-            "date": dt.date.today().isoformat(),
-            "hours": "0",
-        })
+        response = self.client.post(
+            url,
+            {
+                "date": dt.date.today().isoformat(),
+                "hours": "0",
+            },
+        )
         # Invalid form input must re-render the form (200), not redirect
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
@@ -1741,11 +1755,14 @@ class LogHoursViewTests(TestCase):
         url_b = _url("log_hours", pk=opp_b.pk)
         if url_b is None:
             self.skipTest("log_hours URL not registered")
-        response = self.client.post(url_b, {
-            "date": dt.date.today().isoformat(),
-            "hours": "2",
-            "description": "IDOR attempt",
-        })
+        response = self.client.post(
+            url_b,
+            {
+                "date": dt.date.today().isoformat(),
+                "hours": "2",
+                "description": "IDOR attempt",
+            },
+        )
         self.assertEqual(response.status_code, 404)
         self.assertEqual(
             HoursLog.objects.filter(volunteer=self.profile, opportunity=opp_b).count(),
@@ -1756,6 +1773,7 @@ class LogHoursViewTests(TestCase):
 # ===========================================================================
 # Wave 3 Portal — CancelBookingViewTests
 # ===========================================================================
+
 
 class CancelBookingViewTests(TestCase):
     """

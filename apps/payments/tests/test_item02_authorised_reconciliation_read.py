@@ -25,13 +25,21 @@ class AuthorisedReconciliationReadTests(SimpleTestCase):
     def test_authorised_same_tenant_read_uses_scope(self, resolve, manager):
         resolve.return_value = PaymentScope(caller_bb_id="BB-A", tenant_id="TENANT-A")
         row = SimpleNamespace(
-            id="report-1", attempt_id="attempt-1", status="accepted",
-            internal_status="settled", provider_status="ok",
+            id="report-1",
+            attempt_id="attempt-1",
+            status="accepted",
+            internal_status="settled",
+            provider_status="ok",
             created_at=SimpleNamespace(isoformat=lambda: "2026-08-20T00:00:00+00:00"),
         )
-        manager.filter.return_value.select_related.return_value.order_by.return_value.__getitem__.side_effect = [[row], []]
+        manager.filter.return_value.select_related.return_value.order_by.return_value.__getitem__.side_effect = [  # noqa: E501
+            [row],
+            [],
+        ]
 
-        response = ReconciliationReportView.as_view()(self.request(**{"X-Platform-TenantId": "TENANT-A"}))
+        response = ReconciliationReportView.as_view()(
+            self.request(**{"X-Platform-TenantId": "TENANT-A"})
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(json.loads(response.content)["results"][0]["classification"], "accepted")
@@ -41,7 +49,9 @@ class AuthorisedReconciliationReadTests(SimpleTestCase):
     @patch("apps.payments.platform_scope.resolve_registered_bb_scope")
     def test_denied_scope_has_no_query_or_cross_tenant_leakage(self, resolve, manager):
         resolve.side_effect = PaymentScopeDenied("not authorised")
-        response = ReconciliationReportView.as_view()(self.request(**{"X-Platform-TenantId": "TENANT-B"}))
+        response = ReconciliationReportView.as_view()(
+            self.request(**{"X-Platform-TenantId": "TENANT-B"})
+        )
         self.assertEqual(response.status_code, 403)
         manager.filter.assert_not_called()
         self.assertNotIn("TENANT-A", response.content.decode())
@@ -58,9 +68,14 @@ class AuthorisedReconciliationReadTests(SimpleTestCase):
     @patch("apps.payments.platform_scope.PaymentReconciliation.objects")
     def test_authorised_read_resolves_no_provider(self, manager, resolve):
         resolve.return_value = PaymentScope(caller_bb_id="BB-A", tenant_id="TENANT-A")
-        manager.filter.return_value.select_related.return_value.order_by.return_value.__getitem__.side_effect = [[], []]
+        manager.filter.return_value.select_related.return_value.order_by.return_value.__getitem__.side_effect = [  # noqa: E501
+            [],
+            [],
+        ]
         provider = Mock()
         with patch("apps.payments.provider_runtime.ProviderRuntime.resolve", provider):
-            response = ReconciliationReportView.as_view()(self.request(**{"X-Platform-TenantId": "TENANT-A"}))
+            response = ReconciliationReportView.as_view()(
+                self.request(**{"X-Platform-TenantId": "TENANT-A"})
+            )
         self.assertEqual(response.status_code, 200)
         provider.assert_not_called()

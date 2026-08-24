@@ -2,9 +2,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("appointments", "0021_sch01_1_core_admission")]
+    dependencies = [("appointments", "0021_sch01_1_core_admission")]  # noqa: RUF012
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddField(
             model_name="govstackalertschedule",
             name="delivery_admittable",

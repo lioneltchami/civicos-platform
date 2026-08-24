@@ -5,18 +5,19 @@ caller supplies a provider adapter outcome or a provider-status result; the
 service persists the resulting lifecycle, callback-outbox, reconciliation, and
 audit state using non-PII metadata only.
 """
+
 from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Mapping
+from typing import Any
 
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from apps.payments.govstack_provider import ProviderOutcome, ProviderResult, normalize_result
 from apps.payments.govstack_models import (
     CallbackDelivery,
     CreditInstruction,
@@ -27,6 +28,7 @@ from apps.payments.govstack_models import (
     PaymentReconciliation,
     ProviderObservation,
 )
+from apps.payments.govstack_provider import ProviderOutcome, ProviderResult, normalize_result
 
 
 @dataclass(frozen=True)
@@ -45,7 +47,7 @@ class PaymentLifecycleService:
     MAX_CALLBACK_ATTEMPTS = 5
     UNCERTAIN_POLL_DELAY = timedelta(minutes=5)
 
-    _OUTCOME_TO_STATUS = {
+    _OUTCOME_TO_STATUS = {  # noqa: RUF012
         "settled": PaymentAttempt.STATUS_SETTLED,
         "rejected": PaymentAttempt.STATUS_REJECTED,
         "invalid_account": PaymentAttempt.STATUS_REJECTED,
@@ -93,9 +95,7 @@ class PaymentLifecycleService:
             existing = PaymentAttempt.objects.select_for_update().filter(**lookup).first()
             if existing is not None:
                 if existing.payload_fingerprint != fingerprint:
-                    raise IdempotencyConflict(
-                        "idempotency key was reused with a different payload"
-                    )
+                    raise IdempotencyConflict("idempotency key was reused with a different payload")
                 return existing, False
             try:
                 with transaction.atomic():
@@ -107,9 +107,7 @@ class PaymentLifecycleService:
             except IntegrityError:
                 attempt = PaymentAttempt.objects.select_for_update().get(**lookup)
                 if attempt.payload_fingerprint != fingerprint:
-                    raise IdempotencyConflict(
-                        "idempotency key was reused with a different payload"
-                    )
+                    raise IdempotencyConflict("idempotency key was reused with a different payload")  # noqa: B904
                 return attempt, False
             if audit_created:
                 cls.audit(
@@ -241,8 +239,10 @@ class PaymentLifecycleService:
         """Persist callback result, applying bounded backoff and dead-lettering."""
         now = now or timezone.now()
         with transaction.atomic():
-            delivery = CallbackDelivery.objects.select_for_update().select_related("attempt").get(
-                pk=delivery.pk
+            delivery = (
+                CallbackDelivery.objects.select_for_update()
+                .select_related("attempt")
+                .get(pk=delivery.pk)
             )
             if delivery.status in {CallbackDelivery.STATUS_DELIVERED, CallbackDelivery.STATUS_DEAD}:
                 return delivery
@@ -288,9 +288,7 @@ class PaymentLifecycleService:
         internal = attempt.status
         provider_status = provider_status[:30]
         source_bb_status = source_bb_status[:30]
-        matched = (
-            provider_status == "settled" and internal == PaymentAttempt.STATUS_SETTLED
-        ) or (
+        matched = (provider_status == "settled" and internal == PaymentAttempt.STATUS_SETTLED) or (
             provider_status == "rejected" and internal == PaymentAttempt.STATUS_REJECTED
         )
         status = (
@@ -319,7 +317,9 @@ class PaymentLifecycleService:
 
     @staticmethod
     def binding_hash(tenant_id: str, attempt: PaymentAttempt, amount: Any, currency: str) -> str:
-        return hashlib.sha256(f"{tenant_id}|{attempt.pk}|{amount}|{currency.upper()}".encode()).hexdigest()
+        return hashlib.sha256(
+            f"{tenant_id}|{attempt.pk}|{amount}|{currency.upper()}".encode()
+        ).hexdigest()
 
     @classmethod
     def bind_credit_instruction_attempt(
@@ -447,16 +447,66 @@ class PaymentLifecycleService:
             )
 
     @classmethod
-    def record_observation(cls, attempt: PaymentAttempt, *, tenant_id: str, observation_kind: str, observation_id: str, outcome: str, amount: Any, currency: str, provider_transaction_id: str = "", event_id: str = "", verified: bool = False, verification_method: str = "", binding_hash: str = "", metadata: Mapping[str, Any] | None = None) -> ProviderObservation:
+    def record_observation(
+        cls,
+        attempt: PaymentAttempt,
+        *,
+        tenant_id: str,
+        observation_kind: str,
+        observation_id: str,
+        outcome: str,
+        amount: Any,
+        currency: str,
+        provider_transaction_id: str = "",
+        event_id: str = "",
+        verified: bool = False,
+        verification_method: str = "",
+        binding_hash: str = "",
+        metadata: Mapping[str, Any] | None = None,
+    ) -> ProviderObservation:
         """Persist evidence; only verified exact bindings can establish finality."""
-        exact = (tenant_id == attempt.tenant_id and amount == attempt.amount and currency.upper() == attempt.currency.upper() and binding_hash == cls.binding_hash(tenant_id, attempt, amount, currency) and verified and outcome in {ProviderObservation.OUTCOME_SETTLED, ProviderObservation.OUTCOME_REJECTED})
+        exact = (
+            tenant_id == attempt.tenant_id
+            and amount == attempt.amount
+            and currency.upper() == attempt.currency.upper()
+            and binding_hash == cls.binding_hash(tenant_id, attempt, amount, currency)
+            and verified
+            and outcome
+            in {ProviderObservation.OUTCOME_SETTLED, ProviderObservation.OUTCOME_REJECTED}
+        )
         with transaction.atomic():
             locked = PaymentAttempt.objects.select_for_update().get(pk=attempt.pk)
-            obs = ProviderObservation.objects.create(attempt=locked, tenant_id=tenant_id[:100], observation_kind=observation_kind[:20], observation_id=observation_id[:160], provider_transaction_id=provider_transaction_id[:100], event_id=event_id[:160], amount=amount, currency=currency[:3], outcome=outcome[:20], verified=verified, verification_method=verification_method[:80], binding_hash=binding_hash[:64], accepted_finality=exact, metadata=dict(metadata or {}))
+            obs = ProviderObservation.objects.create(
+                attempt=locked,
+                tenant_id=tenant_id[:100],
+                observation_kind=observation_kind[:20],
+                observation_id=observation_id[:160],
+                provider_transaction_id=provider_transaction_id[:100],
+                event_id=event_id[:160],
+                amount=amount,
+                currency=currency[:3],
+                outcome=outcome[:20],
+                verified=verified,
+                verification_method=verification_method[:80],
+                binding_hash=binding_hash[:64],
+                accepted_finality=exact,
+                metadata=dict(metadata or {}),
+            )
             if exact and not locked.is_terminal:
-                cls.apply_outcome(locked, PaymentOutcome(outcome, provider_attempt_id=provider_transaction_id, external_transaction_id=provider_transaction_id))
+                cls.apply_outcome(
+                    locked,
+                    PaymentOutcome(
+                        outcome,
+                        provider_attempt_id=provider_transaction_id,
+                        external_transaction_id=provider_transaction_id,
+                    ),
+                )
             else:
-                cls.audit(locked, GovStackPaymentAuditEntry.ACTION_PAYMENT_REVIEW_REQUIRED, {"observation_id": str(obs.pk), "exact_binding": exact})
+                cls.audit(
+                    locked,
+                    GovStackPaymentAuditEntry.ACTION_PAYMENT_REVIEW_REQUIRED,
+                    {"observation_id": str(obs.pk), "exact_binding": exact},
+                )
             return obs
 
     @classmethod
@@ -536,14 +586,16 @@ class PaymentLifecycleService:
                     code=normalized.code or "PROVIDER_RETRYABLE_FAILURE",
                     category="provider",
                     retryable=True,
-                    message=normalized.message or "Provider retry is eligible after reconciliation.",
+                    message=normalized.message
+                    or "Provider retry is eligible after reconciliation.",
                 )
             else:
                 non_final = PaymentOutcome(
                     "review",
                     code=normalized.code or "UNVERIFIED_PROVIDER_OBSERVATION",
                     category="reconciliation",
-                    message=normalized.message or "Provider observation is not verified for finality.",
+                    message=normalized.message
+                    or "Provider observation is not verified for finality.",
                 )
             cls.apply_outcome(attempt, non_final)
             attempt.refresh_from_db()
@@ -554,7 +606,7 @@ class PaymentLifecycleService:
         return observation
 
     @staticmethod
-    def due_retries(now: Any = None):
+    def due_retries(now: Any = None):  # noqa: ANN205
         now = now or timezone.now()
         return PaymentAttempt.objects.filter(
             status=PaymentAttempt.STATUS_RETRYABLE,
@@ -562,7 +614,7 @@ class PaymentLifecycleService:
         ).order_by("next_retry_at")
 
     @staticmethod
-    def due_uncertain(now: Any = None):
+    def due_uncertain(now: Any = None):  # noqa: ANN205
         now = now or timezone.now()
         return PaymentAttempt.objects.filter(
             status=PaymentAttempt.STATUS_UNCERTAIN,
@@ -570,7 +622,7 @@ class PaymentLifecycleService:
         ).order_by("next_retry_at")
 
     @staticmethod
-    def due_callbacks(now: Any = None):
+    def due_callbacks(now: Any = None):  # noqa: ANN205
         now = now or timezone.now()
         return CallbackDelivery.objects.filter(
             status__in=[CallbackDelivery.STATUS_PENDING, CallbackDelivery.STATUS_RETRY],

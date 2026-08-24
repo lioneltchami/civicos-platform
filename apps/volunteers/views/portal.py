@@ -24,6 +24,7 @@ PIPEDA compliance:
   - ``MyApplicationsView`` fetches ``VolunteerApplication`` with ``.defer()``
     excluding ``rejection_reason`` so it can never leak into context accidentally.
 """
+
 from __future__ import annotations
 
 import logging
@@ -32,7 +33,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Q
-from django.http import Http404, HttpResponseForbidden
+from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
@@ -58,7 +59,8 @@ logger = logging.getLogger(__name__)
 # Internal helper
 # ---------------------------------------------------------------------------
 
-def _get_volunteer_profile_or_none(user) -> VolunteerProfile | None:
+
+def _get_volunteer_profile_or_none(user) -> VolunteerProfile | None:  # noqa: ANN001
     """
     Return the VolunteerProfile for ``user`` or ``None`` if it does not exist.
 
@@ -74,6 +76,7 @@ def _get_volunteer_profile_or_none(user) -> VolunteerProfile | None:
 # ---------------------------------------------------------------------------
 # OpportunityListView
 # ---------------------------------------------------------------------------
+
 
 class OpportunityListView(LoginRequiredMixin, ListView):
     """
@@ -98,7 +101,7 @@ class OpportunityListView(LoginRequiredMixin, ListView):
     context_object_name = "opportunities"
     paginate_by = 20
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         """
         Return published opportunities accepting applications, newest first.
 
@@ -114,7 +117,7 @@ class OpportunityListView(LoginRequiredMixin, ListView):
             .order_by("-published_at", "title_en")
         )
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         context = super().get_context_data(**kwargs)
         profile = _get_volunteer_profile_or_none(self.request.user)
         context["has_volunteer_profile"] = profile is not None
@@ -123,13 +126,10 @@ class OpportunityListView(LoginRequiredMixin, ListView):
             # Build a lookup dict so templates can show per-opportunity status
             # without issuing individual queries.
             # PIPEDA: rejection_reason deliberately excluded via .only().
-            applications = (
-                VolunteerApplication.objects.filter(volunteer=profile)
-                .only("pk", "opportunity_id", "status")
+            applications = VolunteerApplication.objects.filter(volunteer=profile).only(
+                "pk", "opportunity_id", "status"
             )
-            context["user_applications"] = {
-                app.opportunity_id: app for app in applications
-            }
+            context["user_applications"] = {app.opportunity_id: app for app in applications}
         else:
             context["user_applications"] = {}
 
@@ -139,6 +139,7 @@ class OpportunityListView(LoginRequiredMixin, ListView):
 # ---------------------------------------------------------------------------
 # OpportunityDetailView
 # ---------------------------------------------------------------------------
+
 
 class OpportunityDetailView(LoginRequiredMixin, DetailView):
     """
@@ -165,7 +166,7 @@ class OpportunityDetailView(LoginRequiredMixin, DetailView):
     template_name = "volunteers/portal/opportunity_detail.html"
     context_object_name = "opportunity"
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         """Restrict to published, non-expired opportunities only.
 
         Applying closes_at filter here ensures a direct URL to an expired
@@ -178,7 +179,7 @@ class OpportunityDetailView(LoginRequiredMixin, DetailView):
             .select_related("program")
         )
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         context = super().get_context_data(**kwargs)
         opportunity = self.object
         profile = _get_volunteer_profile_or_none(self.request.user)
@@ -218,6 +219,7 @@ class OpportunityDetailView(LoginRequiredMixin, DetailView):
 # ApplicationFormView
 # ---------------------------------------------------------------------------
 
+
 class ApplicationFormView(LoginRequiredMixin, CreateView):
     """
     Volunteer submits an application to an opportunity.
@@ -248,7 +250,7 @@ class ApplicationFormView(LoginRequiredMixin, CreateView):
     form_class = ApplicationForm
     template_name = "volunteers/portal/application_form.html"
 
-    def _get_opportunity(self):
+    def _get_opportunity(self):  # noqa: ANN202
         """
         Return the target Opportunity or 404.
 
@@ -261,7 +263,7 @@ class ApplicationFormView(LoginRequiredMixin, CreateView):
             status=Opportunity.STATUS_PUBLISHED,
         )
 
-    def _get_profile(self):
+    def _get_profile(self):  # noqa: ANN202
         """
         Return the volunteer's own profile or None.
 
@@ -269,7 +271,7 @@ class ApplicationFormView(LoginRequiredMixin, CreateView):
         """
         return _get_volunteer_profile_or_none(self.request.user)
 
-    def dispatch(self, request, *args, **kwargs):
+    def dispatch(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         """
         Let LoginRequiredMixin run first — it redirects unauthenticated users
         before any DB query is issued.  The opportunity and profile are resolved
@@ -277,7 +279,7 @@ class ApplicationFormView(LoginRequiredMixin, CreateView):
         """
         return super().dispatch(request, *args, **kwargs)
 
-    def _setup_opportunity_and_profile(self, request):
+    def _setup_opportunity_and_profile(self, request) -> bool:  # noqa: ANN001
         """
         Resolve and cache ``self.opportunity`` and ``self.volunteer_profile``.
 
@@ -303,17 +305,17 @@ class ApplicationFormView(LoginRequiredMixin, CreateView):
 
         return True
 
-    def get(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         if not self._setup_opportunity_and_profile(request):
             return self._profile_missing_response
         return super().get(request, *args, **kwargs)
 
-    def post(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         if not self._setup_opportunity_and_profile(request):
             return self._profile_missing_response
         return super().post(request, *args, **kwargs)
 
-    def get_form_kwargs(self):
+    def get_form_kwargs(self):  # noqa: ANN201
         kwargs = super().get_form_kwargs()
         # Inject opportunity and volunteer_profile for dynamic field injection
         # and cross-field validation in ApplicationForm.__init__().
@@ -323,14 +325,14 @@ class ApplicationFormView(LoginRequiredMixin, CreateView):
         kwargs.pop("instance", None)
         return kwargs
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         context = super().get_context_data(**kwargs)
         # WCAG: template should render opportunity.get_title() in <h1> so the
         # page heading gives screen readers context for the form.
         context["opportunity"] = self.opportunity
         return context
 
-    def form_valid(self, form):
+    def form_valid(self, form):  # noqa: ANN001, ANN201
         """
         Delegate application creation to the ``apply()`` service.
 
@@ -340,7 +342,7 @@ class ApplicationFormView(LoginRequiredMixin, CreateView):
         motivation = form.cleaned_data.get("motivation", "")
 
         try:
-            application = apply(
+            apply(
                 volunteer_profile=self.volunteer_profile,
                 opportunity=self.opportunity,
                 motivation=motivation,
@@ -360,9 +362,7 @@ class ApplicationFormView(LoginRequiredMixin, CreateView):
             # ValidationError can be raised as a plain string (no message_dict)
             # or as a dict. Handle both to avoid AttributeError on .message_dict.
             error_messages = (
-                exc.message_dict
-                if hasattr(exc, "message_dict")
-                else {"__all__": exc.messages}
+                exc.message_dict if hasattr(exc, "message_dict") else {"__all__": exc.messages}
             )
             for field, errors in error_messages.items():
                 for error in errors:
@@ -381,11 +381,9 @@ class ApplicationFormView(LoginRequiredMixin, CreateView):
             "Your application has been submitted successfully. "
             "You will be notified when it has been reviewed.",
         )
-        return redirect(
-            reverse("volunteers:my_applications")
-        )
+        return redirect(reverse("volunteers:my_applications"))
 
-    def form_invalid(self, form):
+    def form_invalid(self, form):  # noqa: ANN001, ANN201
         """Re-render the form preserving the opportunity context."""
         return self.render_to_response(self.get_context_data(form=form))
 
@@ -393,6 +391,7 @@ class ApplicationFormView(LoginRequiredMixin, CreateView):
 # ---------------------------------------------------------------------------
 # MyApplicationsView
 # ---------------------------------------------------------------------------
+
 
 class MyApplicationsView(LoginRequiredMixin, ListView):
     """
@@ -419,7 +418,7 @@ class MyApplicationsView(LoginRequiredMixin, ListView):
     template_name = "volunteers/portal/application_status.html"
     context_object_name = "applications"
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         """
         Return the volunteer's own applications, rejection_reason deferred.
 
@@ -439,7 +438,7 @@ class MyApplicationsView(LoginRequiredMixin, ListView):
             .order_by("-created_at")
         )
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         context = super().get_context_data(**kwargs)
         profile = _get_volunteer_profile_or_none(self.request.user)
         context["has_volunteer_profile"] = profile is not None
@@ -449,6 +448,7 @@ class MyApplicationsView(LoginRequiredMixin, ListView):
 # ---------------------------------------------------------------------------
 # WithdrawApplicationView
 # ---------------------------------------------------------------------------
+
 
 class WithdrawApplicationView(LoginRequiredMixin, View):
     """
@@ -472,9 +472,9 @@ class WithdrawApplicationView(LoginRequiredMixin, View):
         or a modal).  This prevents accidental withdrawal by screen-reader users.
     """
 
-    http_method_names = ["post"]  # GET → 405 Method Not Allowed
+    http_method_names = ["post"]  # GET → 405 Method Not Allowed  # noqa: RUF012
 
-    def post(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         # Resolve the volunteer profile first.  A missing profile means there
         # can be no owned application — return 404 immediately so callers cannot
         # use the 403/404 distinction to confirm whether application #N exists.
@@ -511,6 +511,7 @@ class WithdrawApplicationView(LoginRequiredMixin, View):
 # MyShiftsView
 # ---------------------------------------------------------------------------
 
+
 class MyShiftsView(LoginRequiredMixin, ListView):
     """
     Volunteer's upcoming and past shift bookings, newest shift first.
@@ -528,18 +529,17 @@ class MyShiftsView(LoginRequiredMixin, ListView):
     template_name = "volunteers/portal/my_shifts.html"
     context_object_name = "bookings"
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         profile = _get_volunteer_profile_or_none(self.request.user)
         if profile is None:
             return ShiftBooking.objects.none()
         return (
-            ShiftBooking.objects
-            .filter(volunteer=profile)
+            ShiftBooking.objects.filter(volunteer=profile)
             .select_related("shift__opportunity__program")
             .order_by("-shift__start_datetime")
         )
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         context = super().get_context_data(**kwargs)
         context["has_volunteer_profile"] = (
             _get_volunteer_profile_or_none(self.request.user) is not None
@@ -549,18 +549,15 @@ class MyShiftsView(LoginRequiredMixin, ListView):
         # Use context["object_list"] directly — ListView always sets it, and an empty
         # queryset is falsy so `or self.get_queryset()` would trigger a redundant DB call.
         all_bookings = list(context["object_list"])
-        context["upcoming_bookings"] = [
-            b for b in all_bookings if b.shift.end_datetime >= now
-        ]
-        context["past_bookings"] = [
-            b for b in all_bookings if b.shift.end_datetime < now
-        ]
+        context["upcoming_bookings"] = [b for b in all_bookings if b.shift.end_datetime >= now]
+        context["past_bookings"] = [b for b in all_bookings if b.shift.end_datetime < now]
         return context
 
 
 # ---------------------------------------------------------------------------
 # MyHoursView
 # ---------------------------------------------------------------------------
+
 
 class MyHoursView(LoginRequiredMixin, ListView):
     """
@@ -581,26 +578,26 @@ class MyHoursView(LoginRequiredMixin, ListView):
     template_name = "volunteers/portal/my_hours.html"
     context_object_name = "hours_logs"
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         profile = _get_volunteer_profile_or_none(self.request.user)
         if profile is None:
             return HoursLog.objects.none()
         return (
-            HoursLog.objects
-            .filter(volunteer=profile)
+            HoursLog.objects.filter(volunteer=profile)
             .defer("rejection_reason")  # PIPEDA: coordinator-internal
             .select_related("opportunity", "shift")
             .order_by("-date", "-created_at")
         )
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         context = super().get_context_data(**kwargs)
         profile = _get_volunteer_profile_or_none(self.request.user)
         context["has_volunteer_profile"] = profile is not None
         context["total_hours_approved"] = profile.total_hours_approved if profile else 0
         context["milestones"] = (
             RecognitionMilestone.objects.filter(volunteer=profile).order_by("hours_threshold")
-            if profile else []
+            if profile
+            else []
         )
         return context
 
@@ -608,6 +605,7 @@ class MyHoursView(LoginRequiredMixin, ListView):
 # ---------------------------------------------------------------------------
 # LogHoursView
 # ---------------------------------------------------------------------------
+
 
 class LogHoursView(LoginRequiredMixin, CreateView):
     """
@@ -625,7 +623,7 @@ class LogHoursView(LoginRequiredMixin, CreateView):
     form_class = HoursLogForm
     template_name = "volunteers/portal/log_hours.html"
 
-    def _get_opportunity(self):
+    def _get_opportunity(self):  # noqa: ANN202
         return get_object_or_404(
             Opportunity.objects.select_related("program").distinct(),
             pk=self.kwargs["pk"],
@@ -633,7 +631,7 @@ class LogHoursView(LoginRequiredMixin, CreateView):
             applications__status=VolunteerApplication.STATUS_APPROVED,
         )
 
-    def _setup_opportunity_and_profile(self, request):
+    def _setup_opportunity_and_profile(self, request) -> bool:  # noqa: ANN001
         """
         Resolve and cache ``self.volunteer_profile`` and ``self.opportunity``.
 
@@ -654,25 +652,26 @@ class LogHoursView(LoginRequiredMixin, CreateView):
         self.opportunity = self._get_opportunity()
         return True
 
-    def get(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         if not self._setup_opportunity_and_profile(request):
             return self._profile_missing_response
         return super().get(request, *args, **kwargs)
 
-    def post(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         if not self._setup_opportunity_and_profile(request):
             return self._profile_missing_response
         return super().post(request, *args, **kwargs)
 
-    def get_form_kwargs(self):
+    def get_form_kwargs(self):  # noqa: ANN201
         kwargs = super().get_form_kwargs()
         kwargs["volunteer_profile"] = self.volunteer_profile
         kwargs["opportunity"] = self.opportunity
         kwargs.pop("instance", None)
         return kwargs
 
-    def form_valid(self, form):
+    def form_valid(self, form):  # noqa: ANN001, ANN201
         from apps.volunteers.services.hours import log_hours
+
         try:
             log_hours(
                 volunteer_profile=self.volunteer_profile,
@@ -685,12 +684,12 @@ class LogHoursView(LoginRequiredMixin, CreateView):
             )
             messages.success(self.request, _("Hours submitted for review."))
         except (ValidationError, PermissionDenied) as exc:
-            for msg in (exc.messages if hasattr(exc, "messages") else [str(exc)]):
+            for msg in exc.messages if hasattr(exc, "messages") else [str(exc)]:
                 form.add_error(None, msg)
             return self.form_invalid(form)
         return redirect(reverse("volunteers:my_hours"))
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         context = super().get_context_data(**kwargs)
         context["opportunity"] = self.opportunity
         return context
@@ -699,6 +698,7 @@ class LogHoursView(LoginRequiredMixin, CreateView):
 # ---------------------------------------------------------------------------
 # CancelBookingView
 # ---------------------------------------------------------------------------
+
 
 class CancelBookingView(LoginRequiredMixin, View):
     """
@@ -715,9 +715,9 @@ class CancelBookingView(LoginRequiredMixin, View):
     cancel_booking() service automatically promotes the next waitlisted volunteer.
     """
 
-    http_method_names = ["post"]
+    http_method_names = ["post"]  # noqa: RUF012
 
-    def post(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         profile = _get_volunteer_profile_or_none(request.user)
         if profile is None:
             raise Http404
@@ -729,6 +729,7 @@ class CancelBookingView(LoginRequiredMixin, View):
         )
         try:
             from apps.volunteers.services.scheduling import cancel_booking
+
             cancel_booking(booking=booking, actor=request.user)
             messages.success(request, _("Your booking has been cancelled."))
         except (ValidationError, PermissionDenied) as exc:

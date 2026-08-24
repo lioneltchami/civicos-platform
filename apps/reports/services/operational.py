@@ -16,11 +16,12 @@ PIPEDA invariants:
   data that could contain PII.
 - WebhookEvent.payload (may contain card holder data) is never accessed here.
 """
+
 from __future__ import annotations
 
 import calendar
 import logging
-from datetime import datetime, timedelta, timezone as dt_timezone
+from datetime import UTC, datetime, timedelta
 
 from django.db.models import Count, Q
 
@@ -31,9 +32,10 @@ logger = logging.getLogger("apps.reports.services.operational")
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _utc_since(days: int) -> datetime:
     """Return UTC datetime ``days`` ago (inclusive lower bound for filtering)."""
-    return datetime.now(tz=dt_timezone.utc) - timedelta(days=days)
+    return datetime.now(tz=UTC) - timedelta(days=days)
 
 
 def _safe_first_line(traceback_text: str | None) -> str:
@@ -55,6 +57,7 @@ def _safe_first_line(traceback_text: str | None) -> str:
 # ---------------------------------------------------------------------------
 # Service functions
 # ---------------------------------------------------------------------------
+
 
 def get_celery_task_summary(days: int = 30) -> dict:
     """
@@ -112,7 +115,9 @@ def get_celery_task_summary(days: int = 30) -> dict:
 
     logger.debug(
         "reports.services.operational.celery_task_summary days=%s total=%s failed=%s",
-        days, total, failed,
+        days,
+        total,
+        failed,
     )
 
     return {
@@ -188,7 +193,9 @@ def get_webhook_processing_summary(days: int = 30) -> dict:
 
     logger.debug(
         "reports.services.operational.webhook_summary days=%s total=%s failed=%s",
-        days, total, failed_count,
+        days,
+        total,
+        failed_count,
     )
 
     return {
@@ -240,18 +247,18 @@ def get_celery_beat_status() -> dict:
         else:
             schedule_str = "—"
 
-        tasks.append({
-            "name": pt.name,
-            "task": pt.task,
-            "enabled": pt.enabled,
-            "last_run_at": pt.last_run_at,
-            "total_run_count": pt.total_run_count,
-            "schedule": schedule_str,
-        })
+        tasks.append(
+            {
+                "name": pt.name,
+                "task": pt.task,
+                "enabled": pt.enabled,
+                "last_run_at": pt.last_run_at,
+                "total_run_count": pt.total_run_count,
+                "schedule": schedule_str,
+            }
+        )
 
-    logger.debug(
-        "reports.services.operational.celery_beat_status task_count=%s", len(tasks)
-    )
+    logger.debug("reports.services.operational.celery_beat_status task_count=%s", len(tasks))
 
     return {"tasks": tasks}
 
@@ -279,8 +286,7 @@ def get_task_failure_details(task_name: str | None = None, limit: int = 50) -> l
     limit = min(limit, 200)  # hard cap — prevents accidental oversized responses
 
     qs = (
-        TaskResult.objects
-        .filter(status="FAILURE")
+        TaskResult.objects.filter(status="FAILURE")
         # Only fetch the columns we actually use — traceback can be multi-KB;
         # deferring unused columns (result, meta, etc.) cuts memory significantly
         # when a failure spike produces many rows.
@@ -292,17 +298,20 @@ def get_task_failure_details(task_name: str | None = None, limit: int = 50) -> l
 
     failures = []
     for row in qs[:limit]:
-        failures.append({
-            "task_id": row.task_id,
-            "task_name": row.task_name or "(unknown)",
-            "date_done": row.date_done,
-            # First line only — full traceback withheld (PIPEDA).
-            "error_summary": _safe_first_line(row.traceback),
-        })
+        failures.append(
+            {
+                "task_id": row.task_id,
+                "task_name": row.task_name or "(unknown)",
+                "date_done": row.date_done,
+                # First line only — full traceback withheld (PIPEDA).
+                "error_summary": _safe_first_line(row.traceback),
+            }
+        )
 
     logger.debug(
         "reports.services.operational.task_failure_details task_name=%s count=%s",
-        task_name, len(failures),
+        task_name,
+        len(failures),
     )
 
     return failures
@@ -325,12 +334,13 @@ def compute_operational_snapshot(year: int, month: int) -> dict:
     # Anchor the lookback window at midnight on the last day of the given month
     # (UTC) so historical re-computation returns consistent values.
     last_day = calendar.monthrange(year, month)[1]
-    anchor = datetime(year, month, last_day, 23, 59, 59, tzinfo=dt_timezone.utc)
+    anchor = datetime(year, month, last_day, 23, 59, 59, tzinfo=UTC)
     days_window = 30
 
     # Import heavy models lazily — this function is called from a Celery worker
     # and keeping the module-level import clean avoids worker startup overhead.
     from django_celery_results.models import TaskResult
+
     from apps.payments.models import WebhookEvent
 
     since = anchor - timedelta(days=days_window)
@@ -377,9 +387,11 @@ def compute_operational_snapshot(year: int, month: int) -> dict:
     row_count = task_total + wh_total
 
     logger.info(
-        "reports.services.operational.compute_snapshot year=%s month=%s "
-        "tasks=%s webhooks=%s",
-        year, month, task_total, wh_total,
+        "reports.services.operational.compute_snapshot year=%s month=%s " "tasks=%s webhooks=%s",
+        year,
+        month,
+        task_total,
+        wh_total,
     )
 
     return {

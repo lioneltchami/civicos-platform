@@ -10,6 +10,7 @@ Dependencies:
   - auth_extension.0001_initial                    (AUTH_USER_MODEL)
   - documents.0001_initial                         (DocumentAttachment exists)
 """
+
 import uuid
 
 import django.db.models.deletion
@@ -18,15 +19,14 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("appointments", "0010_alter_slot_options_and_more"),
         ("contenttypes", "0002_remove_content_type_name"),
         ("auth_extension", "0001_initial"),
         ("documents", "0001_initial"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         # ------------------------------------------------------------------
         # Booking
         # ------------------------------------------------------------------
@@ -44,7 +44,9 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "created_at",
-                    models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at"),
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
                 ),
                 (
                     "updated_at",
@@ -370,7 +372,9 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "created_at",
-                    models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at"),
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
                 ),
                 (
                     "updated_at",

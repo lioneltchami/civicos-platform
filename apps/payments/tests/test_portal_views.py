@@ -20,10 +20,11 @@ Security invariants verified:
   - Cancelled/superseded receipts return 404 from download
   - Log lines contain serial= but never pdf_path or donor PII
 """
+
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from io import BytesIO
 from unittest.mock import MagicMock, patch
@@ -38,13 +39,12 @@ from apps.payments.models import (
     FREQUENCY_MONTHLY,
     PLAN_STATUS_ACTIVE,
     PLAN_STATUS_CANCELLED,
-    PLAN_STATUS_PAUSED,
+    CharitySettings,
     Donation,
     DonationCampaign,
     OfficialDonationReceipt,
     PaymentIntent,
     RecurringGiftPlan,
-    CharitySettings,
 )
 from apps.payments.tests.factories import make_fixed_serial_fake_save
 from apps.payments.views.portal import _get_year_filter
@@ -193,8 +193,8 @@ def make_receipt(donation, status="issued"):
 # Base test case
 # ---------------------------------------------------------------------------
 
-class BasePortalTestCase(TestCase):
 
+class BasePortalTestCase(TestCase):
     def setUp(self):
         # Two donors — used for IDOR tests
         self.donor = make_user(email="donor@example.com")
@@ -262,8 +262,8 @@ class BasePortalTestCase(TestCase):
 # 1. DonorPortalDashboardView — 12 tests
 # ===========================================================================
 
-class DashboardViewTests(BasePortalTestCase):
 
+class DashboardViewTests(BasePortalTestCase):
     # Test 1
     def test_unauthenticated_get_redirects_to_login(self):
         response = self.client.get(DASHBOARD_URL)
@@ -299,7 +299,7 @@ class DashboardViewTests(BasePortalTestCase):
         pending_donation = make_donation(self.donor, amount=Decimal("25.00"))
         other_pending_donation = make_donation(self.other_donor, amount=Decimal("25.00"))
         # Wave 6: receipts without a linked Document are "pending" (document__isnull=True)
-        pending = make_receipt(pending_donation, status="issued")
+        make_receipt(pending_donation, status="issued")
         # Also create pending for other_donor — should not count
         make_receipt(other_pending_donation, status="issued")
         self._login_donor()
@@ -376,8 +376,8 @@ class DashboardViewTests(BasePortalTestCase):
 # 2. DonationHistoryView — 15 tests
 # ===========================================================================
 
-class DonationHistoryViewTests(BasePortalTestCase):
 
+class DonationHistoryViewTests(BasePortalTestCase):
     # Test 13
     def test_unauthenticated_redirects(self):
         response = self.client.get(HISTORY_URL)
@@ -497,8 +497,8 @@ class DonationHistoryViewTests(BasePortalTestCase):
 # 3. ReceiptDownloadView — 20 tests
 # ===========================================================================
 
-class ReceiptDownloadViewTests(BasePortalTestCase):
 
+class ReceiptDownloadViewTests(BasePortalTestCase):
     # Test 28
     def test_unauthenticated_redirects(self):
         url = self._receipt_download_url(self.receipt)
@@ -716,8 +716,8 @@ class ReceiptDownloadViewTests(BasePortalTestCase):
 # 4. ReceiptListView — 12 tests
 # ===========================================================================
 
-class ReceiptListViewTests(BasePortalTestCase):
 
+class ReceiptListViewTests(BasePortalTestCase):
     # Test 48
     def test_unauthenticated_redirects(self):
         response = self.client.get(RECEIPT_LIST_URL)
@@ -842,8 +842,8 @@ class ReceiptListViewTests(BasePortalTestCase):
 # 5. RecurringGiftListView — 10 tests
 # ===========================================================================
 
-class RecurringGiftListViewTests(BasePortalTestCase):
 
+class RecurringGiftListViewTests(BasePortalTestCase):
     # Test 60
     def test_unauthenticated_redirects(self):
         response = self.client.get(RECURRING_LIST_URL)
@@ -929,8 +929,8 @@ class RecurringGiftListViewTests(BasePortalTestCase):
 # 6. RecurringGiftDetailView — 12 tests
 # ===========================================================================
 
-class RecurringGiftDetailViewTests(BasePortalTestCase):
 
+class RecurringGiftDetailViewTests(BasePortalTestCase):
     # Test 70
     def test_unauthenticated_redirects(self):
         url = self._recurring_detail_url(self.plan)
@@ -1055,8 +1055,8 @@ class RecurringGiftDetailViewTests(BasePortalTestCase):
 # 7. _get_year_filter helper — 8 tests
 # ===========================================================================
 
-class GetYearFilterTests(TestCase):
 
+class GetYearFilterTests(TestCase):
     # Test 82
     def test_valid_year_2024_returns_2024(self):
         self.assertEqual(_get_year_filter("2024"), 2024)
@@ -1099,7 +1099,9 @@ class GetYearFilterTests(TestCase):
         is used instead.
         """
         import inspect
+
         from apps.payments.views import portal
+
         source = inspect.getsource(portal._get_year_filter)
         # Must call localtime()
         self.assertIn(

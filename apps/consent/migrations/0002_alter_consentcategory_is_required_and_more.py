@@ -4,20 +4,26 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('consent', '0001_initial'),
+    dependencies = [  # noqa: RUF012
+        ("consent", "0001_initial"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterField(
-            model_name='consentcategory',
-            name='is_required',
-            field=models.BooleanField(default=False, help_text='If True, consent cannot be withdrawn — required for essential service delivery.'),
+            model_name="consentcategory",
+            name="is_required",
+            field=models.BooleanField(
+                default=False,
+                help_text="If True, consent cannot be withdrawn — required for essential service delivery.",
+            ),
         ),
         migrations.AlterField(
-            model_name='dataexportrequest',
-            name='storage_path',
-            field=models.CharField(blank=True, help_text='Internal file path — do not expose to citizens.', max_length=500),
+            model_name="dataexportrequest",
+            name="storage_path",
+            field=models.CharField(
+                blank=True,
+                help_text="Internal file path — do not expose to citizens.",
+                max_length=500,
+            ),
         ),
     ]

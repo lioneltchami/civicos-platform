@@ -6,9 +6,9 @@ Registers:
 - PIPEDA redaction action on individual submissions
 - Summary panel on FormPage in the Wagtail explorer
 """
+
 import csv
 import logging
-from datetime import timedelta
 
 from django.contrib import messages
 from django.http import HttpResponse
@@ -27,7 +27,7 @@ from .utils import _mask_ip
 logger = logging.getLogger(__name__)
 
 
-def _csv_safe(value) -> str:
+def _csv_safe(value) -> str:  # noqa: ANN001
     """Prevent CSV formula injection."""
     s = str(value) if value is not None else ""
     if s and s[0] in ("=", "+", "-", "@", "\t", "\r"):
@@ -42,21 +42,21 @@ class CivicOSSubmissionsListView(SubmissionsListView):
     - PII field highlighting
     - Retention date display
     """
+
     model = FormSubmission
 
-    def get_context(self):
+    def get_context(self):  # noqa: ANN201
         context = super().get_context()
         # Add PII field names so template can highlight them
         if self.form_page:
             context["pii_fields"] = set(
-                self.form_page.form_fields.filter(is_pii=True)
-                .values_list("clean_name", flat=True)
+                self.form_page.form_fields.filter(is_pii=True).values_list("clean_name", flat=True)
             )
         return context
 
 
 @hooks.register("register_admin_urls")
-def register_forms_admin_urls():
+def register_forms_admin_urls():  # noqa: ANN201
     """Register custom admin URLs for the forms building block."""
     return [
         path(
@@ -72,16 +72,18 @@ def register_forms_admin_urls():
     ]
 
 
-def export_submissions_csv(request, page_id):
+def export_submissions_csv(request, page_id):  # noqa: ANN001, ANN201
     """
     Export all submissions for a FormPage as a CSV download.
     Respects staff permission — only users with access to the page can export.
     """
     if not request.user.is_authenticated:
         from django.contrib.auth.views import redirect_to_login
+
         return redirect_to_login(request.path)
     if not request.user.is_staff:
         from django.core.exceptions import PermissionDenied
+
         raise PermissionDenied
 
     form_page = get_object_or_404(FormPage, pk=page_id)
@@ -98,8 +100,14 @@ def export_submissions_csv(request, page_id):
     writer = csv.writer(response)
     # Header row
     writer.writerow(
-        ["Submission ID", "Submit time", "Consent given", "Submitter IP (masked)", "Expires at"]
-        + field_names
+        [
+            "Submission ID",
+            "Submit time",
+            "Consent given",
+            "Submitter IP (masked)",
+            "Expires at",
+            *field_names,
+        ]
     )
 
     for submission in submissions:
@@ -123,22 +131,26 @@ def export_submissions_csv(request, page_id):
 
     logger.info(
         "Submissions CSV exported for page_id=%s by user_id=%s (%d rows)",
-        page_id, request.user.pk, submissions.count()
+        page_id,
+        request.user.pk,
+        submissions.count(),
     )
     return response
 
 
 @require_POST
-def redact_submission(request, page_id, submission_id):
+def redact_submission(request, page_id, submission_id):  # noqa: ANN001, ANN201
     """
     POST: Redact PII fields from a single submission.
     PIPEDA right-to-erasure implementation.
     """
     if not request.user.is_authenticated:
         from django.contrib.auth.views import redirect_to_login
+
         return redirect_to_login(request.path)
     if not request.user.is_staff:
         from django.core.exceptions import PermissionDenied
+
         raise PermissionDenied
 
     form_page = get_object_or_404(FormPage, pk=page_id)
@@ -151,11 +163,13 @@ def redact_submission(request, page_id, submission_id):
             _(
                 "Personal information has been redacted from submission #%(id)s. / "
                 "Les renseignements personnels ont été supprimés de la soumission nº %(id)s."
-            ) % {"id": submission_id},
+            )
+            % {"id": submission_id},
         )
         # Write audit entry
         try:
             from apps.audit.models import AuditLogEntry
+
             AuditLogEntry.objects.create(
                 event_type="admin.pii.redacted",
                 outcome="success",
@@ -169,7 +183,9 @@ def redact_submission(request, page_id, submission_id):
                 prev_hash="",
                 entry_hash="",
                 request_id="",
-                session_id=(request.session.session_key or "") if hasattr(request, "session") else "",
+                session_id=(request.session.session_key or "")
+                if hasattr(request, "session")
+                else "",
             )
         except Exception:
             logger.exception("Audit log failed for PII redaction submission_id=%s", submission_id)
@@ -177,13 +193,11 @@ def redact_submission(request, page_id, submission_id):
         logger.exception("Failed to redact submission_id=%s", submission_id)
         messages.error(request, _("Redaction failed. Please try again or contact support."))
 
-    return redirect(
-        reverse("wagtailforms:list_submissions", args=[page_id])
-    )
+    return redirect(reverse("wagtailforms:list_submissions", args=[page_id]))
 
 
 @hooks.register("register_page_listing_more_buttons")
-def add_submissions_button(page, user, next_url=None):
+def add_submissions_button(page, user, next_url=None):  # noqa: ANN001, ANN201
     """Add 'View submissions' and 'Export CSV' buttons to FormPage rows in explorer."""
     if isinstance(page, FormPage) and page.permissions_for_user(user).can_edit():
         yield WagtailButton(
