@@ -1,0 +1,22 @@
+CIVICOS_SHIP_PREFLIGHT=FAIL_CLOSED
+WORKTREE_CLEAN=PASS
+HEAD=b2d75618f940f1ae616c9daa2901b44efe9a08b3
+ORIGIN_MAIN_BEFORE_FETCH=254936445ae9e66cb80fb701f63e99981ec81bee
+ORIGIN_MAIN_AHEAD_BEFORE_FETCH=295
+ORIGIN_MAIN_BEHIND_BEFORE_FETCH=0
+VALIDATOR_EXIT=0 scripts/validate_payments_rb02_level_a.sh
+VALIDATOR_EXIT=0 scripts/validate_consent_level_a.sh
+VALIDATOR_EXIT=0 scripts/validate_scheduler_level_a.sh
+VALIDATOR_EXIT=0 scripts/validate_file_management_level_a.sh
+VALIDATOR_EXIT=0 scripts/validate_level_a_portfolio.sh
+MISSED_FILES=NONE
+RANGE_THEME_SUMMARY=BB remediation; Level A validators/evidence; GovStack/staging campaign closeout; ship-readiness planning
+SUSPECTED_SECRETS=FAIL
+SUSPECTED_MATCH_1=validation script source contains a sensitive-value scan expression; not proof of a credential
+SUSPECTED_MATCH_2=canonical artifact script source contains a sensitive-token detection expression; not proof of a credential
+SUSPECTED_MATCH_3=test fixture/source contains password="not-used"; requires review before shipment
+NETWORK_ACTIONS=NONE
+GIT_FETCH=NOT_RUN
+GIT_PUSH=NOT_RUN
+PULL_REQUEST=NOT_CREATED
+STOP_REASON=Pre-flight suspected-secret gate failed; human security review is required before any renewed ship authorization.
