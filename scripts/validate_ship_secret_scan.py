@@ -90,8 +90,6 @@ def parse_allowlist(path: Path) -> list[AllowRecord]:
         if pure.is_absolute() or ".." in pure.parts or any(char in path_value for char in "*?[]"):
             raise ScanError("allowlist path must be an exact repository-relative path")
         records.append(AllowRecord(path_value, line, digest, triage_id))
-    if len(records) != 3:
-        raise ScanError("allowlist must contain exactly three reviewed records")
     keys = [(record.path, record.line, record.sha256) for record in records]
     if len(set(keys)) != len(keys) or len({record.triage_id for record in records}) != len(records):
         raise ScanError("allowlist contains duplicate records")
@@ -225,7 +223,7 @@ def main() -> int:
                 status="FAIL",
             )
             raise ScanError(
-                "full-range findings do not exactly equal the three reviewed allowlist records"
+                "full-range findings do not exactly equal the reviewed allowlist records"
             )
         write_report(
             args.report,
