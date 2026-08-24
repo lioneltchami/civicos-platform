@@ -1,45 +1,48 @@
 # CivicOS Ship Execution Record — 2026-08-23
 
-> **Execution status: BLOCKED AT PRE-FLIGHT.**
+> **Execution status: SUCCESS — REVIEW BRANCH PUSHED / PULL REQUEST OPENED.**
 >
-> The human authorization covered a push of local `main` to `origin` and pull-request creation only after all pre-flight gates passed. The suspected-secret gate did not pass. Therefore no fetch, push, pull request, deployment, staging activity, secret access, official-suite execution, release tag, submission, production action, or money/provider rail activation occurred.
+> This record covers a reviewed branch push and pull-request creation only. It does not authorize or perform deployment, staging, official-suite execution, release tagging, submission, secret access, production use, or payment/provider rail activation.
 
-## Authorized boundary and result
+## Authorization and branch choice
 
-| Authorized action | Result |
+The authorized cycle permitted a push of the reviewed local `main` commit range and pull-request creation after a clean pre-flight. A named review branch was used so that `origin/main` was not directly changed:
+
+| Field | Value |
 |---|---|
-| Re-run five internal/local Level A validators | **Passed**; each exited 0. |
-| Inspect clean worktree before pre-flight evidence creation | **Passed**. |
-| Confirm no canonical validation MISSED file remained | **Passed**. |
-| Review commit range and scan for suspected secrets | **Failed closed**. |
-| `git fetch origin` | **Not run**. |
-| `git push -u origin main` | **Not run**. |
-| Pull request creation | **Not created**. |
+| Source commit pushed | `e7db8679f22042efd9b78b139a2bdca3000a6c81` |
+| Remote review branch | `ship/level-a-portfolio-20260823` |
+| Target branch | `main` |
+| Pull request | [#1 — CivicOS: internal remediation and Level A portfolio evidence](https://github.com/lioneltchami/civicos-platform/pull/1) |
+| Push mode | Ordinary non-force push; no history rewrite. |
 
-## Pre-flight identity
+## Pre-flight retry
 
-The checked local commit was `b2d75618f940f1ae616c9daa2901b44efe9a08b3`. Before any fetch, the local branch was 295 commits ahead of the recorded `origin/main` reference and 0 commits behind it. These are observations only; they do not update or prove the remote state.
+Before network activity, the worktree was clean and all required local gates passed. The exact concise output is retained in `docs/evidence/civicos-ship-preflight-20260823.log`.
 
-## Validators
-
-The following validators completed with exit 0 before the range scan stopped the process:
-
-| Validator | Result |
+| Gate | Result |
 |---|---|
-| `scripts/validate_payments_rb02_level_a.sh` | Pass |
-| `scripts/validate_consent_level_a.sh` | Pass |
-| `scripts/validate_scheduler_level_a.sh` | Pass |
-| `scripts/validate_file_management_level_a.sh` | Pass |
-| `scripts/validate_level_a_portfolio.sh` | Pass |
+| Clean worktree | Pass |
+| Payments RB-02 Level A validator | Pass |
+| Consent Level A validator | Pass |
+| Scheduler SCH-01 + SCH-02.1 Level A validator | Pass |
+| File Management local-runner Level A validator | Pass |
+| Level A portfolio validator | Pass |
+| Canonical validation MISSED files | None found |
+| Full `origin/main..HEAD` secret scan | Pass; exactly three reviewed path-line-digest allowlist matches |
+| Fetch then ahead/behind check | Pass; 297 ahead, 0 behind after fetch |
+| Force push | Not used |
 
-The retained concise pre-flight output is `docs/evidence/civicos-ship-preflight-20260823.log`.
+The range scan remained full-range and fail-closed. It accepted only `SHIP-SEC-001` through `SHIP-SEC-003`, each by exact repository-relative path, line number, and SHA-256 of the complete source line. The triage record is `docs/civicos-ship-secret-triage-20260823.md`.
 
-## Fail-closed suspected-secret stop
+## Pull-request non-claims
 
-A heuristic scan over the candidate diff matched three source/test patterns: two sensitive-value detection expressions embedded in validation/artifact scripts and one test-only fixed password-fixture value. This record does **not** classify any match as a real credential. The required action is a human security review of those matches, including confirmation that no real secret is in the intended range, followed by a fresh explicit ship authorization and a new clean pre-flight.
+The pull-request body states that the Level A portfolio is internal/local evidence only and that **External claim allowed: No** for Payments, Consent, Scheduler, and File Management. It further states that the GovStack/staging campaign is closed out/parked; SCH-02.2 remains open/out of scope; the local File Management runner is not official CMS Building Block equivalence; and the pull request does not deploy production or activate payment/provider rails.
 
-No attempt was made to weaken, suppress, bypass, or rerun the failing scan. The pending evidence-record commit itself also means a future authorized shipping attempt must repeat the clean-worktree pre-flight from the then-current commit.
+## Explicitly not performed
 
-## Continuing non-claims
+No production deployment, staging run, official GovStack suite, release tag, release publication, submission, secret access, provider activation, money movement, production authorization, or merge to `main` occurred. CI and human pull-request review remain pending.
 
-Level A portfolio evidence remains internal/local only. **External claim allowed: No** for Payments, Consent, Scheduler, and File Management. The GovStack/staging campaign remains closed out/parked; SCH-02.2 remains open/out of scope; the File Management runner is not an official CMS equivalence claim. This stopped execution record makes no deployment, staging, official-harness, certification, conformance, release, submission, or production authorization claim.
+## Earlier blocked attempt
+
+An earlier pre-flight stop on the same date was retained only as historical evidence and then resolved through the reviewed exact-allowlist triage. The current authoritative state for the ship action is the success recorded above; any new ship action must still perform a fresh clean pre-flight from its then-current commit.
